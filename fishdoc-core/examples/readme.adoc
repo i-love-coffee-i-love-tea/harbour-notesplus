@@ -1,0 +1,36 @@
+= Welcome to FishDoc
+:toc:
+
+== Getting Started
+
+FishDoc is an AsciiDoc notes app for Sailfish OS. It features:
+
+* *Journal* — auto-managed daily pages
+* *Pages* — named notes with AsciiDoc formatting
+* *Links* — connect pages with `xref` macros
+* *Search* — full-text search across all pages
+* *PDF Export* — export any page to PDF
+
+== Creating Pages
+
+Pull down the menu and select "New Page". Type a name and start writing.
+
+== Formatting
+
+FishDoc supports AsciiDoc inline formatting:
+
+* *Bold text* with asterisks
+* _Italic text_ with underscores
+* `Inline code` with backticks
+
+== Linking Pages
+
+Type `[[` in the editor to search for pages and insert a link.
+
+Links look like: xref:meeting-notes.adoc[Meeting Notes]
+
+== Tips
+
+* Pull down on the main page to access Journal and New Page
+* Tap any block to edit its raw AsciiDoc
+* Use the cover action to quickly open the Journal

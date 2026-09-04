@@ -1,0 +1,37 @@
+= Invoice #2024-001
+Acme Corp
+2024-01-15
+
+== Bill To
+
+John Doe
+123 Main Street
+Anytown, USA
+
+== Items
+
+[cols="2,1"]
+|===
+| Description | Amount
+
+| Website Design
+| $2,500.00
+
+| Hosting (12 months)
+| $120.00
+
+| Domain Registration
+| $15.00
+
+| *Total*
+| *$2,635.00*
+|===
+
+== Payment Terms
+
+Payment due within 30 days of invoice date.
+
+[TIP]
+====
+Early payment discount: 10% if paid within 7 days.
+====

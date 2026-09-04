@@ -1,0 +1,44 @@
+= Meeting Notes — Project Kickoff
+2024-01-15
+
+== Attendees
+
+* Alice — Project Lead
+* Bob — Developer
+* Charlie — Designer
+
+== Agenda
+
+1. Project overview
+2. Timeline discussion
+3. Resource allocation
+4. Next steps
+
+== Discussion
+
+=== Project Overview
+
+Alice presented the project scope and objectives. The goal is to launch by Q2.
+
+=== Timeline
+
+* Phase 1: Design (2 weeks)
+* Phase 2: Development (6 weeks)
+* Phase 3: Testing (2 weeks)
+* Phase 4: Launch (1 week)
+
+== Action Items
+
+- [ ] Alice: Finalize requirements document
+- [ ] Bob: Set up development environment
+- [ ] Charlie: Create wireframes
+- [x] All: Review project charter
+
+== Decisions
+
+[NOTE]
+====
+The team agreed to use weekly standups every Monday at 10am.
+====
+
+See also: xref:technical-doc.adoc[Technical Documentation]
