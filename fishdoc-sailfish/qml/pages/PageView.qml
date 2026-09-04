@@ -37,10 +37,7 @@ Page {
         delegate: BlockDelegate {
             width: listView.width
             blockData: modelData ? JSON.parse(modelData) : ({})
-            onTapEdit: {
-                // TODO: re-enable editing once save architecture is fixed
-            }
-            onLinkActivated: function(target) {
+            onXrefActivated: function(target) {
                 bridge.navigate_to_page(target)
             }
         }

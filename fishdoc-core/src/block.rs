@@ -39,7 +39,7 @@ pub enum Block {
         raw: String,
     },
     Table {
-        rows: Vec<Vec<String>>,
+        rows: Vec<Vec<Vec<InlineSpan>>>,
         raw: String,
     },
     HorizontalRule {
@@ -122,7 +122,7 @@ impl Block {
                 map.insert("rows".into(), serde_json::Value::Array(
                     rows.iter().map(|row| {
                         serde_json::Value::Array(
-                            row.iter().map(|cell| serde_json::Value::String(cell.clone())).collect()
+                            row.iter().map(|cell| spans_to_json(cell)).collect()
                         )
                     }).collect()
                 ));

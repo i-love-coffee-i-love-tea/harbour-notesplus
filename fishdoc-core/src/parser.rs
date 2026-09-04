@@ -1,5 +1,5 @@
 use crate::block::Block;
-use crate::inline::parse_inline;
+use crate::inline::{parse_inline, InlineSpan};
 
 /// Parse AsciiDoc text into a list of blocks.
 pub fn parse_blocks(text: &str) -> Vec<Block> {
@@ -182,22 +182,61 @@ fn parse_table(lines: &[&str]) -> (Block, usize) {
     let mut consumed = 0;
     let mut raw_parts = Vec::new();
 
-    while consumed < lines.len() {
-        let line = lines[consumed];
-        if !line.trim_start().starts_with('|') {
-            break;
-        }
-        raw_parts.push(line.to_string());
-        let cells: Vec<String> = line.split('|')
-            .skip(1) // skip empty before first |
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        rows.push(cells);
+    // Check for |=== delimited table
+    if lines[consumed].trim() == "|===" {
+        raw_parts.push(lines[consumed].to_string());
         consumed += 1;
+
+        // Skip attribute lines like [cols="1,2"]
+        while consumed < lines.len() {
+            let line = lines[consumed].trim();
+            if line.starts_with('[') && line.ends_with(']') {
+                raw_parts.push(lines[consumed].to_string());
+                consumed += 1;
+            } else {
+                break;
+            }
+        }
+
+        // Parse rows until |===
+        while consumed < lines.len() {
+            let line = lines[consumed];
+            raw_parts.push(line.to_string());
+
+            if line.trim() == "|===" {
+                consumed += 1;
+                break;
+            }
+
+            rows.push(parse_table_row(line));
+            consumed += 1;
+        }
+    } else {
+        // Simple pipe-delimited table (no |=== delimiters)
+        while consumed < lines.len() {
+            let line = lines[consumed];
+            if !line.trim_start().starts_with('|') {
+                break;
+            }
+            raw_parts.push(line.to_string());
+            rows.push(parse_table_row(line));
+            consumed += 1;
+        }
     }
 
     (Block::Table { rows, raw: raw_parts.join("\n") }, consumed)
+}
+
+fn parse_table_row(line: &str) -> Vec<Vec<InlineSpan>> {
+    let mut cells: Vec<Vec<InlineSpan>> = line.split('|')
+        .skip(1)
+        .map(|s| parse_inline(s.trim()))
+        .collect();
+    // Remove trailing empty cell from trailing pipe
+    while cells.last().map_or(false, |c| c.is_empty()) {
+        cells.pop();
+    }
+    cells
 }
 
 fn parse_ordered_list_item(line: &str) -> Option<(String, u8, &str)> {
@@ -410,6 +449,50 @@ mod tests {
             Block::Table { rows, .. } => {
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].len(), 2);
+            }
+            _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_table_delimited() {
+        let text = "|===\n| Name | Value |\n| foo  | bar   |\n|===";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::Table { rows, .. } => {
+                assert_eq!(rows.len(), 2);
+                assert_eq!(rows[0].len(), 2);
+            }
+            _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_table_with_cols_attribute() {
+        let text = "|===\n[cols=\"1,2\"]\n| Name | Value |\n| foo  | bar   |\n|===";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::Table { rows, .. } => {
+                assert_eq!(rows.len(), 2);
+                assert_eq!(rows[0].len(), 2);
+            }
+            _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_table_with_inline_formatting() {
+        let text = "| *bold* | _italic_ |";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::Table { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].len(), 2);
+                // First cell should have a Bold span
+                assert!(rows[0][0].iter().any(|s| matches!(s, InlineSpan::Bold { .. })));
             }
             _ => panic!("expected table"),
         }

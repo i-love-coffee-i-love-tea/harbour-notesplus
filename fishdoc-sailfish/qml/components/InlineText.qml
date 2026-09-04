@@ -4,7 +4,7 @@ import Sailfish.Silica 1.0
 Label {
     id: inlineText
     property var spans: []
-    signal linkActivated(string target)
+    signal xrefActivated(string target)
 
     x: Theme.horizontalPageMargin
     width: parent.width - Theme.horizontalPageMargin * 2
@@ -58,7 +58,8 @@ Label {
             if (target.indexOf(".adoc") === target.length - 5) {
                 target = target.substring(0, target.length - 5)
             }
-            inlineText.linkActivated(target)
+            inlineText.xrefActivated(target)
         }
     }
+
 }

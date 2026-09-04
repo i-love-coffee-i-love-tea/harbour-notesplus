@@ -4,8 +4,7 @@ import Sailfish.Silica 1.0
 Item {
     id: delegate
     property var blockData: ({})
-    signal tapEdit()
-    signal linkActivated(string target)
+    signal xrefActivated(string target)
 
     height: contentItem.height + Theme.paddingSmall
 
@@ -30,11 +29,6 @@ Item {
         }
     }
 
-    MouseArea {
-        anchors.fill: parent
-        onClicked: delegate.tapEdit()
-    }
-
     Component {
         id: headingComponent
         InlineText {
@@ -52,6 +46,9 @@ Item {
             font.bold: level <= 2
             wrapMode: Text.Wrap
             x: Theme.horizontalPageMargin
+            onXrefActivated: function(target) {
+                delegate.xrefActivated(target)
+            }
         }
     }
 
@@ -59,8 +56,8 @@ Item {
         id: paragraphComponent
         InlineText {
             spans: blockData.spans || []
-            onLinkActivated: function(target) {
-                delegate.linkActivated(target)
+            onXrefActivated: function(target) {
+                delegate.xrefActivated(target)
             }
         }
     }
@@ -191,6 +188,7 @@ Item {
     Component {
         id: tableComponent
         Column {
+            property int columnCount: (blockData.rows && blockData.rows[0]) ? blockData.rows[0].length : 1
             x: Theme.horizontalPageMargin
             width: parent.width - Theme.horizontalPageMargin * 2
             spacing: 1
@@ -199,22 +197,28 @@ Item {
                 model: blockData.rows || []
 
                 delegate: Row {
+                    property int rowIndex: index
                     spacing: 1
                     Repeater {
                         model: modelData || []
 
                         delegate: Rectangle {
-                            width: Math.max(80, (tableComponent.width) / Math.max(1, (blockData.rows || [[]])[0].length))
-                            height: cellLabel.height + Theme.paddingSmall
+                            width: tableComponent.width / Math.max(1, tableComponent.columnCount)
+                            height: cellText.implicitHeight + Theme.paddingSmall
                             color: Theme.highlightBackgroundColor
                             opacity: 0.2
 
-                            Label {
-                                id: cellLabel
+                            InlineText {
+                                id: cellText
                                 anchors.centerIn: parent
-                                text: modelData || ""
+                                width: parent.width - Theme.paddingSmall * 2
+                                spans: modelData || []
                                 font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.primaryColor
+                                font.bold: rowIndex === 0
+                                x: 0
+                                onXrefActivated: function(target) {
+                                    delegate.xrefActivated(target)
+                                }
                             }
                         }
                     }
