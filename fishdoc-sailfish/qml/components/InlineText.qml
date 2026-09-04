@@ -6,8 +6,6 @@ Label {
     property var spans: []
     signal xrefActivated(string target)
 
-    x: Theme.horizontalPageMargin
-    width: parent.width - Theme.horizontalPageMargin * 2
     wrapMode: Text.Wrap
     textFormat: Text.RichText
     color: Theme.primaryColor

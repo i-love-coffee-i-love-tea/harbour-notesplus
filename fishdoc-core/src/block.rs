@@ -45,6 +45,11 @@ pub enum Block {
     HorizontalRule {
         raw: String,
     },
+    Admonition {
+        kind: String,
+        spans: Vec<InlineSpan>,
+        raw: String,
+    },
     EmptyLine,
 }
 
@@ -60,6 +65,7 @@ impl Block {
             Block::Blockquote { .. } => "blockquote",
             Block::Table { .. } => "table",
             Block::HorizontalRule { .. } => "horizontal_rule",
+            Block::Admonition { .. } => "admonition",
             Block::EmptyLine => "empty_line",
         }
     }
@@ -75,6 +81,7 @@ impl Block {
             Block::Blockquote { raw, .. } => raw,
             Block::Table { raw, .. } => raw,
             Block::HorizontalRule { raw } => raw,
+            Block::Admonition { raw, .. } => raw,
             Block::EmptyLine => "",
         }
     }
@@ -128,6 +135,10 @@ impl Block {
                 ));
             }
             Block::HorizontalRule { .. } | Block::EmptyLine => {}
+            Block::Admonition { kind, spans, .. } => {
+                map.insert("kind".into(), serde_json::Value::String(kind.clone()));
+                map.insert("spans".into(), spans_to_json(spans));
+            }
         }
 
         serde_json::Value::Object(map)
@@ -203,6 +214,7 @@ mod tests {
             Block::Blockquote { spans: vec![], raw: "> quote".into() },
             Block::Table { rows: vec![], raw: "| a |".into() },
             Block::HorizontalRule { raw: "---".into() },
+            Block::Admonition { kind: "WARNING".into(), spans: vec![InlineSpan::Text("careful".into())], raw: "[WARNING]\n====\ncareful\n====".into() },
             Block::EmptyLine,
         ];
         for b in &blocks {

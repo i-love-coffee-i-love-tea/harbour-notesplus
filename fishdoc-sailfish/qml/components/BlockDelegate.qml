@@ -22,6 +22,7 @@ Item {
                 case "literal_block": return literalBlockComponent
                 case "blockquote": return blockquoteComponent
                 case "table": return tableComponent
+                case "admonition": return admonitionComponent
                 case "horizontal_rule": return hrComponent
                 case "empty_line": return emptyComponent
                 default: return paragraphComponent
@@ -46,6 +47,7 @@ Item {
             font.bold: level <= 2
             wrapMode: Text.Wrap
             x: Theme.horizontalPageMargin
+            width: parent.width - Theme.horizontalPageMargin * 2
             onXrefActivated: function(target) {
                 delegate.xrefActivated(target)
             }
@@ -56,6 +58,8 @@ Item {
         id: paragraphComponent
         InlineText {
             spans: blockData.spans || []
+            x: Theme.horizontalPageMargin
+            width: parent.width - Theme.horizontalPageMargin * 2
             onXrefActivated: function(target) {
                 delegate.xrefActivated(target)
             }
@@ -76,8 +80,9 @@ Item {
 
             InlineText {
                 spans: blockData.spans || []
-                onLinkActivated: function(target) {
-                    delegate.linkActivated(target)
+                width: parent.parent.width - Theme.horizontalPageMargin * 2 - (blockData.level || 0) * Theme.paddingLarge - Theme.paddingSmall
+                onXrefActivated: function(target) {
+                    delegate.xrefActivated(target)
                 }
             }
         }
@@ -97,8 +102,9 @@ Item {
 
             InlineText {
                 spans: blockData.spans || []
-                onLinkActivated: function(target) {
-                    delegate.linkActivated(target)
+                width: parent.parent.width - Theme.horizontalPageMargin * 2 - (blockData.level || 0) * Theme.paddingLarge - Theme.paddingSmall
+                onXrefActivated: function(target) {
+                    delegate.xrefActivated(target)
                 }
             }
         }
@@ -188,39 +194,110 @@ Item {
     Component {
         id: tableComponent
         Column {
-            property int columnCount: (blockData.rows && blockData.rows[0]) ? blockData.rows[0].length : 1
             x: Theme.horizontalPageMargin
             width: parent.width - Theme.horizontalPageMargin * 2
-            spacing: 1
+            spacing: 2
 
-            Repeater {
-                model: blockData.rows || []
+            Grid {
+                id: tableGrid
+                property int columnCount: (blockData.rows && blockData.rows[0]) ? blockData.rows[0].length : 1
+                property real cellWidth: (parent.width - (columnCount - 1) * spacing) / Math.max(1, columnCount)
+                columns: columnCount
+                spacing: 1
 
-                delegate: Row {
-                    property int rowIndex: index
-                    spacing: 1
-                    Repeater {
-                        model: modelData || []
-
-                        delegate: Rectangle {
-                            width: tableComponent.width / Math.max(1, tableComponent.columnCount)
-                            height: cellText.implicitHeight + Theme.paddingSmall
-                            color: Theme.highlightBackgroundColor
-                            opacity: 0.2
-
-                            InlineText {
-                                id: cellText
-                                anchors.centerIn: parent
-                                width: parent.width - Theme.paddingSmall * 2
-                                spans: modelData || []
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.bold: rowIndex === 0
-                                x: 0
-                                onXrefActivated: function(target) {
-                                    delegate.xrefActivated(target)
-                                }
+                Repeater {
+                    id: tableRepeater
+                    model: {
+                        var rows = blockData.rows || []
+                        var flat = []
+                        for (var r = 0; r < rows.length; r++) {
+                            var row = rows[r]
+                            for (var c = 0; c < row.length; c++) {
+                                flat.push({ spans: row[c], header: r === 0 })
                             }
                         }
+                        return flat
+                    }
+
+                    delegate: Rectangle {
+                        width: tableGrid.cellWidth
+                        height: Math.max(48, cellText.paintedHeight + 16)
+                        color: "transparent"
+                        clip: true
+
+                        Label {
+                            id: cellText
+                            anchors {
+                                left: parent.left
+                                right: parent.right
+                                top: parent.top
+                                leftMargin: 8
+                                rightMargin: 8
+                                topMargin: 8
+                            }
+                            wrapMode: Text.Wrap
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.bold: modelData.header
+                            color: Theme.primaryColor
+                            text: {
+                                var spans = modelData.spans || []
+                                if (typeof spans === "string") return spans
+                                var parts = []
+                                for (var i = 0; i < spans.length; i++) {
+                                    var s = spans[i]
+                                    if (s) parts.push(s.value || s.display || s.target || "")
+                                }
+                                return parts.join("") || " "
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: admonitionComponent
+        Item {
+            property string kind: blockData.kind || "NOTE"
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Theme.horizontalPageMargin
+            anchors.rightMargin: Theme.horizontalPageMargin
+            height: admonitionRect.height
+
+            Rectangle {
+                id: admonitionRect
+                anchors.left: parent.left
+                anchors.right: parent.right
+                color: "transparent"
+                border.color: Theme.highlightColor
+                border.width: 3
+                radius: 4
+                height: admonitionColumn.height + Theme.paddingMedium * 2
+
+                Column {
+                    id: admonitionColumn
+                    anchors {
+                        left: parent.left
+                        right: parent.right
+                        margins: Theme.paddingMedium
+                        top: parent.top
+                        topMargin: Theme.paddingMedium
+                    }
+                    spacing: Theme.paddingSmall
+
+                    Label {
+                        text: kind
+                        font.bold: true
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: admonitionRect.border.color
+                    }
+
+                    InlineText {
+                        spans: blockData.spans || []
+                        width: parent.width
+                        font.pixelSize: Theme.fontSizeSmall
                     }
                 }
             }

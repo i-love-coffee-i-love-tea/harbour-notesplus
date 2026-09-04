@@ -1,6 +1,8 @@
 use crate::block::Block;
 use crate::inline::{parse_inline, InlineSpan};
 
+const ADMONITION_KINDS: &[&str] = &["WARNING", "NOTE", "INFO", "TIP", "IMPORTANT"];
+
 /// Parse AsciiDoc text into a list of blocks.
 pub fn parse_blocks(text: &str) -> Vec<Block> {
     let lines: Vec<&str> = text.lines().collect();
@@ -17,9 +19,36 @@ pub fn parse_blocks(text: &str) -> Vec<Block> {
             continue;
         }
 
+        // Document attribute: :toc:, :source-highlighter:, etc. — skip
+        if is_doc_attribute(line.trim()) {
+            i += 1;
+            continue;
+        }
+
+        // Attribute line before table or code block: [source,sql], [cols="..."], etc.
+        if is_attribute_line(line.trim()) {
+            if let Some(next) = next_non_empty(&lines[i + 1..]) {
+                if next == "|===" {
+                    let (block, consumed) = parse_table(&lines[i..]);
+                    blocks.push(block);
+                    i += consumed;
+                    continue;
+                }
+                if next.starts_with("----") {
+                    let lang = parse_source_lang(line.trim());
+                    i += 1; // skip attribute line
+                    let (block, consumed) = parse_delimited_block(lines[i], &lines[i..], "----", lang);
+                    blocks.push(block);
+                    i += consumed;
+                    continue;
+                }
+            }
+            // Not before a known block — fall through to paragraph
+        }
+
         // Code block: ---- (must check before horizontal rule)
         if line.trim() == "----" || line.trim().starts_with("----") {
-            let (block, consumed) = parse_delimited_block(line, &lines[i..], "----", true);
+            let (block, consumed) = parse_delimited_block(line, &lines[i..], "----", None);
             blocks.push(block);
             i += consumed;
             continue;
@@ -27,7 +56,16 @@ pub fn parse_blocks(text: &str) -> Vec<Block> {
 
         // Literal block: .... (must check before horizontal rule)
         if line.trim() == "...." || line.trim().starts_with("....") {
-            let (block, consumed) = parse_delimited_block(line, &lines[i..], "....", false);
+            let (block, consumed) = parse_delimited_block(line, &lines[i..], "....", None);
+            blocks.push(block);
+            i += consumed;
+            continue;
+        }
+
+        // Admonition block: [WARNING]/[NOTE]/[INFO]/[TIP]/[IMPORTANT] followed by ====
+        if is_admonition_kind(line.trim()) && i + 1 < lines.len() && lines[i + 1].trim() == "====" {
+            let kind = line.trim().trim_start_matches('[').trim_end_matches(']').to_string();
+            let (block, consumed) = parse_admonition_block(&kind, &lines[i..]);
             blocks.push(block);
             i += consumed;
             continue;
@@ -107,6 +145,79 @@ pub fn parse_blocks(text: &str) -> Vec<Block> {
     blocks
 }
 
+fn is_attribute_line(line: &str) -> bool {
+    line.starts_with('[') && line.ends_with(']') && !is_admonition_kind(line)
+}
+
+fn parse_source_lang(line: &str) -> Option<String> {
+    // [source,sql] -> Some("sql"), [source] -> None
+    let t = line.trim();
+    if t.starts_with("[source,") && t.ends_with(']') {
+        Some(t[8..t.len()-1].to_string())
+    } else if t == "[source]" {
+        None
+    } else {
+        None
+    }
+}
+
+fn is_doc_attribute(line: &str) -> bool {
+    // :toc:, :source-highlighter: python, etc.
+    if !line.starts_with(':') || !line.ends_with(':') && !line.contains(": ") {
+        return false;
+    }
+    // Must match :name: or :name: value
+    if let Some(end) = line[1..].find(':') {
+        let name = &line[1..end + 1];
+        !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    } else {
+        false
+    }
+}
+
+fn next_non_empty<'a>(lines: &'a [&str]) -> Option<&'a str> {
+    lines.iter().find(|l| !l.trim().is_empty()).map(|l| l.trim())
+}
+
+fn is_admonition_kind(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('[') && t.ends_with(']') && ADMONITION_KINDS.contains(&&t[1..t.len()-1])
+}
+
+fn parse_admonition_block(kind: &str, lines: &[&str]) -> (Block, usize) {
+    // lines[0] is the [KIND] line, lines[1] should be ====
+    let mut consumed = 0;
+    let mut raw_parts = Vec::new();
+
+    // Consume [KIND] line
+    raw_parts.push(lines[consumed].to_string());
+    consumed += 1;
+
+    // Consume ==== opening
+    if consumed < lines.len() && lines[consumed].trim() == "====" {
+        raw_parts.push(lines[consumed].to_string());
+        consumed += 1;
+    }
+
+    // Collect content until ====
+    let mut content_lines = Vec::new();
+    while consumed < lines.len() {
+        let line = lines[consumed];
+        raw_parts.push(line.to_string());
+        if line.trim() == "====" {
+            consumed += 1;
+            break;
+        }
+        content_lines.push(line.to_string());
+        consumed += 1;
+    }
+
+    let raw = raw_parts.join("\n");
+    let content_text = content_lines.join(" ");
+    let spans = parse_inline(&content_text);
+    (Block::Admonition { kind: kind.to_string(), spans, raw }, consumed)
+}
+
 fn parse_heading(line: &str) -> Option<(u8, &str)> {
     let trimmed = line.trim_start();
     if !trimmed.starts_with('=') {
@@ -142,13 +253,16 @@ fn is_horizontal_rule(line: &str) -> bool {
     trimmed.chars().all(|c| c == first)
 }
 
-fn parse_delimited_block(first_line: &str, lines: &[&str], delimiter: &str, with_lang: bool) -> (Block, usize) {
+fn parse_delimited_block(first_line: &str, lines: &[&str], delimiter: &str, attr_lang: Option<String>) -> (Block, usize) {
     let trimmed_first = first_line.trim();
-    let language = if with_lang && trimmed_first.len() > delimiter.len() {
-        Some(trimmed_first[delimiter.len()..].trim().to_string())
-    } else {
-        None
-    };
+    // Language from attribute takes priority; fall back to inline (e.g. ----rust)
+    let language = attr_lang.or_else(|| {
+        if delimiter == "----" && trimmed_first.len() > delimiter.len() {
+            Some(trimmed_first[delimiter.len()..].trim().to_string())
+        } else {
+            None
+        }
+    });
 
     let mut content_lines = Vec::new();
     let mut consumed = 1; // skip opening delimiter
@@ -170,7 +284,7 @@ fn parse_delimited_block(first_line: &str, lines: &[&str], delimiter: &str, with
         format!("{}\n{}", delimiter, content_lines.join("\n"))
     };
 
-    if with_lang {
+    if delimiter == "----" {
         (Block::CodeBlock { language, lines: content_lines, raw }, consumed)
     } else {
         (Block::LiteralBlock { lines: content_lines, raw }, consumed)
@@ -182,34 +296,55 @@ fn parse_table(lines: &[&str]) -> (Block, usize) {
     let mut consumed = 0;
     let mut raw_parts = Vec::new();
 
+    // Consume optional attribute lines before |===
+    while consumed < lines.len() && is_attribute_line(lines[consumed].trim()) {
+        raw_parts.push(lines[consumed].to_string());
+        consumed += 1;
+    }
+
     // Check for |=== delimited table
-    if lines[consumed].trim() == "|===" {
+    if consumed < lines.len() && lines[consumed].trim() == "|===" {
         raw_parts.push(lines[consumed].to_string());
         consumed += 1;
 
-        // Skip attribute lines like [cols="1,2"]
-        while consumed < lines.len() {
-            let line = lines[consumed].trim();
-            if line.starts_with('[') && line.ends_with(']') {
-                raw_parts.push(lines[consumed].to_string());
-                consumed += 1;
-            } else {
-                break;
-            }
-        }
+        // Parse cells until |===
+        // Cells accumulate into current_row; blank lines flush a row
+        let mut current_row: Vec<Vec<InlineSpan>> = Vec::new();
 
-        // Parse rows until |===
         while consumed < lines.len() {
             let line = lines[consumed];
             raw_parts.push(line.to_string());
 
             if line.trim() == "|===" {
                 consumed += 1;
+                // Flush any pending row
+                if !current_row.is_empty() {
+                    rows.push(current_row);
+                    current_row = Vec::new();
+                }
                 break;
             }
 
-            rows.push(parse_table_row(line));
+            if line.trim().is_empty() {
+                // Blank line = row boundary
+                if !current_row.is_empty() {
+                    rows.push(current_row);
+                    current_row = Vec::new();
+                }
+                consumed += 1;
+                continue;
+            }
+
+            if line.trim_start().starts_with('|') {
+                let mut cells = parse_table_row(line);
+                current_row.append(&mut cells);
+            }
             consumed += 1;
+        }
+
+        // Flush if table wasn't closed with |===
+        if !current_row.is_empty() {
+            rows.push(current_row);
         }
     } else {
         // Simple pipe-delimited table (no |=== delimiters)
@@ -302,7 +437,7 @@ fn is_heading(line: &str) -> bool {
 
 fn is_delimiter(line: &str) -> bool {
     let t = line.trim();
-    t == "----" || t == "...." || t.starts_with("----") || t.starts_with("....")
+    t == "----" || t == "...." || t == "====" || t.starts_with("----") || t.starts_with("....")
 }
 
 /// Serialize blocks back to AsciiDoc text.
@@ -456,7 +591,41 @@ mod tests {
 
     #[test]
     fn parse_table_delimited() {
-        let text = "|===\n| Name | Value |\n| foo  | bar   |\n|===";
+        // Cell-per-line format: blank lines separate rows
+        let text = "|===\n| Name\n| Value\n\n| foo\n| bar\n|===";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::Table { rows, .. } => {
+                assert_eq!(rows.len(), 2);
+                assert_eq!(rows[0].len(), 2);
+                assert_eq!(rows[1].len(), 2);
+            }
+            _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_table_cell_per_line() {
+        // Matches the format used in invoice.adoc / technical-doc.adoc
+        let text = "|===\n| Description | Amount\n\n| Website Design\n| $2,500.00\n\n| Hosting\n| $120.00\n|===";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::Table { rows, .. } => {
+                assert_eq!(rows.len(), 3); // header + 2 data rows
+                assert_eq!(rows[0].len(), 2); // Description, Amount
+                assert_eq!(rows[1].len(), 2); // Website Design, $2,500.00
+                assert_eq!(rows[2].len(), 2); // Hosting, $120.00
+            }
+            _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_table_with_cols_attribute() {
+        // Real AsciiDoc format: [cols] BEFORE |===
+        let text = "[cols=\"1,2\"]\n|===\n| Name\n| Value\n\n| foo\n| bar\n|===";
         let blocks = parse_blocks(text);
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
@@ -469,16 +638,41 @@ mod tests {
     }
 
     #[test]
-    fn parse_table_with_cols_attribute() {
-        let text = "|===\n[cols=\"1,2\"]\n| Name | Value |\n| foo  | bar   |\n|===";
+    fn parse_cols_attribute_not_as_paragraph() {
+        // [cols] before |=== must NOT appear as a paragraph
+        let text = "== Items\n\n[cols=\"2,1\"]\n|===\n| Name\n| Value\n|===";
+        let blocks = parse_blocks(text);
+        for b in &blocks {
+            if let Block::Paragraph { raw, .. } = b {
+                assert!(!raw.contains("[cols"), "cols attribute leaked into paragraph: {}", raw);
+            }
+        }
+    }
+
+    #[test]
+    fn parse_admonition_block() {
+        let text = "[WARNING]\n====\nBe careful!\n====";
         let blocks = parse_blocks(text);
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
-            Block::Table { rows, .. } => {
-                assert_eq!(rows.len(), 2);
-                assert_eq!(rows[0].len(), 2);
+            Block::Admonition { kind, spans, .. } => {
+                assert_eq!(kind, "WARNING");
+                assert!(!spans.is_empty());
             }
-            _ => panic!("expected table"),
+            _ => panic!("expected admonition"),
+        }
+    }
+
+    #[test]
+    fn parse_admonition_with_inline_code() {
+        let text = "[WARNING]\n====\nAlways run `cargo test` first.\n====";
+        let blocks = parse_blocks(text);
+        match &blocks[0] {
+            Block::Admonition { spans, .. } => {
+                // Should have a Code span for the backtick part
+                assert!(spans.iter().any(|s| matches!(s, InlineSpan::Code(_))));
+            }
+            _ => panic!("expected admonition"),
         }
     }
 
@@ -495,6 +689,31 @@ mod tests {
                 assert!(rows[0][0].iter().any(|s| matches!(s, InlineSpan::Bold { .. })));
             }
             _ => panic!("expected table"),
+        }
+    }
+
+    #[test]
+    fn parse_source_attribute_with_lang() {
+        let text = "[source,sql]\n----\nSELECT * FROM users;\n----";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::CodeBlock { language, lines, .. } => {
+                assert_eq!(language.as_deref(), Some("sql"));
+                assert_eq!(lines.len(), 1);
+            }
+            _ => panic!("expected code block"),
+        }
+    }
+
+    #[test]
+    fn parse_source_attribute_not_as_paragraph() {
+        let text = "[source,sql]\n----\ncode\n----";
+        let blocks = parse_blocks(text);
+        for b in &blocks {
+            if let Block::Paragraph { raw, .. } = b {
+                assert!(!raw.contains("[source"), "source attribute leaked into paragraph: {}", raw);
+            }
         }
     }
 
