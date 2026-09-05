@@ -371,7 +371,8 @@ impl FishdocBridge {
             Ok(pages) => {
                 let mut list = QVariantList::default();
                 for p in &pages {
-                    let preview_json_str = page::get_page_preview_json_with_options(&self.notes_path, &p.filename, 10, self.drop_comments);
+                    let preview_values = page::get_page_preview_values_with_options(&self.notes_path, &p.filename, 8, self.drop_comments);
+                    let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
 
                     let mut map = serde_json::Map::new();
                     map.insert("name".into(), serde_json::Value::String(p.title.clone()));
@@ -379,6 +380,7 @@ impl FishdocBridge {
                     map.insert("created_at".into(), serde_json::Value::String(p.created_at.clone()));
                     map.insert("updated_at".into(), serde_json::Value::String(p.updated_at.clone()));
                     map.insert("block_count".into(), serde_json::Value::Number(p.block_count.into()));
+                    map.insert("preview_blocks".into(), serde_json::Value::Array(preview_values));
                     map.insert("preview_blocks_json".into(), serde_json::Value::String(preview_json_str));
 
                     let json_str = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();

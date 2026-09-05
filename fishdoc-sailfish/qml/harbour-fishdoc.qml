@@ -51,6 +51,12 @@ ApplicationWindow {
         defaultValue: true
     }
 
+    ConfigurationValue {
+        id: autostartWebServerConf
+        key: "/apps/harbour-fishdoc/autostart_web_server"
+        defaultValue: false
+    }
+
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
@@ -58,6 +64,7 @@ ApplicationWindow {
     property real previewScale: previewScaleConf.value !== undefined && previewScaleConf.value > 0 ? previewScaleConf.value : 0.52
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
+    property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -88,6 +95,10 @@ ApplicationWindow {
         allowExternalImagesConf.value = allow
     }
 
+    function setAutostartWebServer(val) {
+        autostartWebServerConf.value = val
+    }
+
     function openSearch() {
         pageStack.pop(null, PageStackAction.Immediate)
         bridge.load_main_page_data()
@@ -106,10 +117,21 @@ ApplicationWindow {
         app.activate()
     }
 
+    Timer {
+        id: startupTimer
+        interval: 10
+        running: false
+        repeat: false
+        onTriggered: bridge.load_main_page_data()
+    }
+
     Component.onCompleted: {
         bridge.set_drop_comments(app.dropComments)
+        if (app.autostartWebServer) {
+            bridge.start_web_server()
+        }
         pageStack.forceActiveFocus()
-        bridge.load_main_page_data()
+        startupTimer.start()
     }
 
     Timer {
@@ -149,7 +171,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Theme.itemSizeMedium
+        height: Theme.itemSizeExtraSmall
         color: Theme.highlightBackgroundColor
         opacity: 0.0
         z: 100
@@ -160,7 +182,7 @@ ApplicationWindow {
             id: notificationLabel
             anchors.centerIn: parent
             color: Theme.primaryColor
-            font.pixelSize: Theme.fontSizeMedium
+            font.pixelSize: Theme.fontSizeExtraSmall
         }
 
         Timer {

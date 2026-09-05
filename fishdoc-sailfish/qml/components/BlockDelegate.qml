@@ -16,7 +16,7 @@ Item {
     property string searchTerm: ""
 
     property bool isMatchedBySearch: {
-        if (!searchTerm || searchTerm.length === 0 || !blockData) return false
+        if (!interactive || !searchTerm || searchTerm.length === 0 || !blockData) return false
         var q = searchTerm.toLowerCase().trim()
         var terms = q.split(/\s+/).filter(function(t) { return t.length > 0 })
         if (terms.length === 0) return false
@@ -77,13 +77,14 @@ Item {
         border.color: Theme.highlightColor
         border.width: 1
         radius: 4
-        visible: delegate.isMatchedBySearch
+        visible: delegate.interactive && delegate.isMatchedBySearch
         z: -1
     }
 
     MouseArea {
         anchors.fill: parent
         enabled: delegate.interactive && blockData && (blockData.type !== "toc")
+        visible: delegate.interactive
         z: -1
         onClicked: {
             if (delegate.interactive) {

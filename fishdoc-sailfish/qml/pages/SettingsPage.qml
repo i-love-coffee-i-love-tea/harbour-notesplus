@@ -148,14 +148,27 @@ Page {
             }
 
             SectionHeader {
-                text: "Web Server & HTML5 Export"
+                text: "Web Server"
             }
 
             TextSwitch {
-                text: "Embedded Documentation Server"
+                width: parent.width
+                text: "Start Web Server on App Launch"
+                description: "Automatically start documentation service on local WiFi when app starts"
+                checked: (typeof app !== "undefined" && app && app.autostartWebServer !== undefined) ? app.autostartWebServer : false
+                onCheckedChanged: {
+                    if (typeof app !== "undefined" && app && app.setAutostartWebServer) {
+                        app.setAutostartWebServer(checked)
+                    }
+                }
+            }
+
+            TextSwitch {
+                width: parent.width
+                text: "Server Active"
                 description: bridge.web_server_running
-                    ? ("Server active: " + bridge.web_server_url)
-                    : "Serve notes over WiFi to browse documentation on your PC"
+                    ? ("Listening at " + bridge.web_server_url)
+                    : "Tap to manually start or stop server"
                 checked: bridge.web_server_running
                 onClicked: {
                     bridge.toggle_web_server()
@@ -169,6 +182,10 @@ Page {
                 onClicked: {
                     bridge.open_in_browser("")
                 }
+            }
+
+            SectionHeader {
+                text: "Export & Backup"
             }
 
             Button {

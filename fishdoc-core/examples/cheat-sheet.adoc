@@ -1,0 +1,162 @@
+= Syntax Cheat Sheet
+
+A quick reference of everything FishDoc understands.
+This page is itself the demo — every feature below is live.
+
+== Structure
+
+=== Headings
+
+Use one or more `=` signs, followed by a space (up to level 6):
+
+= Level 1 — the page title
+== Level 2
+=== Level 3
+
+A blank line is required after each heading.
+
+=== Comments and rules
+
+// This line is a comment and never shown
+
+----
+A horizontal rule:
+----
+
+<<<
+or a page break (shown as a thicker rule)
+
+NOTE: `----` above is a literal block, while `----` with nothing between is a rule.
+
+== Inline Text
+
+Bold text with double asterisks.
+Italic text with underscores.
+`Inline code` with backticks.
++bold+ text and _italic_ text also work.
+"Double quoted" and 'single quoted' phrase styles.
+Strike~through~ text.
+Super^script^ and sub~script~.
+*Keyboard* keys like kbd:`Ctrl` + kbd:`Z`.
+
+You can mix: *bold with _italic inside_ and `code in bold*`.
+
+== Lists
+
+=== Unordered
+
+* First item
+* Second item
+  ** Nested item
+  * Bullet continuation
+* Third item
+
+=== Ordered
+
+. First step
+. Second step
+  .. sub-step, indented two spaces
+. Third step
+
+=== Checklists (tap to toggle)
+
+- [x] Done item — tap the whole line to toggle
+- [ ] Open item
+
+=== Description lists
+
+term::
+definition for the term.
+
+longer-term::
+the definition can span
+multiple lines.
+
+== Code and Verbatim
+
+=== Source block
+
+[source,rust]
+fn main() {
+    println!("hello from the phone");
+}
+
+A plain `----` fenced block without `[source,lang]` gives a code block without a language tag.
+
+=== Literal block
+
+....
+     Leading whitespace
+     and line breaks are preserved
+....
+
+== Quotes, Verses, Boxes
+
+. Attribution — text that follows a `-- --` line on the next line
+
+Actually, use this form instead:
+
+____
+All that we are is the result of what we have thought.
+-- Buddha
+____
+
+=== Verse (line breaks preserved)
+
+....
+The road goes ever on
+   up from the door
+....
+
+=== Sidebar, example and open boxes
+
+[NOTE]
+====
+Note boxes appear in the theme color.
+====
+
+[TIP]
+====
+Tip boxes appear in pastel yellow.
+====
+
+[WARNING]
+====
+Warning boxes appear in pastel red.
+====
+
+Open-boxes (two `=====` lines) give a boxed paragraph.
+
+== Tables
+
+[cols="1,2a"]
+|===
+|Name |Description
+|Bold |Double asterisks
+|Code |Backticks — cells with `a|` keep multi-block AsciiDoc
+|===
+
+Cells starting with `a|` contain full AsciiDoc; plain `|` cells are inline text.
+
+== Links and Cross-references
+
+*Web link:* http://example.org[Example]
+or https://example.org[Example] (URL and display text in brackets).
+
+*Links to other pages:* xref:meeting-notes.adoc[Meeting Notes]
+The target is the page name without extension; links open that page in-place.
+
+*Images:* image::icon.png[Alt text, width=200]
+
+== Document Attributes
+
+:toc:
+:name: value
+
+Document attribute lines are recognized and skipped by the viewer.
+
+== Tips
+
+* Tap any block to edit its raw AsciiDoc.
+* In the editor, type `[[` to search and insert a link to another page.
+* Checklists toggle by tapping the whole line in the reader.

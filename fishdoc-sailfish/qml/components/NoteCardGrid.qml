@@ -22,11 +22,11 @@ Grid {
         delegate: NoteCard {
             width: (index % noteCardGrid.columns === noteCardGrid.columns - 1) ? (noteCardGrid.width - noteCardGrid.cellWidth * (noteCardGrid.columns - 1)) : noteCardGrid.cellWidth
             height: noteCardGrid.cellWidth
-            modelData: modelData
+            cardData: modelData
             noteIndex: index
             searchTerm: noteCardGrid.searchTerm
             onClicked: {
-                noteCardGrid.itemClicked(modelData, index)
+                noteCardGrid.itemClicked(cardData, index)
             }
         }
     }

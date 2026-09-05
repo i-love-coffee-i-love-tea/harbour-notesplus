@@ -3,6 +3,7 @@ import Sailfish.Silica 1.0
 
 Item {
     id: miniDocPreview
+    property var previewBlocks: []
     property string previewBlocksJson: ""
     property var rawBlocks: []
     property string snippet: ""
@@ -14,6 +15,18 @@ Item {
     height: previewHeight
 
     property var parsedBlocks: {
+        if (previewBlocks && previewBlocks.length > 0) {
+            var list = []
+            for (var k = 0; k < previewBlocks.length; k++) {
+                var p = previewBlocks[k]
+                if (typeof p === "string") {
+                    try { list.push(JSON.parse(p)) } catch(e) {}
+                } else if (typeof p === "object" && p !== null) {
+                    list.push(p)
+                }
+            }
+            return list
+        }
         var list = []
         if (previewBlocksJson && previewBlocksJson.length > 0) {
             try {
@@ -90,7 +103,7 @@ Item {
 
                 // Live miniaturized rendered blocks reusing BlockDelegate
                 Repeater {
-                    model: parsedBlocks.slice(0, 10)
+                    model: parsedBlocks.slice(0, 8)
 
                     delegate: BlockDelegate {
                         width: contentColumn.width

@@ -4,7 +4,7 @@ import Sailfish.Silica 1.0
 BackgroundItem {
     id: noteCardItem
 
-    property var modelData: ({})
+    property var cardData: ({})
     property int noteIndex: 0
     property string searchTerm: ""
 
@@ -42,8 +42,9 @@ BackgroundItem {
                 bottomMargin: 0
             }
             showBorder: false
-            previewBlocksJson: noteCardItem.modelData ? (noteCardItem.modelData.preview_blocks_json || "") : ""
-            snippet: noteCardItem.modelData ? (noteCardItem.modelData.snippet || "") : ""
+            previewBlocks: (noteCardItem.cardData && noteCardItem.cardData.preview_blocks) ? noteCardItem.cardData.preview_blocks : []
+            previewBlocksJson: noteCardItem.cardData ? (noteCardItem.cardData.preview_blocks_json || "") : ""
+            snippet: noteCardItem.cardData ? (noteCardItem.cardData.snippet || "") : ""
             highlighted: noteCardItem.highlighted
         }
 
@@ -68,7 +69,7 @@ BackgroundItem {
                 width: Math.round(Theme.itemSizeExtraSmall * 0.6)
                 height: Theme.paddingSmall
                 radius: Math.round(Theme.paddingSmall / 2)
-                color: noteCardItem.getNoteColor(noteCardItem.modelData ? noteCardItem.modelData.name : "")
+                color: noteCardItem.getNoteColor(noteCardItem.cardData ? noteCardItem.cardData.name : "")
             }
 
             Label {

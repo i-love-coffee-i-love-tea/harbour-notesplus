@@ -48,28 +48,6 @@ Page {
                 }
             }
             MenuItem {
-                text: bridge.web_server_running ? ("Web Server: " + bridge.web_server_url) : "Start Web Server"
-                onClicked: {
-                    if (bridge.web_server_running) {
-                        bridge.stop_web_server()
-                    } else {
-                        var url = bridge.start_web_server()
-                        if (url) {
-                            remorsePopup.execute("Server running at " + url, function() {})
-                        }
-                    }
-                }
-            }
-            MenuItem {
-                text: "Export All to HTML5"
-                onClicked: {
-                    var out = bridge.export_all_html()
-                    if (out) {
-                        remorsePopup.execute("Exported notes to " + out, function() {})
-                    }
-                }
-            }
-            MenuItem {
                 text: "New Page"
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
@@ -97,6 +75,46 @@ Page {
 
             PageHeader {
                 title: "Notes++"
+            }
+
+            Item {
+                width: parent.width
+                height: bridge.web_server_running ? (webStatusRow.height + Theme.paddingSmall) : 0
+                visible: bridge.web_server_running
+                clip: true
+
+                Behavior on height { NumberAnimation { duration: 150 } }
+
+                BackgroundItem {
+                    id: webStatusRow
+                    anchors.centerIn: parent
+                    width: parent.width - Theme.horizontalPageMargin * 2
+                    height: Theme.itemSizeExtraSmall
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: Theme.paddingSmall
+
+                        Rectangle {
+                            width: Theme.paddingSmall
+                            height: Theme.paddingSmall
+                            radius: width / 2
+                            color: "#4cd964"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Label {
+                            text: "Web Service: " + bridge.web_server_url
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            color: Theme.secondaryHighlightColor
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    onClicked: {
+                        bridge.open_in_browser("")
+                    }
+                }
             }
 
             SearchField {

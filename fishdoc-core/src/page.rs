@@ -144,8 +144,8 @@ pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, li
     }
 }
 
-/// Get preview blocks serialized as JSON string with document headings populated in Table of Contents blocks.
-pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> String {
+/// Get preview blocks as JSON values with document headings populated in Table of Contents blocks.
+pub fn get_page_preview_values_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> Vec<serde_json::Value> {
     let path = notes_dir.join(filename);
     if let Ok(content) = std::fs::read_to_string(&path) {
         let has_toc = content.lines().any(|l| {
@@ -196,10 +196,16 @@ pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limi
             preview_json_vec.push(json);
         }
 
-        serde_json::to_string(&preview_json_vec).unwrap_or_default()
+        preview_json_vec
     } else {
-        "[]".to_string()
+        Vec::new()
     }
+}
+
+/// Get preview blocks serialized as JSON string with document headings populated in Table of Contents blocks.
+pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> String {
+    let preview_json_vec = get_page_preview_values_with_options(notes_dir, filename, limit, drop_comments);
+    serde_json::to_string(&preview_json_vec).unwrap_or_else(|_| "[]".to_string())
 }
 
 /// Get preview blocks serialized as JSON string (default options).
@@ -372,29 +378,34 @@ fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Pat
             let dest = current_dest_dir.join(&filename);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext == "adoc" {
-                // Always overwrite to pick up updated examples
-                std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
-                let title = filename.trim_end_matches(".adoc").replace('_', " ");
-                let now = chrono::Utc::now().to_rfc3339();
-                conn.execute(
-                    "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
-                     VALUES (?1, ?2, 0, ?3, ?3, 0)",
-                    rusqlite::params![filename, title, now],
-                ).map_err(|e| e.to_string())?;
-                if let Ok(page_id) = conn.query_row(
-                    "SELECT id FROM pages WHERE filename = ?1",
-                    rusqlite::params![filename],
-                    |row| row.get::<_, i64>(0),
-                ) {
-                    if let Ok(content) = std::fs::read_to_string(&dest) {
-                        let _ = db::update_fts_content(conn, page_id, &content);
+                if !dest.exists() {
+                    std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
+                    let title = filename.trim_end_matches(".adoc").replace('_', " ");
+                    let now = chrono::Utc::now().to_rfc3339();
+                    conn.execute(
+                        "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
+                         VALUES (?1, ?2, 0, ?3, ?3, 0)",
+                        rusqlite::params![filename, title, now],
+                    ).map_err(|e| e.to_string())?;
+                    if let Ok(page_id) = conn.query_row(
+                        "SELECT id FROM pages WHERE filename = ?1",
+                        rusqlite::params![filename],
+                        |row| row.get::<_, i64>(0),
+                    ) {
+                        if let Ok(content) = std::fs::read_to_string(&dest) {
+                            let _ = db::update_fts_content(conn, page_id, &content);
+                        }
                     }
                 }
             } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
-                let _ = std::fs::copy(&path, &dest);
+                if !dest.exists() {
+                    let _ = std::fs::copy(&path, &dest);
+                }
                 if current_dest_dir != notes_dir {
                     let root_dest = notes_dir.join(&filename);
-                    let _ = std::fs::copy(&path, &root_dest);
+                    if !root_dest.exists() {
+                        let _ = std::fs::copy(&path, &root_dest);
+                    }
                 }
             }
         } else if path.is_dir() {
@@ -406,11 +417,30 @@ fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Pat
     Ok(())
 }
 
-/// Scan notes directory for .adoc files, insert any missing into DB and index all into FTS.
+/// Scan notes directory for .adoc files, insert any missing into DB and index into FTS.
+/// Skips re-reading and re-indexing files that have not changed since last recorded update.
 pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), String> {
     if !notes_dir.exists() {
         return Ok(());
     }
+
+    let mut existing_pages: std::collections::HashMap<String, (i64, Option<chrono::DateTime<chrono::Utc>>)> = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT id, filename, updated_at FROM pages") {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let filename: String = row.get(1)?;
+            let updated_at_str: String = row.get(2)?;
+            let dt = chrono::DateTime::parse_from_rfc3339(&updated_at_str)
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .ok();
+            Ok((filename, (id, dt)))
+        }) {
+            for row in rows.flatten() {
+                existing_pages.insert(row.0, row.1);
+            }
+        }
+    }
+
     for entry in std::fs::read_dir(notes_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
@@ -422,21 +452,46 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
             } else {
                 filename.trim_end_matches(".adoc").replace('_', " ")
             };
-            let content = std::fs::read_to_string(&path).unwrap_or_default();
-            let now = chrono::Utc::now().to_rfc3339();
 
-            conn.execute(
-                "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
-                 VALUES (?1, ?2, ?3, ?4, ?4, 0)",
-                rusqlite::params![filename, title, is_journal as i32, now],
-            ).map_err(|e| e.to_string())?;
+            let file_mtime = std::fs::metadata(&path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(chrono::DateTime::<chrono::Utc>::from);
 
-            if let Ok(page_id) = conn.query_row(
-                "SELECT id FROM pages WHERE filename = ?1",
-                rusqlite::params![filename],
-                |row| row.get::<_, i64>(0),
-            ) {
-                let _ = db::update_fts_content(conn, page_id, &content);
+            match existing_pages.get(&filename) {
+                Some(&(page_id, Some(db_updated_at))) => {
+                    // Only re-index if file was modified after db_updated_at
+                    if let Some(mtime) = file_mtime {
+                        if mtime > db_updated_at {
+                            let content = std::fs::read_to_string(&path).unwrap_or_default();
+                            let _ = db::update_fts_content(conn, page_id, &content);
+                        }
+                    }
+                }
+                Some(&(page_id, None)) => {
+                    // Unparseable timestamp, re-index once
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    let _ = db::update_fts_content(conn, page_id, &content);
+                }
+                None => {
+                    // New page file not yet in database
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    let now = file_mtime.map(|m| m.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+                    conn.execute(
+                        "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
+                         VALUES (?1, ?2, ?3, ?4, ?4, 0)",
+                        rusqlite::params![filename, title, is_journal as i32, now],
+                    ).map_err(|e| e.to_string())?;
+
+                    if let Ok(page_id) = conn.query_row(
+                        "SELECT id FROM pages WHERE filename = ?1",
+                        rusqlite::params![filename],
+                        |row| row.get::<_, i64>(0),
+                    ) {
+                        let _ = db::update_fts_content(conn, page_id, &content);
+                    }
+                }
             }
         }
     }
@@ -648,5 +703,14 @@ mod tests {
         let results = crate::search::search_pages(&conn, "thermodynamics").unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].page.title, "manual doc");
+
+        // Now modify the file and verify sync_and_index_pages updates FTS
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(notes.join("manual_doc.adoc"), "= Manual Doc\nUpdated content with quantum mechanics.\n").unwrap();
+        sync_and_index_pages(&conn, &notes).unwrap();
+
+        let updated_results = crate::search::search_pages(&conn, "quantum").unwrap();
+        assert_eq!(updated_results.len(), 1);
+        assert_eq!(updated_results[0].page.title, "manual doc");
     }
 }

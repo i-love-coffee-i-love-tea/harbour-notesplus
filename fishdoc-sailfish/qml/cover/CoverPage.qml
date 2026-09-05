@@ -22,6 +22,14 @@ CoverBackground {
             anchors.horizontalCenter: parent.horizontalCenter
             visible: bridge.current_page_name.length > 0
         }
+
+        Label {
+            text: "Web: " + bridge.web_server_url
+            font.pixelSize: Theme.fontSizeExtraSmall
+            color: Theme.secondaryHighlightColor
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: bridge.web_server_running
+        }
     }
 
     CoverActionList {
