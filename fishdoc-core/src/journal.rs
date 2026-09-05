@@ -3,7 +3,6 @@ use std::path::Path;
 use chrono::Local;
 
 use crate::block::Block;
-use crate::parser::{blocks_to_adoc, parse_blocks};
 
 /// Initialize the journal for today.
 /// Uses raw string operations — avoids the AsciiDoc parser which panics on

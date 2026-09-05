@@ -28,10 +28,16 @@ CoverBackground {
         id: coverActions
 
         CoverAction {
+            iconSource: "image://theme/icon-cover-search"
+            onTriggered: {
+                app.openSearch()
+            }
+        }
+
+        CoverAction {
             iconSource: "image://theme/icon-cover-new"
             onTriggered: {
-                pageStack.push(Qt.resolvedUrl("pages/PageView.qml"))
-                bridge.load_page("Journal")
+                app.openJournal()
             }
         }
     }

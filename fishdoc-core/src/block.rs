@@ -16,13 +16,25 @@ pub enum Block {
     OrderedListItem {
         level: u8,
         marker: String,
-        spans: Vec<InlineSpan>,
+        children: Vec<Block>,
         raw: String,
     },
     UnorderedListItem {
         level: u8,
         marker: String,
-        spans: Vec<InlineSpan>,
+        checked: Option<bool>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    DescriptionListItem {
+        term: String,
+        term_spans: Vec<InlineSpan>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    CalloutListItem {
+        number: usize,
+        children: Vec<Block>,
         raw: String,
     },
     CodeBlock {
@@ -35,11 +47,31 @@ pub enum Block {
         raw: String,
     },
     Blockquote {
-        spans: Vec<InlineSpan>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    Sidebar {
+        title: Option<String>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    Example {
+        title: Option<String>,
+        children: Vec<Block>,
         raw: String,
     },
     Table {
-        rows: Vec<Vec<Vec<InlineSpan>>>,
+        rows: Vec<Vec<Vec<Block>>>,
+        col_widths: Vec<f64>,
+        frame: Option<String>,
+        grid: Option<String>,
+        raw: String,
+    },
+    Image {
+        target: String,
+        alt: String,
+        width: Option<String>,
+        height: Option<String>,
         raw: String,
     },
     HorizontalRule {
@@ -47,7 +79,22 @@ pub enum Block {
     },
     Admonition {
         kind: String,
-        spans: Vec<InlineSpan>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    Open {
+        title: Option<String>,
+        children: Vec<Block>,
+        raw: String,
+    },
+    PageBreak {
+        raw: String,
+    },
+    Comment {
+        text: String,
+        raw: String,
+    },
+    Toc {
         raw: String,
     },
     EmptyLine,
@@ -60,12 +107,21 @@ impl Block {
             Block::Paragraph { .. } => "paragraph",
             Block::OrderedListItem { .. } => "ordered_list_item",
             Block::UnorderedListItem { .. } => "unordered_list_item",
+            Block::DescriptionListItem { .. } => "description_list_item",
+            Block::CalloutListItem { .. } => "callout_list_item",
             Block::CodeBlock { .. } => "code_block",
             Block::LiteralBlock { .. } => "literal_block",
             Block::Blockquote { .. } => "blockquote",
+            Block::Sidebar { .. } => "sidebar",
+            Block::Example { .. } => "example",
             Block::Table { .. } => "table",
+            Block::Image { .. } => "image",
             Block::HorizontalRule { .. } => "horizontal_rule",
             Block::Admonition { .. } => "admonition",
+            Block::Open { .. } => "open",
+            Block::PageBreak { .. } => "page_break",
+            Block::Comment { .. } => "comment",
+            Block::Toc { .. } => "toc",
             Block::EmptyLine => "empty_line",
         }
     }
@@ -76,12 +132,21 @@ impl Block {
             Block::Paragraph { raw, .. } => raw,
             Block::OrderedListItem { raw, .. } => raw,
             Block::UnorderedListItem { raw, .. } => raw,
+            Block::DescriptionListItem { raw, .. } => raw,
+            Block::CalloutListItem { raw, .. } => raw,
             Block::CodeBlock { raw, .. } => raw,
             Block::LiteralBlock { raw, .. } => raw,
             Block::Blockquote { raw, .. } => raw,
+            Block::Sidebar { raw, .. } => raw,
+            Block::Example { raw, .. } => raw,
             Block::Table { raw, .. } => raw,
+            Block::Image { raw, .. } => raw,
             Block::HorizontalRule { raw } => raw,
             Block::Admonition { raw, .. } => raw,
+            Block::Open { raw, .. } => raw,
+            Block::PageBreak { raw } => raw,
+            Block::Comment { raw, .. } => raw,
+            Block::Toc { raw } => raw,
             Block::EmptyLine => "",
         }
     }
@@ -99,15 +164,27 @@ impl Block {
             Block::Paragraph { spans, .. } => {
                 map.insert("spans".into(), spans_to_json(spans));
             }
-            Block::OrderedListItem { level, marker, spans, .. } => {
+            Block::OrderedListItem { level, marker, children, .. } => {
                 map.insert("level".into(), serde_json::Value::Number((*level).into()));
                 map.insert("marker".into(), serde_json::Value::String(marker.clone()));
-                map.insert("spans".into(), spans_to_json(spans));
+                map.insert("blocks".into(), blocks_to_json(children));
             }
-            Block::UnorderedListItem { level, marker, spans, .. } => {
+            Block::UnorderedListItem { level, marker, checked, children, .. } => {
                 map.insert("level".into(), serde_json::Value::Number((*level).into()));
                 map.insert("marker".into(), serde_json::Value::String(marker.clone()));
-                map.insert("spans".into(), spans_to_json(spans));
+                if let Some(c) = checked {
+                    map.insert("checked".into(), serde_json::Value::Bool(*c));
+                }
+                map.insert("blocks".into(), blocks_to_json(children));
+            }
+            Block::DescriptionListItem { term, term_spans, children, .. } => {
+                map.insert("term".into(), serde_json::Value::String(term.clone()));
+                map.insert("term_spans".into(), spans_to_json(term_spans));
+                map.insert("blocks".into(), blocks_to_json(children));
+            }
+            Block::CalloutListItem { number, children, .. } => {
+                map.insert("number".into(), serde_json::Value::Number((*number).into()));
+                map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::CodeBlock { language, lines, .. } => {
                 if let Some(lang) = language {
@@ -122,22 +199,64 @@ impl Block {
                     lines.iter().map(|l| serde_json::Value::String(l.clone())).collect()
                 ));
             }
-            Block::Blockquote { spans, .. } => {
-                map.insert("spans".into(), spans_to_json(spans));
+            Block::Blockquote { children, .. } => {
+                map.insert("blocks".into(), blocks_to_json(children));
             }
-            Block::Table { rows, .. } => {
+            Block::Sidebar { title, children, .. } => {
+                if let Some(t) = title {
+                    map.insert("title".into(), serde_json::Value::String(t.clone()));
+                }
+                map.insert("blocks".into(), blocks_to_json(children));
+            }
+            Block::Example { title, children, .. } => {
+                if let Some(t) = title {
+                    map.insert("title".into(), serde_json::Value::String(t.clone()));
+                }
+                map.insert("blocks".into(), blocks_to_json(children));
+            }
+            Block::Table { rows, col_widths, frame, grid, .. } => {
                 map.insert("rows".into(), serde_json::Value::Array(
                     rows.iter().map(|row| {
                         serde_json::Value::Array(
-                            row.iter().map(|cell| spans_to_json(cell)).collect()
+                            row.iter().map(|cell| blocks_to_json(cell)).collect()
                         )
                     }).collect()
                 ));
+                if !col_widths.is_empty() {
+                    map.insert("col_widths".into(), serde_json::Value::Array(
+                        col_widths.iter().map(|w| serde_json::Value::Number(serde_json::Number::from_f64(*w).unwrap_or(serde_json::Number::from(1)))).collect()
+                    ));
+                }
+                if let Some(f) = frame {
+                    map.insert("frame".into(), serde_json::Value::String(f.clone()));
+                }
+                if let Some(g) = grid {
+                    map.insert("grid".into(), serde_json::Value::String(g.clone()));
+                }
             }
-            Block::HorizontalRule { .. } | Block::EmptyLine => {}
-            Block::Admonition { kind, spans, .. } => {
+            Block::Image { target, alt, width, height, .. } => {
+                map.insert("target".into(), serde_json::Value::String(target.clone()));
+                map.insert("alt".into(), serde_json::Value::String(alt.clone()));
+                if let Some(w) = width {
+                    map.insert("width".into(), serde_json::Value::String(w.clone()));
+                }
+                if let Some(h) = height {
+                    map.insert("height".into(), serde_json::Value::String(h.clone()));
+                }
+            }
+            Block::HorizontalRule { .. } | Block::Toc { .. } | Block::PageBreak { .. } | Block::EmptyLine => {}
+            Block::Comment { text, .. } => {
+                map.insert("text".into(), serde_json::Value::String(text.clone()));
+            }
+            Block::Admonition { kind, children, .. } => {
                 map.insert("kind".into(), serde_json::Value::String(kind.clone()));
-                map.insert("spans".into(), spans_to_json(spans));
+                map.insert("blocks".into(), blocks_to_json(children));
+            }
+            Block::Open { title, children, .. } => {
+                if let Some(t) = title {
+                    map.insert("title".into(), serde_json::Value::String(t.clone()));
+                }
+                map.insert("blocks".into(), blocks_to_json(children));
             }
         }
 
@@ -148,6 +267,12 @@ impl Block {
 fn spans_to_json(spans: &[InlineSpan]) -> serde_json::Value {
     serde_json::Value::Array(
         spans.iter().map(|s| s.to_json()).collect()
+    )
+}
+
+fn blocks_to_json(blocks: &[Block]) -> serde_json::Value {
+    serde_json::Value::Array(
+        blocks.iter().map(|b| b.to_qvariant_map()).collect()
     )
 }
 
@@ -207,19 +332,95 @@ mod tests {
         let blocks = vec![
             Block::Heading { level: 1, spans: vec![], raw: "= H".into() },
             Block::Paragraph { spans: vec![], raw: "p".into() },
-            Block::OrderedListItem { level: 0, marker: "1.".into(), spans: vec![], raw: "1. item".into() },
-            Block::UnorderedListItem { level: 0, marker: "-".into(), spans: vec![], raw: "- item".into() },
+            Block::OrderedListItem { level: 0, marker: "1.".into(), children: vec![], raw: "1. item".into() },
+            Block::UnorderedListItem { level: 0, marker: "-".into(), checked: None, children: vec![], raw: "- item".into() },
             Block::CodeBlock { language: None, lines: vec![], raw: "----\n----".into() },
             Block::LiteralBlock { lines: vec![], raw: "....\n....".into() },
-            Block::Blockquote { spans: vec![], raw: "> quote".into() },
-            Block::Table { rows: vec![], raw: "| a |".into() },
+            Block::Blockquote { children: vec![], raw: "> quote".into() },
+            Block::Table { rows: vec![], col_widths: vec![], frame: None, grid: None, raw: "| a |".into() },
             Block::HorizontalRule { raw: "---".into() },
-            Block::Admonition { kind: "WARNING".into(), spans: vec![InlineSpan::Text("careful".into())], raw: "[WARNING]\n====\ncareful\n====".into() },
+            Block::Admonition { kind: "WARNING".into(), children: vec![], raw: "[WARNING]\n====\n====".into() },
+            Block::Toc { raw: ":toc:".into() },
             Block::EmptyLine,
         ];
         for b in &blocks {
             let json = b.to_qvariant_map();
             assert!(json["type"].is_string(), "type missing for {:?}", b.block_type());
         }
+    }
+
+    #[test]
+    fn list_item_with_code_block_child() {
+        let item = Block::OrderedListItem {
+            level: 0,
+            marker: "1.".into(),
+            children: vec![
+                Block::Paragraph { spans: vec![InlineSpan::Text("step one".into())], raw: "step one".into() },
+                Block::CodeBlock { language: Some("rust".into()), lines: vec!["fn main() {}".into()], raw: "----\nfn main() {}\n----".into() },
+            ],
+            raw: "1. step one".into(),
+        };
+        let json = item.to_qvariant_map();
+        assert_eq!(json["type"], "ordered_list_item");
+        assert!(json["blocks"].is_array());
+        let blocks = json["blocks"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "paragraph");
+        assert_eq!(blocks[1]["type"], "code_block");
+        assert_eq!(blocks[1]["language"], "rust");
+    }
+
+    #[test]
+    fn table_cell_with_blocks() {
+        let table = Block::Table {
+            rows: vec![vec![
+                vec![
+                    Block::Paragraph { spans: vec![InlineSpan::Text("cell text".into())], raw: "cell text".into() },
+                    Block::CodeBlock { language: None, lines: vec!["code".into()], raw: "----\ncode\n----".into() },
+                ],
+            ]],
+            raw: "|===\n| cell text\n|===\n".into(),
+            col_widths: vec![],
+            frame: None,
+            grid: None,
+        };
+        let json = table.to_qvariant_map();
+        let rows = json["rows"].as_array().unwrap();
+        let cell = &rows[0][0];
+        assert!(cell.is_array());
+        let blocks = cell.as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "paragraph");
+        assert_eq!(blocks[1]["type"], "code_block");
+    }
+
+    #[test]
+    fn admonition_with_children() {
+        let adm = Block::Admonition {
+            kind: "WARNING".into(),
+            children: vec![
+                Block::Paragraph { spans: vec![InlineSpan::Text("be careful".into())], raw: "be careful".into() },
+                Block::CodeBlock { language: None, lines: vec!["test".into()], raw: "----\ntest\n----".into() },
+            ],
+            raw: "[WARNING]\n====\nbe careful\n----\ntest\n----\n====".into(),
+        };
+        let json = adm.to_qvariant_map();
+        assert_eq!(json["kind"], "WARNING");
+        let blocks = json["blocks"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+    }
+
+    #[test]
+    fn blockquote_with_children() {
+        let bq = Block::Blockquote {
+            children: vec![
+                Block::Paragraph { spans: vec![InlineSpan::Text("line one".into())], raw: "line one".into() },
+                Block::Paragraph { spans: vec![InlineSpan::Text("line two".into())], raw: "line two".into() },
+            ],
+            raw: "> line one\n> line two".into(),
+        };
+        let json = bq.to_qvariant_map();
+        let blocks = json["blocks"].as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
     }
 }

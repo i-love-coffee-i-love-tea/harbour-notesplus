@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rusqlite::Connection;
 
@@ -49,6 +49,11 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
 
     let id = conn.last_insert_rowid();
 
+    // Index initial content into FTS
+    if !is_journal {
+        let _ = db::update_fts_content(conn, id, &format!("= {}\n", name));
+    }
+
     Ok(PageInfo {
         id,
         filename,
@@ -60,20 +65,116 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
     })
 }
 
+/// Get the first N non-empty preview blocks of a page.
+pub fn get_page_preview_blocks(notes_dir: &Path, filename: &str, limit: usize) -> Vec<crate::block::Block> {
+    get_page_preview_blocks_with_options(notes_dir, filename, limit, true)
+}
+
+/// Get the first N non-empty preview blocks of a page with configurable options.
+pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> Vec<crate::block::Block> {
+    let path = notes_dir.join(filename);
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
+        blocks
+            .into_iter()
+            .filter(|b| !matches!(b, crate::block::Block::EmptyLine))
+            .take(limit)
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// Get preview blocks serialized as JSON string with document headings populated in Table of Contents blocks.
+pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> String {
+    let path = notes_dir.join(filename);
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let all_blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
+        let mut headings_vec = Vec::new();
+        for (idx, block) in all_blocks.iter().enumerate() {
+            if let crate::block::Block::Heading { level, spans, .. } = block {
+                if *level >= 1 && *level <= 5 {
+                    let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
+                    let mut h_map = serde_json::Map::new();
+                    h_map.insert("level".into(), serde_json::Value::Number((*level).into()));
+                    h_map.insert("text".into(), serde_json::Value::String(text));
+                    h_map.insert("index".into(), serde_json::Value::Number(idx.into()));
+                    headings_vec.push(serde_json::Value::Object(h_map));
+                }
+            }
+        }
+
+        let preview_blocks: Vec<_> = all_blocks
+            .into_iter()
+            .filter(|b| !matches!(b, crate::block::Block::EmptyLine))
+            .take(limit)
+            .collect();
+
+        let mut preview_json_vec = Vec::new();
+        for block in preview_blocks {
+            let mut json = block.to_qvariant_map();
+            if let crate::block::Block::Toc { .. } = block {
+                if let serde_json::Value::Object(ref mut map) = json {
+                    map.insert("headings".into(), serde_json::Value::Array(headings_vec.clone()));
+                }
+            }
+            preview_json_vec.push(json);
+        }
+
+        serde_json::to_string(&preview_json_vec).unwrap_or_default()
+    } else {
+        "[]".to_string()
+    }
+}
+
+/// Get preview blocks serialized as JSON string (default options).
+pub fn get_page_preview_json(notes_dir: &Path, filename: &str, limit: usize) -> String {
+    get_page_preview_json_with_options(notes_dir, filename, limit, true)
+}
+
 /// Read the raw AsciiDoc content of a page.
 pub fn read_page(notes_dir: &Path, filename: &str) -> Result<String, String> {
     let path = notes_dir.join(filename);
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", filename, e))
 }
 
-/// Delete a page: remove file + delete from SQLite.
-pub fn delete_page(conn: &Connection, notes_dir: &Path, filename: &str) -> Result<(), String> {
-    let path = notes_dir.join(filename);
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
-    conn.execute("DELETE FROM pages WHERE filename = ?1", rusqlite::params![filename])
+/// Delete a page: remove file + delete from SQLite and FTS.
+pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) -> Result<(), String> {
+    let page_info = get_page(conn, name_or_filename)?;
+
+    if let Some(info) = page_info {
+        let _ = db::delete_fts_entry(conn, info.id);
+        let path = notes_dir.join(&info.filename);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+        conn.execute("DELETE FROM pages WHERE id = ?1", rusqlite::params![info.id])
+            .map_err(|e| e.to_string())?;
+    } else {
+        let direct_path = notes_dir.join(name_or_filename);
+        if direct_path.exists() {
+            let _ = std::fs::remove_file(&direct_path);
+        }
+        let adoc_name = if name_or_filename.ends_with(".adoc") {
+            name_or_filename.to_string()
+        } else {
+            format!("{}.adoc", name_or_filename)
+        };
+        let adoc_path = notes_dir.join(&adoc_name);
+        if adoc_path.exists() {
+            let _ = std::fs::remove_file(&adoc_path);
+        }
+        let sanitized = format!("{}.adoc", sanitize_filename(name_or_filename));
+        let sanitized_path = notes_dir.join(&sanitized);
+        if sanitized_path.exists() {
+            let _ = std::fs::remove_file(&sanitized_path);
+        }
+        conn.execute(
+            "DELETE FROM pages WHERE filename = ?1 OR filename = ?2 OR title = ?3",
+            rusqlite::params![name_or_filename, adoc_name, name_or_filename],
+        )
         .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -130,24 +231,44 @@ pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, St
     Ok(pages)
 }
 
-/// Get a page by filename.
-pub fn get_page(conn: &Connection, filename: &str) -> Result<Option<PageInfo>, String> {
+/// Get a page by filename or title.
+pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, filename, title, is_journal, created_at, updated_at, block_count FROM pages WHERE filename = ?1")
+        .prepare(
+            "SELECT id, filename, title, is_journal, created_at, updated_at, block_count
+             FROM pages
+             WHERE filename = ?1 OR title = ?1 OR filename = ?2 OR filename = ?3 OR title = ?4",
+        )
         .map_err(|e| e.to_string())?;
 
+    let adoc_filename = if name_or_filename.ends_with(".adoc") {
+        name_or_filename.to_string()
+    } else {
+        format!("{}.adoc", name_or_filename)
+    };
+    let sanitized_adoc = format!("{}.adoc", sanitize_filename(name_or_filename));
+    let title_without_adoc = name_or_filename.trim_end_matches(".adoc").replace('_', " ");
+
     let mut rows = stmt
-        .query_map(rusqlite::params![filename], |row| {
-            Ok(PageInfo {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                title: row.get(2)?,
-                is_journal: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                block_count: row.get(6)?,
-            })
-        })
+        .query_map(
+            rusqlite::params![
+                name_or_filename,
+                adoc_filename,
+                sanitized_adoc,
+                title_without_adoc
+            ],
+            |row| {
+                Ok(PageInfo {
+                    id: row.get(0)?,
+                    filename: row.get(1)?,
+                    title: row.get(2)?,
+                    is_journal: row.get::<_, i32>(3)? != 0,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
+                    block_count: row.get(6)?,
+                })
+            },
+        )
         .map_err(|e| e.to_string())?;
 
     match rows.next() {
@@ -166,19 +287,69 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -
     for entry in std::fs::read_dir(examples_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "adoc") {
+        if path.is_file() {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             let dest = notes_dir.join(&filename);
-            if !dest.exists() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext == "adoc" {
+                // Always overwrite to pick up updated examples
                 std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
+                let title = filename.trim_end_matches(".adoc").replace('_', " ");
+                let now = chrono::Utc::now().to_rfc3339();
+                conn.execute(
+                    "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
+                     VALUES (?1, ?2, 0, ?3, ?3, 0)",
+                    rusqlite::params![filename, title, now],
+                ).map_err(|e| e.to_string())?;
+                if let Ok(page_id) = conn.query_row(
+                    "SELECT id FROM pages WHERE filename = ?1",
+                    rusqlite::params![filename],
+                    |row| row.get::<_, i64>(0),
+                ) {
+                    if let Ok(content) = std::fs::read_to_string(&dest) {
+                        let _ = db::update_fts_content(conn, page_id, &content);
+                    }
+                }
+            } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
+                let _ = std::fs::copy(&path, &dest);
             }
-            let title = filename.trim_end_matches(".adoc").replace('_', " ");
+        }
+    }
+    Ok(())
+}
+
+/// Scan notes directory for .adoc files, insert any missing into DB and index all into FTS.
+pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), String> {
+    if !notes_dir.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(notes_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.extension().map_or(false, |ext| ext == "adoc") {
+            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+            let is_journal = filename == "journal.adoc";
+            let title = if is_journal {
+                "Journal".to_string()
+            } else {
+                filename.trim_end_matches(".adoc").replace('_', " ")
+            };
+            let content = std::fs::read_to_string(&path).unwrap_or_default();
             let now = chrono::Utc::now().to_rfc3339();
+
             conn.execute(
                 "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
-                 VALUES (?1, ?2, 0, ?3, ?3, 0)",
-                rusqlite::params![filename, title, now],
+                 VALUES (?1, ?2, ?3, ?4, ?4, 0)",
+                rusqlite::params![filename, title, is_journal as i32, now],
             ).map_err(|e| e.to_string())?;
+
+            if let Ok(page_id) = conn.query_row(
+                "SELECT id FROM pages WHERE filename = ?1",
+                rusqlite::params![filename],
+                |row| row.get::<_, i64>(0),
+            ) {
+                let _ = db::update_fts_content(conn, page_id, &content);
+            }
         }
     }
     Ok(())
@@ -261,13 +432,32 @@ mod tests {
     }
 
     #[test]
-    fn delete_page_removes_from_db() {
+    fn delete_page_removes_file_and_db_by_title() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
-        delete_page(&conn, &notes, "Test.adoc").unwrap();
+        create_page(&conn, &notes, "My Test Page", false).unwrap();
+        assert!(notes.join("My_Test_Page.adoc").exists());
+        let search1 = crate::search::search_pages(&conn, "Test").unwrap();
+        assert_eq!(search1.len(), 1);
+
+        delete_page(&conn, &notes, "My Test Page").unwrap();
+        assert!(!notes.join("My_Test_Page.adoc").exists());
         let pages = list_pages(&conn).unwrap();
         assert!(pages.is_empty());
+        let search2 = crate::search::search_pages(&conn, "Test").unwrap();
+        assert!(search2.is_empty());
+    }
+
+    #[test]
+    fn get_page_finds_by_title_or_filename() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        create_page(&conn, &notes, "Special Note", false).unwrap();
+
+        assert!(get_page(&conn, "Special Note").unwrap().is_some());
+        assert!(get_page(&conn, "Special_Note").unwrap().is_some());
+        assert!(get_page(&conn, "Special_Note.adoc").unwrap().is_some());
+        assert!(get_page(&conn, "Nonexistent").unwrap().is_none());
     }
 
     #[test]
@@ -279,6 +469,38 @@ mod tests {
         create_page(&conn, &notes, "Second", false).unwrap();
         let pages = list_pages(&conn).unwrap();
         assert_eq!(pages[0].title, "Second");
+    }
+
+    #[test]
+    fn get_page_preview_blocks_extracts_top_blocks() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        create_page(&conn, &notes, "Preview Note", false).unwrap();
+        let content = "= Preview Note\n\nFirst intro paragraph.\n\n* Item 1\n* Item 2\n\n[NOTE]\nImportant tip!\n";
+        std::fs::write(notes.join("Preview_Note.adoc"), content).unwrap();
+
+        let previews = get_page_preview_blocks(&notes, "Preview_Note.adoc", 3);
+        assert_eq!(previews.len(), 3);
+        assert!(matches!(previews[0], crate::block::Block::Heading { level: 1, .. }));
+        assert!(matches!(previews[1], crate::block::Block::Paragraph { .. }));
+        assert!(matches!(previews[2], crate::block::Block::UnorderedListItem { .. }));
+    }
+
+    #[test]
+    fn get_page_preview_json_includes_toc_headings() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        create_page(&conn, &notes, "Toc Note", false).unwrap();
+        let content = "= Toc Note\n:toc:\n\n== Section One\nText 1\n\n== Section Two\nText 2\n";
+        std::fs::write(notes.join("Toc_Note.adoc"), content).unwrap();
+
+        let preview_json_str = get_page_preview_json(&notes, "Toc_Note.adoc", 5);
+        let parsed: serde_json::Value = serde_json::from_str(&preview_json_str).unwrap();
+        assert!(parsed.is_array());
+        let toc_obj = parsed.as_array().unwrap().iter().find(|b| b["type"] == "toc").expect("TOC block");
+        assert!(toc_obj["headings"].is_array());
+        let headings = toc_obj["headings"].as_array().unwrap();
+        assert_eq!(headings.len(), 3); // = Toc Note, == Section One, == Section Two
     }
 
     #[test]
@@ -317,5 +539,26 @@ mod tests {
         assert!(!notes.join("not_adoc.txt").exists());
         let pages = list_pages(&conn).unwrap();
         assert!(pages.iter().any(|p| p.filename == "test.adoc"));
+    }
+
+    #[test]
+    fn sync_and_index_pages_registers_existing_files() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        std::fs::write(notes.join("manual_doc.adoc"), "= Manual Doc\nContent about thermodynamics.\n").unwrap();
+        std::fs::write(notes.join("journal.adoc"), "= Journal\n== 2026-09-05\n* Logged in\n").unwrap();
+
+        sync_and_index_pages(&conn, &notes).unwrap();
+
+        let page = get_page(&conn, "manual_doc.adoc").unwrap().expect("manual doc should be registered");
+        assert_eq!(page.title, "manual doc");
+
+        let journal = get_page(&conn, "journal.adoc").unwrap().expect("journal should be registered");
+        assert!(journal.is_journal);
+
+        // Verify FTS search finds the content
+        let results = crate::search::search_pages(&conn, "thermodynamics").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].page.title, "manual doc");
     }
 }

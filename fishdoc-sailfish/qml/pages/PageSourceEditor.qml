@@ -1,20 +1,20 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../components"
 
 Dialog {
-    id: blockEditor
+    id: pageSourceEditor
     allowedOrientations: Orientation.All
 
-    property string rawText: ""
-    property int blockIndex: -1
-    property int blockCount: 1
-    property int initialCursorPosition: -1
+    property string pageName: ""
+    property string initialText: ""
 
     canAccept: true
 
     Component.onCompleted: {
-        if (initialCursorPosition >= 0) {
-            textArea.cursorPosition = initialCursorPosition
+        if (pageName.length > 0) {
+            initialText = bridge.get_page_source(pageName)
+            textArea.text = initialText
         }
         textArea.forceActiveFocus()
     }
@@ -28,6 +28,7 @@ Dialog {
             width: parent.width
 
             DialogHeader {
+                title: "Edit " + pageName
                 acceptText: "Save"
                 cancelText: "Cancel"
             }
@@ -41,25 +42,17 @@ Dialog {
             TextArea {
                 id: textArea
                 width: parent.width
-                height: Math.max(implicitHeight, blockEditor.height - Theme.itemSizeLarge * 2)
-                text: rawText
+                height: Math.max(implicitHeight, pageSourceEditor.height - Theme.itemSizeLarge * 2)
+                text: initialText
                 font.family: "monospace"
                 font.pixelSize: Math.round(Theme.fontSizeSmall * (typeof app !== "undefined" && app && app.codeFontScale ? app.codeFontScale : 1.0))
                 color: Theme.primaryColor
-                placeholderText: "Enter AsciiDoc content..."
-                onTextChanged: {
-                    rawText = textArea.text
-                }
+                placeholderText: "Enter AsciiDoc document source..."
             }
         }
     }
 
     onAccepted: {
-        rawText = textArea.text
-        if (blockCount > 1) {
-            bridge.save_block_range(blockIndex, blockCount, rawText)
-        } else {
-            bridge.save_block(blockIndex, rawText)
-        }
+        bridge.save_page_source(pageName, textArea.text)
     }
 }

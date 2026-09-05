@@ -2,3 +2,5 @@ target/
 rpms/
 *.rpm
 .mimocode/
+.junie/
+*.bak

@@ -13,7 +13,7 @@ FishDoc uses a 3-crate workspace:
 2. `fishdoc-sailfish` — Sailfish OS GUI
 3. `vendor/sailors` — SailfishApp FFI
 
-[INFO]
+[NOTE]
 ====
 The core library has no Qt or Sailfish dependencies and can be tested independently with `cargo test -p fishdoc-core`.
 ====

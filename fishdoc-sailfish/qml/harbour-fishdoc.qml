@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import Nemo.Configuration 1.0
 import harbour.fishdoc 1.0
 import "pages"
 import "cover"
@@ -8,7 +9,94 @@ ApplicationWindow {
     id: app
     _defaultPageOrientations: Orientation.All
 
+    ConfigurationValue {
+        id: fontSizeScaleConf
+        key: "/apps/harbour-fishdoc/font_size_scale"
+        defaultValue: 1.0
+    }
+
+    ConfigurationValue {
+        id: fontFamilyConf
+        key: "/apps/harbour-fishdoc/font_family"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: codeFontScaleConf
+        key: "/apps/harbour-fishdoc/code_font_scale"
+        defaultValue: 1.0
+    }
+
+    ConfigurationValue {
+        id: tocCollapseThresholdConf
+        key: "/apps/harbour-fishdoc/toc_collapse_threshold"
+        defaultValue: 5
+    }
+
+    ConfigurationValue {
+        id: previewScaleConf
+        key: "/apps/harbour-fishdoc/preview_scale"
+        defaultValue: 0.52
+    }
+
+    ConfigurationValue {
+        id: dropCommentsConf
+        key: "/apps/harbour-fishdoc/drop_comments"
+        defaultValue: true
+    }
+
+    property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
+    property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
+    property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
+    property int tocCollapseThreshold: tocCollapseThresholdConf.value !== undefined ? tocCollapseThresholdConf.value : 5
+    property real previewScale: previewScaleConf.value !== undefined && previewScaleConf.value > 0 ? previewScaleConf.value : 0.52
+    property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
+
+    function setFontScale(scale) {
+        fontSizeScaleConf.value = scale
+    }
+
+    function setFontFamily(family) {
+        fontFamilyConf.value = family
+    }
+
+    function setCodeFontScale(scale) {
+        codeFontScaleConf.value = scale
+    }
+
+    function setTocCollapseThreshold(threshold) {
+        tocCollapseThresholdConf.value = threshold
+    }
+
+    function setPreviewScale(scale) {
+        previewScaleConf.value = scale
+    }
+
+    function setDropComments(drop) {
+        dropCommentsConf.value = drop
+        bridge.set_drop_comments(drop)
+    }
+
+    function openSearch() {
+        pageStack.pop(null, PageStackAction.Immediate)
+        bridge.load_main_page_data()
+        app.activate()
+        if (pageStack.currentPage && typeof pageStack.currentPage.activateSearch === "function") {
+            pageStack.currentPage.activateSearch()
+        }
+    }
+
+    function openJournal() {
+        pageStack.pop(null, PageStackAction.Immediate)
+        pageStack.push(Qt.resolvedUrl("pages/PageView.qml"), {
+            pageName: "Journal"
+        })
+        bridge.load_page("Journal")
+        app.activate()
+    }
+
     Component.onCompleted: {
+        bridge.set_drop_comments(app.dropComments)
         pageStack.forceActiveFocus()
         bridge.load_main_page_data()
     }

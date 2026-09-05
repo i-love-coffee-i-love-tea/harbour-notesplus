@@ -1,7 +1,7 @@
 Name:       harbour-fishdoc
 Summary:    FishDoc — AsciiDoc notes app for Sailfish OS
 Version:    0.1.0
-Release:    1
+Release:    9
 Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-fishdoc
@@ -40,7 +40,7 @@ export CXXFLAGS_aarch64_unknown_linux_gnu=$CXXFLAGS
 rustc --version
 cargo --version
 
-cargo build --release -p harbour-fishdoc
+cargo build --release --locked -p harbour-fishdoc
 
 %install
 rm -rf %{buildroot}
@@ -60,6 +60,15 @@ cp -r fishdoc-sailfish/qml/* %{buildroot}%{_datadir}/%{name}/qml/
 
 mkdir -p %{buildroot}%{_datadir}/%{name}/examples
 cp fishdoc-core/examples/*.adoc %{buildroot}%{_datadir}/%{name}/examples/
+cp fishdoc-core/examples/*.yml %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
+cp fishdoc-core/examples/*.png %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
+cp fishdoc-core/examples/*.jpg %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
+cp fishdoc-core/examples/*.svg %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
+cp rpm/%{name}.png %{buildroot}%{_datadir}/%{name}/examples/icon.png 2>/dev/null || true
+if [ -d fishdoc-core/examples/chronicles ]; then
+    mkdir -p %{buildroot}%{_datadir}/%{name}/examples/chronicles
+    cp fishdoc-core/examples/chronicles/* %{buildroot}%{_datadir}/%{name}/examples/chronicles/
+fi
 
 mkdir -p %{buildroot}%{_datadir}/applications
 cat > %{buildroot}%{_datadir}/applications/%{name}.desktop << EOF
@@ -81,7 +90,7 @@ mkdir -p %{buildroot}%{_sysconfdir}/sailjail/permissions
 install -m 644 %{_sourcedir}/%{name}.profile %{buildroot}%{_sysconfdir}/sailjail/permissions/
 
 mkdir -p %{buildroot}%{_datadir}/icons/hicolor/86x86/apps
-install -m 644 %{_sourcedir}/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/86x86/apps/%{name}.png 2>/dev/null || true
+install -m 644 rpm/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/86x86/apps/%{name}.png
 
 %files
 %defattr(-,root,root,-)
@@ -89,4 +98,5 @@ install -m 644 %{_sourcedir}/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/8
 %{_datadir}/%{name}/qml
 %{_datadir}/%{name}/examples
 %{_datadir}/applications/%{name}.desktop
+%{_datadir}/icons/hicolor/86x86/apps/%{name}.png
 %config %{_sysconfdir}/sailjail/permissions/%{name}.profile
