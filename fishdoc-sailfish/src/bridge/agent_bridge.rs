@@ -6,8 +6,9 @@ use std::thread;
 use qmetaobject::*;
 
 use fishdoc_core::agent::{
-    build_template_instruction, AgentSession, AgentStepResult, LlmClient, LlmConfig,
-    LlmProvider, PendingConfirmation, PermissionConfig, PermissionManager,
+    build_import_instruction, build_template_instruction, fetch_url, AgentSession,
+    AgentStepResult, LlmClient, LlmConfig, LlmProvider, PendingConfirmation,
+    PermissionConfig, PermissionManager,
 };
 
 enum WorkerTask {
@@ -22,6 +23,7 @@ struct WorkerOutput {
     pending_action: Option<PendingConfirmation>,
     can_undo: bool,
     last_snapshot_id: Option<String>,
+    last_created_note: Option<String>,
 }
 
 #[derive(QObject)]
@@ -35,6 +37,7 @@ pub struct AgentBridge {
     has_pending_action: qt_property!(bool; NOTIFY pending_action_changed),
     can_undo: qt_property!(bool; NOTIFY undo_state_changed),
     last_snapshot_id: qt_property!(String; NOTIFY undo_state_changed),
+    last_created_note: qt_property!(String; NOTIFY last_created_note_changed),
     error_message: qt_property!(String; NOTIFY error_occurred),
 
     // Configuration properties
@@ -52,6 +55,7 @@ pub struct AgentBridge {
     messages_changed: qt_signal!(),
     pending_action_changed: qt_signal!(),
     undo_state_changed: qt_signal!(),
+    last_created_note_changed: qt_signal!(),
     config_changed: qt_signal!(),
     error_occurred: qt_signal!(message: String),
     response_finished: qt_signal!(content: String),
@@ -62,6 +66,9 @@ pub struct AgentBridge {
     reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
     send_prompt: qt_method!(fn(&mut self, text: String)),
     run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_content: String)),
+    import_text: qt_method!(fn(&mut self, source_text: String, target_title: String, mode: String, custom_instruction: String)),
+    fetch_url_content: qt_method!(fn(&mut self, url: String) -> String),
+    read_local_file: qt_method!(fn(&mut self, file_path: String) -> String),
     confirm_action: qt_method!(fn(&mut self, approved: bool)),
     undo_last_action: qt_method!(fn(&mut self)),
     poll_worker: qt_method!(fn(&mut self) -> bool),
@@ -106,6 +113,7 @@ impl Default for AgentBridge {
             has_pending_action: false,
             can_undo: false,
             last_snapshot_id: String::new(),
+            last_created_note: String::new(),
             error_message: String::new(),
             provider_type: "ollama".to_string(),
             endpoint_url: "http://192.168.1.1:11434".to_string(),
@@ -119,6 +127,7 @@ impl Default for AgentBridge {
             messages_changed: Default::default(),
             pending_action_changed: Default::default(),
             undo_state_changed: Default::default(),
+            last_created_note_changed: Default::default(),
             config_changed: Default::default(),
             error_occurred: Default::default(),
             response_finished: Default::default(),
@@ -127,6 +136,9 @@ impl Default for AgentBridge {
             reset_session: Default::default(),
             send_prompt: Default::default(),
             run_template: Default::default(),
+            import_text: Default::default(),
+            fetch_url_content: Default::default(),
+            read_local_file: Default::default(),
             confirm_action: Default::default(),
             undo_last_action: Default::default(),
             poll_worker: Default::default(),
@@ -239,6 +251,57 @@ impl AgentBridge {
         self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
     }
 
+    pub fn import_text(
+        &mut self,
+        source_text: String,
+        target_title: String,
+        mode: String,
+        custom_instruction: String,
+    ) {
+        if self.agent_busy || source_text.trim().is_empty() {
+            return;
+        }
+        let title_opt = if !target_title.trim().is_empty() {
+            Some(target_title.as_str())
+        } else {
+            None
+        };
+        let custom_opt = if !custom_instruction.trim().is_empty() {
+            Some(custom_instruction.as_str())
+        } else {
+            None
+        };
+        let formatted_prompt = build_import_instruction(&source_text, title_opt, &mode, custom_opt);
+        self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
+    }
+
+    pub fn fetch_url_content(&mut self, url: String) -> String {
+        match fetch_url(&url) {
+            Ok(text) => text,
+            Err(e) => format!("Error fetching URL: {}", e),
+        }
+    }
+
+    pub fn read_local_file(&mut self, file_path: String) -> String {
+        let p = file_path.trim();
+        if p.is_empty() {
+            return String::new();
+        }
+        let expanded = if p.starts_with("~/") {
+            if let Ok(home) = std::env::var("HOME") {
+                PathBuf::from(home).join(&p[2..])
+            } else {
+                PathBuf::from(p)
+            }
+        } else {
+            PathBuf::from(p)
+        };
+        match std::fs::read_to_string(&expanded) {
+            Ok(content) => content,
+            Err(e) => format!("Error reading file: {}", e),
+        }
+    }
+
     pub fn confirm_action(&mut self, approved: bool) {
         if self.agent_busy || !self.has_pending_action {
             return;
@@ -269,6 +332,7 @@ impl AgentBridge {
                         let pending = session.pending_action().cloned();
                         let can_undo = session.can_undo();
                         let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+                        let last_created = session.last_created_note().map(|s| s.to_string());
 
                         WorkerOutput {
                             step_result: Ok(step_res),
@@ -276,6 +340,7 @@ impl AgentBridge {
                             pending_action: pending,
                             can_undo,
                             last_snapshot_id: last_snap,
+                            last_created_note: last_created,
                         }
                     }
                     WorkerTask::ConfirmAction(approved) => {
@@ -284,6 +349,7 @@ impl AgentBridge {
                         let pending = session.pending_action().cloned();
                         let can_undo = session.can_undo();
                         let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+                        let last_created = session.last_created_note().map(|s| s.to_string());
 
                         WorkerOutput {
                             step_result: Ok(step_res),
@@ -291,6 +357,7 @@ impl AgentBridge {
                             pending_action: pending,
                             can_undo,
                             last_snapshot_id: last_snap,
+                            last_created_note: last_created,
                         }
                     }
                     WorkerTask::UndoAction => {
@@ -299,6 +366,7 @@ impl AgentBridge {
                         let pending = session.pending_action().cloned();
                         let can_undo = session.can_undo();
                         let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+                        let last_created = session.last_created_note().map(|s| s.to_string());
 
                         let step_result = match undo_res {
                             Ok(msg) => Ok(AgentStepResult::Finished {
@@ -314,6 +382,7 @@ impl AgentBridge {
                             pending_action: pending,
                             can_undo,
                             last_snapshot_id: last_snap,
+                            last_created_note: last_created,
                         }
                     }
                 },
@@ -323,6 +392,7 @@ impl AgentBridge {
                     pending_action: None,
                     can_undo: false,
                     last_snapshot_id: None,
+                    last_created_note: None,
                 },
             };
 
@@ -347,6 +417,7 @@ impl AgentBridge {
             self.messages_json = output.messages_json;
             self.can_undo = output.can_undo;
             self.last_snapshot_id = output.last_snapshot_id.unwrap_or_default();
+            self.last_created_note = output.last_created_note.unwrap_or_default();
 
             if let Some(pending) = output.pending_action {
                 self.pending_action_json = serde_json::to_string(&pending).unwrap_or_default();
@@ -382,6 +453,7 @@ impl AgentBridge {
             self.messages_changed();
             self.pending_action_changed();
             self.undo_state_changed();
+            self.last_created_note_changed();
             return true;
         }
 

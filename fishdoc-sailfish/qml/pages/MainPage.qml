@@ -6,6 +6,12 @@ Page {
     id: mainPage
     allowedOrientations: Orientation.All
 
+    onStatusChanged: {
+        if (status === PageStatus.Active) {
+            bridge.load_main_page_data()
+        }
+    }
+
     property var parsedSearchResults: {
         var list = []
         for (var i = 0; i < bridge.search_results.length; i++) {
@@ -45,6 +51,12 @@ Page {
                 text: "Settings"
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+                }
+            }
+            MenuItem {
+                text: "Import Assistant"
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("ImportAssistantPage.qml"))
                 }
             }
             MenuItem {

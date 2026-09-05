@@ -57,7 +57,12 @@ Page {
             remorsePopup.execute("AI Error: " + message, function() {})
         }
 
+        onResponse_finished: {
+            bridge.load_main_page_data()
+        }
+
         onUndo_completed: {
+            bridge.load_main_page_data()
             remorsePopup.execute(message, function() {})
         }
     }
@@ -173,6 +178,15 @@ Page {
                             assistantPage.applyConfig()
                             agentBridge.run_template("analyze_external", promptField.text, contextContent)
                             promptField.text = ""
+                        }
+                    }
+
+                    Button {
+                        text: "📥 Import Assistant"
+                        preferredWidth: Theme.buttonWidthExtraSmall
+                        enabled: !agentBridge.agent_busy
+                        onClicked: {
+                            pageStack.push(Qt.resolvedUrl("ImportAssistantPage.qml"))
                         }
                     }
                 }

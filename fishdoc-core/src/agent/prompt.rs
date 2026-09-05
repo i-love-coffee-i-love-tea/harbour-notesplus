@@ -124,6 +124,9 @@ pub fn build_template_instruction(
                 base_content
             )
         }
+        "import_convert" => {
+            build_import_instruction(base_content, None, "convert_full", None)
+        }
         _ => {
             if base_content.is_empty() {
                 user_input.to_string()
@@ -132,6 +135,52 @@ pub fn build_template_instruction(
             }
         }
     }
+}
+
+/// Builds an import and conversion instruction for external text into an AsciiDoc note.
+pub fn build_import_instruction(
+    source_text: &str,
+    target_title: Option<&str>,
+    mode: &str,
+    custom_instruction: Option<&str>,
+) -> String {
+    let mode_desc = match mode {
+        "summarize" => "Summarize the key ideas and structure them logically with headings, bullet points, and tables in a clean AsciiDoc note.",
+        "action_items" => "Analyze the text and extract all actionable tasks, checklist items (`* [ ]`), assignees, and deadlines into a structured AsciiDoc note.",
+        _ => "Convert the entire source text faithfully into high-fidelity AsciiDoc markup, converting all headings, lists, checklists, tables, code blocks, and formatting into valid AsciiDoc.",
+    };
+
+    let title_instruction = match target_title {
+        Some(t) if !t.trim().is_empty() => format!("Use '{}' as the note title for the document header (`= {}`) and create_note call.", t.trim(), t.trim()),
+        _ => "Determine a concise, descriptive document title from the content and use it for the document header (`= Title`) and create_note call.".to_string(),
+    };
+
+    let custom = match custom_instruction {
+        Some(c) if !c.trim().is_empty() => format!("\nAdditional User Instructions: {}\n", c.trim()),
+        _ => String::new(),
+    };
+
+    format!(
+        "Please import and convert the following external text into an AsciiDoc note.\n\n\
+        === Conversion Goal ===\n\
+        {}\n\
+        {}\n\
+        {}\n\
+        === Strict AsciiDoc Rules ===\n\
+        - Start with a Level 0/1 document title: `= Title`\n\
+        - Use `== Section`, `=== Subsection` for headings (never `#` or `##`)\n\
+        - Use `* [ ]` for unchecked task items and `* [x]` for checked items\n\
+        - Use `|===` for tables, `[source,lang]----` for code blocks, and `NOTE:`, `TIP:`, etc. for admonitions\n\
+        - Call the `create_note` tool with the chosen title and the complete converted AsciiDoc content.\n\
+        - Conclude with a brief, friendly summary of what was imported.\n\n\
+        === Source Text ===\n\
+        {}\n\
+        === End Source Text ===",
+        mode_desc,
+        title_instruction,
+        custom,
+        source_text.trim()
+    )
 }
 
 #[cfg(test)]
@@ -174,5 +223,24 @@ mod tests {
         let beautify = build_template_instruction("beautify", "", Some("= Simple note\nSome text"));
         assert!(beautify.contains("beautify the following AsciiDoc"));
         assert!(beautify.contains("= Simple note"));
+
+        let import = build_template_instruction("import_convert", "# Markdown header\nSome markdown text", None);
+        assert!(import.contains("import and convert the following external text"));
+        assert!(import.contains("Markdown header"));
+    }
+
+    #[test]
+    fn test_build_import_instruction_custom_title_and_mode() {
+        let prompt = build_import_instruction(
+            "Project planning meeting...",
+            Some("Q4 Planning"),
+            "action_items",
+            Some("Keep it under 10 bullets"),
+        );
+        assert!(prompt.contains("Q4 Planning"));
+        assert!(prompt.contains("extract all actionable tasks"));
+        assert!(prompt.contains("Keep it under 10 bullets"));
+        assert!(prompt.contains("Project planning meeting..."));
+        assert!(prompt.contains("create_note"));
     }
 }

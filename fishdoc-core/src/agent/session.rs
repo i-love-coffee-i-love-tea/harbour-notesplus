@@ -32,6 +32,7 @@ pub struct AgentSession {
     messages: Vec<ChatMessage>,
     pending_action: Option<PendingConfirmation>,
     last_snapshot_id: Option<String>,
+    last_created_note: Option<String>,
     max_tool_turns: usize,
 }
 
@@ -52,6 +53,7 @@ impl AgentSession {
             messages: Vec::new(),
             pending_action: None,
             last_snapshot_id: None,
+            last_created_note: None,
             max_tool_turns: 8,
         }
     }
@@ -84,6 +86,10 @@ impl AgentSession {
         self.last_snapshot_id.as_deref()
     }
 
+    pub fn last_created_note(&self) -> Option<&str> {
+        self.last_created_note.as_deref()
+    }
+
     pub fn can_undo(&self) -> bool {
         self.last_snapshot_id.is_some()
     }
@@ -102,6 +108,7 @@ impl AgentSession {
     ) {
         self.messages.clear();
         self.pending_action = None;
+        self.last_created_note = None;
         let sys_prompt = build_system_prompt(active_note, extra_context);
         self.messages.push(ChatMessage::system(sys_prompt));
     }
@@ -271,6 +278,7 @@ impl AgentSession {
                                 let _ = fs::write(&path, content);
                                 let _ = db::update_fts_content(&conn, created.id, content);
                             }
+                            self.last_created_note = Some(created.title.clone());
                             format!("Successfully created note '{}' ({})", created.title, created.filename)
                         }
                         Err(e) => format!("Error creating note: {}", e),

@@ -150,6 +150,30 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     ]
 }
 
+/// Helper to download web text from an HTTP/HTTPS URL.
+pub fn fetch_url(url: &str) -> Result<String, String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    let target = if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        format!("https://{}", trimmed)
+    } else {
+        trimmed.to_string()
+    };
+    match ureq::get(&target).timeout(std::time::Duration::from_secs(15)).call() {
+        Ok(resp) => {
+            let text = resp.into_string().unwrap_or_default();
+            if text.len() > 15000 {
+                Ok(format!("{}... [truncated]", &text[..15000]))
+            } else {
+                Ok(text)
+            }
+        }
+        Err(e) => Err(format!("Failed to fetch URL '{}': {}", target, e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
