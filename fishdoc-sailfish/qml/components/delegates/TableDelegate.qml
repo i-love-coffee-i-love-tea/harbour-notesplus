@@ -64,9 +64,24 @@ Column {
                 id: rowItem
                 property int rowIndex: index
                 property var rowCells: modelData || []
+                property var cellHeights: ({})
+                property real maxCellHeight: Math.round(Theme.itemSizeExtraSmall * 0.7)
+
+                function updateCellHeight(colIdx, h) {
+                    var copy = cellHeights
+                    copy[colIdx] = h
+                    var maxH = Math.round(Theme.itemSizeExtraSmall * 0.7)
+                    for (var k in copy) {
+                        if (copy[k] > maxH) maxH = copy[k]
+                    }
+                    maxCellHeight = maxH
+                }
+
                 width: parent.width
+                height: maxCellHeight
 
                 Repeater {
+                    id: cellRepeater
                     model: rowCells
                     delegate: Item {
                         id: cellItem
@@ -86,7 +101,11 @@ Column {
                             }
                             return (totalW / tableGrid.columnCount) * cellColSpan
                         }
-                        height: Math.max(cellText.height + 16, Theme.itemSizeExtraSmall * 0.7)
+                        property real naturalHeight: Math.max(cellText.height + 16, Math.round(Theme.itemSizeExtraSmall * 0.7))
+                        onNaturalHeightChanged: rowItem.updateCellHeight(colIndex, naturalHeight)
+                        Component.onCompleted: rowItem.updateCellHeight(colIndex, naturalHeight)
+
+                        height: rowItem.maxCellHeight
 
                         Rectangle {
                             anchors.fill: parent

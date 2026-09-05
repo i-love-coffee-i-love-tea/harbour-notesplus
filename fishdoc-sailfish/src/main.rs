@@ -27,6 +27,9 @@ fn main() {
     let name = CStr::from_bytes_with_nul(b"FishdocBridge\0").unwrap();
     qml_register_type::<bridge::FishdocBridge>(uri, 1, 0, name);
 
+    let agent_name = CStr::from_bytes_with_nul(b"AgentBridge\0").unwrap();
+    qml_register_type::<bridge::AgentBridge>(uri, 1, 0, agent_name);
+
     let qml_file = PathBuf::from("/usr/share/harbour-fishdoc/qml/harbour-fishdoc.qml");
     let qml_url = if qml_file.exists() {
         QUrl::from(QString::from("file:///usr/share/harbour-fishdoc/qml/harbour-fishdoc.qml"))

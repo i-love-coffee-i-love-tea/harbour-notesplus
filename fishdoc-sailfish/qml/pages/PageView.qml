@@ -132,6 +132,14 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: "Ask AI Assistant"
+                onClicked: {
+                    var content = bridge.get_page_source(pageName)
+                    var fname = pageName.indexOf(".adoc") >= 0 ? pageName : (pageName + ".adoc")
+                    app.openAssistant(fname, content)
+                }
+            }
+            MenuItem {
                 text: "Edit Source"
                 onClicked: {
                     var editor = pageStack.push(Qt.resolvedUrl("PageSourceEditor.qml"), {

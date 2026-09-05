@@ -1,0 +1,390 @@
+//! QMetaObject bridge exposing AI Assistant to Sailfish OS QML.
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use qmetaobject::*;
+
+use fishdoc_core::agent::{
+    build_template_instruction, AgentSession, AgentStepResult, LlmClient, LlmConfig,
+    LlmProvider, PendingConfirmation, PermissionConfig, PermissionManager,
+};
+
+enum WorkerTask {
+    SendPrompt(String),
+    ConfirmAction(bool),
+    UndoAction,
+}
+
+struct WorkerOutput {
+    step_result: Result<AgentStepResult, String>,
+    messages_json: String,
+    pending_action: Option<PendingConfirmation>,
+    can_undo: bool,
+    last_snapshot_id: Option<String>,
+}
+
+#[derive(QObject)]
+pub struct AgentBridge {
+    base: qt_base_class!(trait QObject),
+
+    // Properties
+    agent_busy: qt_property!(bool; NOTIFY busy_changed),
+    messages_json: qt_property!(String; NOTIFY messages_changed),
+    pending_action_json: qt_property!(String; NOTIFY pending_action_changed),
+    has_pending_action: qt_property!(bool; NOTIFY pending_action_changed),
+    can_undo: qt_property!(bool; NOTIFY undo_state_changed),
+    last_snapshot_id: qt_property!(String; NOTIFY undo_state_changed),
+    error_message: qt_property!(String; NOTIFY error_occurred),
+
+    // Configuration properties
+    provider_type: qt_property!(String; NOTIFY config_changed),
+    endpoint_url: qt_property!(String; NOTIFY config_changed),
+    model_name: qt_property!(String; NOTIFY config_changed),
+    api_key: qt_property!(String; NOTIFY config_changed),
+    timeout_secs: qt_property!(i32; NOTIFY config_changed),
+    auto_allow_read: qt_property!(bool; NOTIFY config_changed),
+    auto_allow_create: qt_property!(bool; NOTIFY config_changed),
+    require_confirm_edit: qt_property!(bool; NOTIFY config_changed),
+
+    // Signals
+    busy_changed: qt_signal!(),
+    messages_changed: qt_signal!(),
+    pending_action_changed: qt_signal!(),
+    undo_state_changed: qt_signal!(),
+    config_changed: qt_signal!(),
+    error_occurred: qt_signal!(message: String),
+    response_finished: qt_signal!(content: String),
+    undo_completed: qt_signal!(message: String),
+
+    // Methods
+    configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool)),
+    reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
+    send_prompt: qt_method!(fn(&mut self, text: String)),
+    run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_content: String)),
+    confirm_action: qt_method!(fn(&mut self, approved: bool)),
+    undo_last_action: qt_method!(fn(&mut self)),
+    poll_worker: qt_method!(fn(&mut self) -> bool),
+
+    // Internal shared state
+    session: Arc<Mutex<AgentSession>>,
+    worker_result: Arc<Mutex<Option<WorkerOutput>>>,
+}
+
+impl Default for AgentBridge {
+    fn default() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let data_dir = PathBuf::from(&home).join(".local").join("share").join("harbour-fishdoc");
+        let notes_dir = data_dir.join("notes");
+        let db_path = data_dir.join("fishdoc.db");
+        let backup_dir = data_dir.join("backups");
+
+        let _ = std::fs::create_dir_all(&notes_dir);
+        let _ = std::fs::create_dir_all(&backup_dir);
+
+        let config = LlmConfig::default();
+        let perm_config = PermissionConfig::default();
+        let client = LlmClient::new(config);
+        let perm_mgr = PermissionManager::new(perm_config);
+
+        let mut session = AgentSession::new(
+            &notes_dir,
+            &db_path,
+            &backup_dir,
+            perm_mgr,
+            client,
+        );
+        session.reset_session(None, None);
+
+        let initial_messages = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+
+        Self {
+            base: Default::default(),
+            agent_busy: false,
+            messages_json: initial_messages,
+            pending_action_json: String::new(),
+            has_pending_action: false,
+            can_undo: false,
+            last_snapshot_id: String::new(),
+            error_message: String::new(),
+            provider_type: "ollama".to_string(),
+            endpoint_url: "http://192.168.1.1:11434".to_string(),
+            model_name: "llama3.2".to_string(),
+            api_key: String::new(),
+            timeout_secs: 90,
+            auto_allow_read: true,
+            auto_allow_create: true,
+            require_confirm_edit: true,
+            busy_changed: Default::default(),
+            messages_changed: Default::default(),
+            pending_action_changed: Default::default(),
+            undo_state_changed: Default::default(),
+            config_changed: Default::default(),
+            error_occurred: Default::default(),
+            response_finished: Default::default(),
+            undo_completed: Default::default(),
+            configure: Default::default(),
+            reset_session: Default::default(),
+            send_prompt: Default::default(),
+            run_template: Default::default(),
+            confirm_action: Default::default(),
+            undo_last_action: Default::default(),
+            poll_worker: Default::default(),
+            session: Arc::new(Mutex::new(session)),
+            worker_result: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl AgentBridge {
+    pub fn configure(
+        &mut self,
+        provider: String,
+        url: String,
+        model: String,
+        key: String,
+        timeout: i32,
+        auto_read: bool,
+        auto_create: bool,
+        require_edit: bool,
+    ) {
+        self.provider_type = provider.clone();
+        self.endpoint_url = url.clone();
+        self.model_name = model.clone();
+        self.api_key = key.clone();
+        self.timeout_secs = if timeout > 0 { timeout } else { 90 };
+        self.auto_allow_read = auto_read;
+        self.auto_allow_create = auto_create;
+        self.require_confirm_edit = require_edit;
+
+        let provider_enum = if provider.to_lowercase() == "mimocode" || provider.to_lowercase() == "openai" {
+            LlmProvider::OpenAiCompatible
+        } else {
+            LlmProvider::Ollama
+        };
+
+        let llm_config = LlmConfig {
+            provider: provider_enum,
+            endpoint_url: url,
+            model,
+            api_key: if key.trim().is_empty() { None } else { Some(key) },
+            timeout_secs: self.timeout_secs as u64,
+        };
+
+        let perm_config = PermissionConfig {
+            auto_allow_read: auto_read,
+            auto_allow_create: auto_create,
+            require_confirm_edit: require_edit,
+        };
+
+        if let Ok(mut session) = self.session.lock() {
+            session.update_config(
+                PermissionManager::new(perm_config),
+                LlmClient::new(llm_config),
+            );
+        }
+
+        self.config_changed();
+    }
+
+    pub fn reset_session(
+        &mut self,
+        context_filename: String,
+        context_content: String,
+        extra_context: String,
+    ) {
+        if let Ok(mut session) = self.session.lock() {
+            let active = if !context_filename.trim().is_empty() {
+                Some((context_filename.as_str(), context_content.as_str()))
+            } else {
+                None
+            };
+            let extra = if !extra_context.trim().is_empty() {
+                Some(extra_context.as_str())
+            } else {
+                None
+            };
+            session.reset_session(active, extra);
+            self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+            self.pending_action_json = String::new();
+            self.has_pending_action = false;
+        }
+
+        self.messages_changed();
+        self.pending_action_changed();
+    }
+
+    pub fn send_prompt(&mut self, text: String) {
+        if self.agent_busy || text.trim().is_empty() {
+            return;
+        }
+        self.spawn_worker(WorkerTask::SendPrompt(text));
+    }
+
+    pub fn run_template(
+        &mut self,
+        template_id: String,
+        input_text: String,
+        context_content: String,
+    ) {
+        if self.agent_busy {
+            return;
+        }
+        let active_opt = if !context_content.trim().is_empty() {
+            Some(context_content.as_str())
+        } else {
+            None
+        };
+        let formatted_prompt = build_template_instruction(&template_id, &input_text, active_opt);
+        self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
+    }
+
+    pub fn confirm_action(&mut self, approved: bool) {
+        if self.agent_busy || !self.has_pending_action {
+            return;
+        }
+        self.spawn_worker(WorkerTask::ConfirmAction(approved));
+    }
+
+    pub fn undo_last_action(&mut self) {
+        if self.agent_busy || !self.can_undo {
+            return;
+        }
+        self.spawn_worker(WorkerTask::UndoAction);
+    }
+
+    fn spawn_worker(&mut self, task: WorkerTask) {
+        self.agent_busy = true;
+        self.busy_changed();
+
+        let session_arc = Arc::clone(&self.session);
+        let result_arc = Arc::clone(&self.worker_result);
+
+        thread::spawn(move || {
+            let output = match session_arc.lock() {
+                Ok(mut session) => match task {
+                    WorkerTask::SendPrompt(text) => {
+                        let step_res = session.send_prompt(&text);
+                        let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+                        let pending = session.pending_action().cloned();
+                        let can_undo = session.can_undo();
+                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+
+                        WorkerOutput {
+                            step_result: Ok(step_res),
+                            messages_json: msgs_json,
+                            pending_action: pending,
+                            can_undo,
+                            last_snapshot_id: last_snap,
+                        }
+                    }
+                    WorkerTask::ConfirmAction(approved) => {
+                        let step_res = session.confirm_pending_action(approved);
+                        let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+                        let pending = session.pending_action().cloned();
+                        let can_undo = session.can_undo();
+                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+
+                        WorkerOutput {
+                            step_result: Ok(step_res),
+                            messages_json: msgs_json,
+                            pending_action: pending,
+                            can_undo,
+                            last_snapshot_id: last_snap,
+                        }
+                    }
+                    WorkerTask::UndoAction => {
+                        let undo_res = session.undo_last_action();
+                        let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+                        let pending = session.pending_action().cloned();
+                        let can_undo = session.can_undo();
+                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
+
+                        let step_result = match undo_res {
+                            Ok(msg) => Ok(AgentStepResult::Finished {
+                                content: msg,
+                                last_snapshot_id: None,
+                            }),
+                            Err(e) => Err(e),
+                        };
+
+                        WorkerOutput {
+                            step_result,
+                            messages_json: msgs_json,
+                            pending_action: pending,
+                            can_undo,
+                            last_snapshot_id: last_snap,
+                        }
+                    }
+                },
+                Err(e) => WorkerOutput {
+                    step_result: Err(format!("Session lock failure: {}", e)),
+                    messages_json: "[]".to_string(),
+                    pending_action: None,
+                    can_undo: false,
+                    last_snapshot_id: None,
+                },
+            };
+
+            if let Ok(mut r) = result_arc.lock() {
+                *r = Some(output);
+            }
+        });
+    }
+
+    /// Polled by QML Timer while busy. Returns true when worker has finished.
+    pub fn poll_worker(&mut self) -> bool {
+        if !self.agent_busy {
+            return false;
+        }
+
+        let output_opt = match self.worker_result.lock() {
+            Ok(mut r) => r.take(),
+            Err(_) => None,
+        };
+
+        if let Some(output) = output_opt {
+            self.messages_json = output.messages_json;
+            self.can_undo = output.can_undo;
+            self.last_snapshot_id = output.last_snapshot_id.unwrap_or_default();
+
+            if let Some(pending) = output.pending_action {
+                self.pending_action_json = serde_json::to_string(&pending).unwrap_or_default();
+                self.has_pending_action = true;
+            } else {
+                self.pending_action_json = String::new();
+                self.has_pending_action = false;
+            }
+
+            self.agent_busy = false;
+
+            match output.step_result {
+                Ok(AgentStepResult::Finished { content, .. }) => {
+                    self.response_finished(content.clone());
+                    if content.starts_with("Successfully rolled back") {
+                        self.undo_completed(content);
+                    }
+                }
+                Ok(AgentStepResult::RequiresConfirmation(_)) => {
+                    // Pending action updated
+                }
+                Ok(AgentStepResult::Error(err)) => {
+                    self.error_message = err.clone();
+                    self.error_occurred(err);
+                }
+                Err(err) => {
+                    self.error_message = err.clone();
+                    self.error_occurred(err);
+                }
+            }
+
+            self.busy_changed();
+            self.messages_changed();
+            self.pending_action_changed();
+            self.undo_state_changed();
+            return true;
+        }
+
+        false
+    }
+}

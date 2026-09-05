@@ -57,6 +57,54 @@ ApplicationWindow {
         defaultValue: false
     }
 
+    ConfigurationValue {
+        id: aiProviderConf
+        key: "/apps/harbour-fishdoc/ai_provider"
+        defaultValue: "ollama"
+    }
+
+    ConfigurationValue {
+        id: aiEndpointConf
+        key: "/apps/harbour-fishdoc/ai_endpoint"
+        defaultValue: "http://192.168.1.1:11434"
+    }
+
+    ConfigurationValue {
+        id: aiModelConf
+        key: "/apps/harbour-fishdoc/ai_model"
+        defaultValue: "llama3.2"
+    }
+
+    ConfigurationValue {
+        id: aiApiKeyConf
+        key: "/apps/harbour-fishdoc/ai_api_key"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: aiTimeoutConf
+        key: "/apps/harbour-fishdoc/ai_timeout_secs"
+        defaultValue: 90
+    }
+
+    ConfigurationValue {
+        id: aiAutoAllowReadConf
+        key: "/apps/harbour-fishdoc/ai_auto_allow_read"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
+        id: aiAutoAllowCreateConf
+        key: "/apps/harbour-fishdoc/ai_auto_allow_create"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
+        id: aiRequireConfirmEditConf
+        key: "/apps/harbour-fishdoc/ai_require_confirm_edit"
+        defaultValue: true
+    }
+
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
@@ -65,6 +113,15 @@ ApplicationWindow {
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
+
+    property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
+    property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : "http://192.168.1.1:11434"
+    property string aiModel: aiModelConf.value !== undefined ? aiModelConf.value : "llama3.2"
+    property string aiApiKey: aiApiKeyConf.value !== undefined ? aiApiKeyConf.value : ""
+    property int aiTimeout: aiTimeoutConf.value !== undefined ? aiTimeoutConf.value : 90
+    property bool aiAutoAllowRead: aiAutoAllowReadConf.value !== undefined ? aiAutoAllowReadConf.value : true
+    property bool aiAutoAllowCreate: aiAutoAllowCreateConf.value !== undefined ? aiAutoAllowCreateConf.value : true
+    property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -97,6 +154,45 @@ ApplicationWindow {
 
     function setAutostartWebServer(val) {
         autostartWebServerConf.value = val
+    }
+
+    function setAiProvider(provider) {
+        aiProviderConf.value = provider
+    }
+
+    function setAiEndpoint(endpoint) {
+        aiEndpointConf.value = endpoint
+    }
+
+    function setAiModel(model) {
+        aiModelConf.value = model
+    }
+
+    function setAiApiKey(key) {
+        aiApiKeyConf.value = key
+    }
+
+    function setAiTimeout(secs) {
+        aiTimeoutConf.value = secs
+    }
+
+    function setAiAutoAllowRead(val) {
+        aiAutoAllowReadConf.value = val
+    }
+
+    function setAiAutoAllowCreate(val) {
+        aiAutoAllowCreateConf.value = val
+    }
+
+    function setAiRequireConfirmEdit(val) {
+        aiRequireConfirmEditConf.value = val
+    }
+
+    function openAssistant(contextFilename, contextContent) {
+        pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), {
+            contextFilename: contextFilename || "",
+            contextContent: contextContent || ""
+        })
     }
 
     function openSearch() {

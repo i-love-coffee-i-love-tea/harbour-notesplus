@@ -9,6 +9,9 @@ use fishdoc_core::page;
 mod pages;
 mod journal_bridge;
 mod search_bridge;
+pub mod agent_bridge;
+
+pub use agent_bridge::AgentBridge;
 
 /// Pending async result from load_page
 pub(super) struct PendingResult {

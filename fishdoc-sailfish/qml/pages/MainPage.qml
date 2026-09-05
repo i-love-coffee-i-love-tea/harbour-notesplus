@@ -48,6 +48,12 @@ Page {
                 }
             }
             MenuItem {
+                text: "AI Assistant"
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("AssistantPage.qml"))
+                }
+            }
+            MenuItem {
                 text: "New Page"
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))

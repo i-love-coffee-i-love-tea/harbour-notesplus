@@ -1,162 +1,166 @@
 = Syntax Cheat Sheet
 
-A quick reference of everything FishDoc understands.
-This page is itself the demo — every feature below is live.
+Everything below is live — the right-hand column is rendered by the app itself.
 
 == Structure
 
-=== Headings
+[cols="2a,3a"]
+|===
+|Syntax |Rendered
 
-Use one or more `=` signs, followed by a space (up to level 6):
+|` = One`  / `== Two` / `=== Three` (up to 6 `=`, space after) |One
+Two — headings set page structure
 
-= Level 1 — the page title
-== Level 2
-=== Level 3
+|`// comment` |parser comment
 
-A blank line is required after each heading.
+|`---` |rule
 
-=== Comments and rules
+|`<<<` |page break
+|===
 
-// This line is a comment and never shown
+== Inline
 
-----
-A horizontal rule:
-----
+[cols="2a,3a"]
+|===
+|Syntax |Rendered
 
-<<<
-or a page break (shown as a thicker rule)
+|`*bold*`   /  `**bold**` |*bold*
 
-NOTE: `----` above is a literal block, while `----` with nothing between is a rule.
+|`_italic_`   /  `__italic__` |_italic_
 
-== Inline Text
+|`` `code` `` |`code`
 
-Bold text with double asterisks.
-Italic text with underscores.
-`Inline code` with backticks.
-+bold+ text and _italic_ text also work.
-"Double quoted" and 'single quoted' phrase styles.
-Strike~through~ text.
-Super^script^ and sub~script~.
-*Keyboard* keys like kbd:`Ctrl` + kbd:`Z`.
+|`~removed~` |~removed~
 
-You can mix: *bold with _italic inside_ and `code in bold*`.
+|`^super^` |base^super^line
+
+|`"smart"`  /  `'single'` |"smart"  /  'single'
+
+|`#highlight#` |This text is #highlighted#
+
+|`\*  \_  \`  \^  \~`  (escape a marker) |a text *with* markers:  \* \_ \` \^ \~
+
+|`kbd:[Ctrl,Shift]` |kbd:[Ctrl,Shift]
+
+|`btn:[OK]` |btn:[OK]
+
+|`menu:File [Quit > Save]` |menu:File [Quit > Save]
+
+|`footnote:[A note]` |footnote:[A note]
+
+|`link:https://example.org[Example]` |link:https://example.org[Example]
+
+|`xref:meeting-notes.adoc[Opens that page]` |xref:meeting-notes.adoc[Opens that page]    (also  `<<meeting-notes,Label>>`)
+
+|`icon:star []` |icon:star []
+(heart, star, check, info, warning, file, tag, search, gear)
+
+|`image:icon.png[Alt]` |image:icon.png[Alt, width=80]
+
+|`pass:[<b>raw <i>html</i></b>]` |pass:[<b>raw <i>html</i></b>]
+|===
 
 == Lists
 
-=== Unordered
+[cols="2a,3a"]
+|===
+|Syntax |Rendered
 
-* First item
-* Second item
-  ** Nested item
-  * Bullet continuation
-* Third item
+|`* item`  /  `- item`   (nest with 2 spaces)
+|a|* item
+* item
+* item
 
-=== Ordered
+|`1. step`  /  `2. step`
+|a|1. step
+2. step
 
-. First step
-. Second step
-  .. sub-step, indented two spaces
-. Third step
+|`- [ ] todo`   /   `- [x] done` — tap to toggle
+|a|- [ ] todo
+- [x] done
 
-=== Checklists (tap to toggle)
+|`term:: definition`   (same line or next)
+|a|parser::
+writes blocks.
+toggle::
+a tappable state, in-place.
 
-- [x] Done item — tap the whole line to toggle
-- [ ] Open item
+|`<1> labeled`
+|a|<1> labeled
+<2> labeled
+|===
 
-=== Description lists
+== Blocks
 
-term::
-definition for the term.
+[cols="2a,3a"]
+|===
+|Syntax |Rendered
 
-longer-term::
-the definition can span
-multiple lines.
+|`----` fence,  `[source,lang]` line above
+|a|[source,rust]
+----
+fn main() { /* code */ }
+----
 
-== Code and Verbatim
+|`....` fence — whitespace kept
+|a|....
+     literal block
+     keeps  spaces
 
-=== Source block
-
-[source,rust]
-fn main() {
-    println!("hello from the phone");
-}
-
-A plain `----` fenced block without `[source,lang]` gives a code block without a language tag.
-
-=== Literal block
-
-....
-     Leading whitespace
-     and line breaks are preserved
-....
-
-== Quotes, Verses, Boxes
-
-. Attribution — text that follows a `-- --` line on the next line
-
-Actually, use this form instead:
-
+|`____` fence,  `[quote, Author, Source]` above
+|a|[quote, Example]
 ____
-All that we are is the result of what we have thought.
--- Buddha
+Quoted text with
+attribution.
 ____
 
-=== Verse (line breaks preserved)
+|`[verse, Author]` + `____` fence
+|a|[verse, Poet]
+____
+Line one
+Line two
+____
 
-....
-The road goes ever on
-   up from the door
-....
+|`>` consecutive lines
+|a|> A one-line quote.
 
-=== Sidebar, example and open boxes
+|`****` fence
+|a|****
+Sidebar block.
+****
 
-[NOTE]
-====
-Note boxes appear in the theme color.
-====
-
-[TIP]
-====
-Tip boxes appear in pastel yellow.
-====
-
-[WARNING]
-====
-Warning boxes appear in pastel red.
+|`====` fence
+|a|====
+Example block.
 ====
 
-Open-boxes (two `=====` lines) give a boxed paragraph.
+|`--` fence
+|a|--
+Open block.
+--
+
+|`[NOTE]` / `[TIP]` / `[WARNING]`, text after
+|a|[NOTE]
+Admonition with colored icon.
+
+|`|===` fence, `|` vs `a|` cells (see “Tables” below)
+|a|Tables can’t be nested inside other table cells.
+
+|`image::icon.png[Alt, width=100]`
+|a|image::icon.png[Alt, width=80]
+|===
 
 == Tables
 
-[cols="1,2a"]
+`|` cells are single-line inline text; `a|` cells are full AsciiDoc;
+`[cols="1,2"]` sets proportional column widths.
+
+[cols="1,3a"]
 |===
-|Name |Description
-|Bold |Double asterisks
-|Code |Backticks — cells with `a|` keep multi-block AsciiDoc
+|Inline cell
+|a|*Bold* cell with `code` markup
+
+|Lists work in `a|` cells
+|a|- first
+- second
 |===
-
-Cells starting with `a|` contain full AsciiDoc; plain `|` cells are inline text.
-
-== Links and Cross-references
-
-*Web link:* http://example.org[Example]
-or https://example.org[Example] (URL and display text in brackets).
-
-*Links to other pages:* xref:meeting-notes.adoc[Meeting Notes]
-The target is the page name without extension; links open that page in-place.
-
-*Images:* image::icon.png[Alt text, width=200]
-
-== Document Attributes
-
-:toc:
-:name: value
-
-Document attribute lines are recognized and skipped by the viewer.
-
-== Tips
-
-* Tap any block to edit its raw AsciiDoc.
-* In the editor, type `[[` to search and insert a link to another page.
-* Checklists toggle by tapping the whole line in the reader.

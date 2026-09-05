@@ -185,6 +185,136 @@ Page {
             }
 
             SectionHeader {
+                text: "AI Assistant (Ollama / MiMoCode)"
+            }
+
+            ComboBox {
+                width: parent.width
+                label: "AI Provider"
+                currentIndex: (app.aiProvider === "mimocode" || app.aiProvider === "openai") ? 1 : 0
+                menu: ContextMenu {
+                    MenuItem {
+                        text: "Local Ollama"
+                        onClicked: {
+                            app.setAiProvider("ollama")
+                            if (endpointField.text === "https://api.mimocode.com") {
+                                endpointField.text = "http://192.168.1.1:11434"
+                                app.setAiEndpoint("http://192.168.1.1:11434")
+                            }
+                        }
+                    }
+                    MenuItem {
+                        text: "Xiaomi MiMoCode / OpenAI API"
+                        onClicked: {
+                            app.setAiProvider("mimocode")
+                            if (endpointField.text === "http://192.168.1.1:11434") {
+                                endpointField.text = "https://api.mimocode.com"
+                                app.setAiEndpoint("https://api.mimocode.com")
+                            }
+                        }
+                    }
+                }
+            }
+
+            TextField {
+                id: endpointField
+                width: parent.width
+                label: "Endpoint URL"
+                placeholderText: app.aiProvider === "ollama" ? "http://192.168.1.1:11434" : "https://api.mimocode.com"
+                text: app.aiEndpoint
+                onTextChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiEndpoint) {
+                        app.setAiEndpoint(text)
+                    }
+                }
+            }
+
+            TextField {
+                id: modelField
+                width: parent.width
+                label: "Model Name"
+                placeholderText: "e.g. llama3.2, qwen2.5, mistral"
+                text: app.aiModel
+                onTextChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiModel) {
+                        app.setAiModel(text)
+                    }
+                }
+            }
+
+            PasswordField {
+                id: apiKeyField
+                width: parent.width
+                label: "API Key (Bearer Token)"
+                placeholderText: app.aiProvider === "ollama" ? "Optional for local Ollama" : "Required for MiMoCode / Cloud APIs"
+                text: app.aiApiKey
+                onTextChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiApiKey) {
+                        app.setAiApiKey(text)
+                    }
+                }
+            }
+
+            Slider {
+                width: parent.width
+                minimumValue: 15
+                maximumValue: 300
+                stepSize: 15
+                value: (typeof app !== "undefined" && app && app.aiTimeout !== undefined) ? app.aiTimeout : 90
+                label: "Request Timeout"
+                valueText: Math.round(value) + " seconds"
+                onSliderValueChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiTimeout) {
+                        app.setAiTimeout(Math.round(value))
+                    }
+                }
+            }
+
+            TextSwitch {
+                width: parent.width
+                text: "Auto-Allow Note Reading"
+                description: "Allow the assistant to search and read note contents automatically"
+                checked: app.aiAutoAllowRead
+                onCheckedChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiAutoAllowRead) {
+                        app.setAiAutoAllowRead(checked)
+                    }
+                }
+            }
+
+            TextSwitch {
+                width: parent.width
+                text: "Auto-Allow Note Creation"
+                description: "Allow the assistant to create new notes without extra confirmation"
+                checked: app.aiAutoAllowCreate
+                onCheckedChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiAutoAllowCreate) {
+                        app.setAiAutoAllowCreate(checked)
+                    }
+                }
+            }
+
+            TextSwitch {
+                width: parent.width
+                text: "Require Confirmation for Edits"
+                description: "Display line-by-line diff preview and wait for approval before modifying existing notes"
+                checked: app.aiRequireConfirmEdit
+                onCheckedChanged: {
+                    if (typeof app !== "undefined" && app && app.setAiRequireConfirmEdit) {
+                        app.setAiRequireConfirmEdit(checked)
+                    }
+                }
+            }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Open AI Assistant"
+                onClicked: {
+                    app.openAssistant("", "")
+                }
+            }
+
+            SectionHeader {
                 text: "Export & Backup"
             }
 
