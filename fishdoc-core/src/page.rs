@@ -65,6 +65,64 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
     })
 }
 
+/// Slice leading text sufficient to extract `limit` preview blocks without cutting open delimited blocks.
+fn slice_preview_content(content: &str, limit: usize) -> &str {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.len() <= 60 {
+        return content;
+    }
+
+    let min_lines = (limit * 4).max(50);
+    let mut in_delim: Option<&str> = None;
+    let mut structural_lines = 0;
+    let mut cut_line_idx = lines.len();
+
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if crate::parser::is_code_delimiter(trimmed) {
+            in_delim = if in_delim == Some("----") { None } else { Some("----") };
+        } else if crate::parser::is_literal_delimiter(trimmed) {
+            in_delim = if in_delim == Some("....") { None } else { Some("....") };
+        } else if crate::parser::is_table_delimiter(trimmed) {
+            in_delim = if in_delim == Some("|===") { None } else { Some("|===") };
+        } else if crate::parser::is_sidebar_delimiter(trimmed) {
+            in_delim = if in_delim == Some("****") { None } else { Some("****") };
+        } else if crate::parser::is_example_delimiter(trimmed) {
+            in_delim = if in_delim == Some("====") { None } else { Some("====") };
+        } else if crate::parser::is_quote_delimiter(trimmed) {
+            in_delim = if in_delim == Some("____") { None } else { Some("____") };
+        } else if crate::parser::is_open_delimiter(trimmed) {
+            in_delim = if in_delim == Some("--") { None } else { Some("--") };
+        } else if crate::parser::is_comment_delimiter(trimmed) {
+            in_delim = if in_delim == Some("////") { None } else { Some("////") };
+        }
+
+        structural_lines += 1;
+        if structural_lines >= min_lines && in_delim.is_none() {
+            cut_line_idx = idx + 1;
+            break;
+        }
+    }
+
+    if cut_line_idx >= lines.len() {
+        content
+    } else {
+        let mut byte_count = 0;
+        for line in &lines[..cut_line_idx] {
+            byte_count += line.len() + 1;
+        }
+        if byte_count <= content.len() {
+            &content[..byte_count]
+        } else {
+            content
+        }
+    }
+}
+
 /// Get the first N non-empty preview blocks of a page.
 pub fn get_page_preview_blocks(notes_dir: &Path, filename: &str, limit: usize) -> Vec<crate::block::Block> {
     get_page_preview_blocks_with_options(notes_dir, filename, limit, true)
@@ -74,7 +132,8 @@ pub fn get_page_preview_blocks(notes_dir: &Path, filename: &str, limit: usize) -
 pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> Vec<crate::block::Block> {
     let path = notes_dir.join(filename);
     if let Ok(content) = std::fs::read_to_string(&path) {
-        let blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
+        let preview_slice = slice_preview_content(&content, limit);
+        let blocks = crate::parser::parse_blocks_with_options(preview_slice, drop_comments);
         blocks
             .into_iter()
             .filter(|b| !matches!(b, crate::block::Block::EmptyLine))
@@ -89,22 +148,38 @@ pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, li
 pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> String {
     let path = notes_dir.join(filename);
     if let Ok(content) = std::fs::read_to_string(&path) {
-        let all_blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
+        let has_toc = content.lines().any(|l| {
+            let t = l.trim();
+            t == ":toc:" || t.starts_with(":toc:")
+        });
+
         let mut headings_vec = Vec::new();
-        for (idx, block) in all_blocks.iter().enumerate() {
-            if let crate::block::Block::Heading { level, spans, .. } = block {
-                if *level >= 1 && *level <= 5 {
-                    let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
-                    let mut h_map = serde_json::Map::new();
-                    h_map.insert("level".into(), serde_json::Value::Number((*level).into()));
-                    h_map.insert("text".into(), serde_json::Value::String(text));
-                    h_map.insert("index".into(), serde_json::Value::Number(idx.into()));
-                    headings_vec.push(serde_json::Value::Object(h_map));
+        if has_toc {
+            // Fast line scanner for headings when TOC is present
+            let mut block_idx = 0;
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    block_idx += 1;
+                    continue;
                 }
+                if let Some((level, rest)) = crate::parser::blocks::headings::parse_heading(line) {
+                    if level >= 1 && level <= 5 {
+                        let spans = crate::inline::parse_inline(rest.trim());
+                        let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
+                        let mut h_map = serde_json::Map::new();
+                        h_map.insert("level".into(), serde_json::Value::Number(level.into()));
+                        h_map.insert("text".into(), serde_json::Value::String(text));
+                        h_map.insert("index".into(), serde_json::Value::Number(block_idx.into()));
+                        headings_vec.push(serde_json::Value::Object(h_map));
+                    }
+                }
+                block_idx += 1;
             }
         }
 
-        let preview_blocks: Vec<_> = all_blocks
+        let preview_slice = slice_preview_content(&content, limit);
+        let preview_blocks: Vec<_> = crate::parser::parse_blocks_with_options(preview_slice, drop_comments)
             .into_iter()
             .filter(|b| !matches!(b, crate::block::Block::EmptyLine))
             .take(limit)
@@ -284,12 +359,17 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -
     if !examples_dir.exists() {
         return Ok(());
     }
-    for entry in std::fs::read_dir(examples_dir).map_err(|e| e.to_string())? {
+    copy_dir_recursive(conn, notes_dir, examples_dir, notes_dir)?;
+    Ok(())
+}
+
+fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Path, current_dest_dir: &Path) -> Result<(), String> {
+    for entry in std::fs::read_dir(current_src_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
+        let filename = path.file_name().unwrap().to_string_lossy().to_string();
         if path.is_file() {
-            let filename = path.file_name().unwrap().to_string_lossy().to_string();
-            let dest = notes_dir.join(&filename);
+            let dest = current_dest_dir.join(&filename);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext == "adoc" {
                 // Always overwrite to pick up updated examples
@@ -312,7 +392,15 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -
                 }
             } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
                 let _ = std::fs::copy(&path, &dest);
+                if current_dest_dir != notes_dir {
+                    let root_dest = notes_dir.join(&filename);
+                    let _ = std::fs::copy(&path, &root_dest);
+                }
             }
+        } else if path.is_dir() {
+            let sub_dest = current_dest_dir.join(&filename);
+            let _ = std::fs::create_dir_all(&sub_dest);
+            let _ = copy_dir_recursive(conn, notes_dir, &path, &sub_dest);
         }
     }
     Ok(())

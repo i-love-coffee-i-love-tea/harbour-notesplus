@@ -3,21 +3,33 @@ import Sailfish.Silica 1.0
 
 Label {
     id: inlineText
-    property var spans: []
+    property var spans: undefined
     property int blockIndex: -1
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
 
     property bool pressed: false
 
-    wrapMode: Text.Wrap
+    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
     textFormat: Text.RichText
     color: Theme.primaryColor
     linkColor: Theme.highlightColor
     font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
     opacity: pressed ? 0.5 : 1.0
     Behavior on opacity { FadeAnimator {} }
-    text: renderSpans(spans)
+    text: (spans !== undefined && spans !== null) ? renderSpans(spans) : ""
+
+    onSpansChanged: {
+        if (spans !== undefined && spans !== null) {
+            text = renderSpans(spans)
+        }
+    }
+
+    Component.onCompleted: {
+        if (spans !== undefined && spans !== null) {
+            text = renderSpans(spans)
+        }
+    }
 
     function renderSpans(spans) {
         if (!spans || spans.length === 0) return ""
@@ -30,6 +42,7 @@ Label {
 
     function renderSpan(span) {
         if (!span) return ""
+        if (typeof span === "string") return escapeHtml(span)
         switch (span.type) {
             case "text":
                 return escapeHtml(span.value || "")
@@ -38,7 +51,11 @@ Label {
             case "italic":
                 return "<i>" + renderSpans(span.spans) + "</i>"
             case "code":
-                return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:3px;font-family:monospace;'>" + escapeHtml(span.value || "") + "</code>"
+                return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:3px;font-family:monospace;word-break:break-all;'>" + (span.spans ? renderSpans(span.spans) : escapeHtml(span.value || "")) + "</code>"
+            case "quote":
+                return "&ldquo;" + renderSpans(span.spans) + "&rdquo;"
+            case "squote":
+                return "&lsquo;" + renderSpans(span.spans) + "&rsquo;"
             case "link":
                 return "<a href='" + escapeHtml(span.url || "") + "' style='color:" + Theme.highlightColor + "'>" + escapeHtml(span.display || span.url || "") + "</a>"
             case "xref":
@@ -50,7 +67,7 @@ Label {
             case "subscript":
                 return "<sub>" + renderSpans(span.spans) + "</sub>"
             case "image":
-                var wAttr = span.width ? (" width='" + escapeHtml(span.width) + "'") : ""
+                var wAttr = span.width ? (" width='" + escapeHtml(span.width) + "'") : " style='max-width:100%;'"
                 var src = resolveImagePath(span.target || "")
                 return "<img src='" + escapeHtml(src) + "'" + wAttr + " alt='" + escapeHtml(span.alt || "") + "' />"
             case "icon":
@@ -66,7 +83,7 @@ Label {
             case "btn":
                 return "<span style='background:" + Theme.rgba(Theme.highlightColor, 0.2) + ";color:" + Theme.highlightColor + ";padding:1px 6px;border:1px solid " + Theme.highlightColor + ";border-radius:4px;font-weight:bold;'>[" + escapeHtml(span.text || "") + "]</span>"
             case "menu":
-                return "<b style='color:" + Theme.highlightColor + ";'>" + escapeHtml(span.items ? span.items.join(" &#9656; ") : "") + "</b>"
+                return "<b style='color:" + Theme.highlightColor + ";'>" + (span.items ? span.items.map(escapeHtml).join(" \u25B8 ") : "") + "</b>"
             case "pass":
                 return span.value || ""
             default:
@@ -76,7 +93,11 @@ Label {
 
     function resolveImagePath(target) {
         if (!target) return ""
-        if (target.indexOf("://") !== -1 || target.indexOf("/") === 0) {
+        if (target.indexOf("http://") === 0 || target.indexOf("https://") === 0) {
+            var allowExt = (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true
+            return allowExt ? target : ""
+        }
+        if (target.indexOf("file://") === 0 || target.indexOf("/") === 0) {
             return target
         }
         var notesDir = (typeof bridge !== "undefined" && bridge && bridge.notes_dir) ? bridge.notes_dir : ""

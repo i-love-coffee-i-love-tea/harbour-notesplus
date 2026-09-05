@@ -45,12 +45,19 @@ ApplicationWindow {
         defaultValue: true
     }
 
+    ConfigurationValue {
+        id: allowExternalImagesConf
+        key: "/apps/harbour-fishdoc/allow_external_images"
+        defaultValue: true
+    }
+
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
     property int tocCollapseThreshold: tocCollapseThresholdConf.value !== undefined ? tocCollapseThresholdConf.value : 5
     property real previewScale: previewScaleConf.value !== undefined && previewScaleConf.value > 0 ? previewScaleConf.value : 0.52
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
+    property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -75,6 +82,10 @@ ApplicationWindow {
     function setDropComments(drop) {
         dropCommentsConf.value = drop
         bridge.set_drop_comments(drop)
+    }
+
+    function setAllowExternalImages(allow) {
+        allowExternalImagesConf.value = allow
     }
 
     function openSearch() {

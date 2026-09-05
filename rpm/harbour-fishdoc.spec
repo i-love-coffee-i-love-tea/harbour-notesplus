@@ -1,7 +1,7 @@
 Name:       harbour-fishdoc
-Summary:    FishDoc — AsciiDoc notes app for Sailfish OS
+Summary:    Notes++ — AsciiDoc notes app for Sailfish OS
 Version:    0.1.0
-Release:    9
+Release:    25
 Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-fishdoc
@@ -18,7 +18,7 @@ BuildRequires:  gcc-c++
 BuildRequires:  meego-rpm-config
 
 %description
-FishDoc is an AsciiDoc notes app for Sailfish OS.
+Notes++ is an AsciiDoc notes app for Sailfish OS.
 Journal with auto-managed daily named pages, page linking,
 full-text search, and PDF export.
 
@@ -74,14 +74,13 @@ mkdir -p %{buildroot}%{_datadir}/applications
 cat > %{buildroot}%{_datadir}/applications/%{name}.desktop << EOF
 [Desktop Entry]
 Type=Application
-X-Nemo-Application-Type=silica-qt5
+X-Nemo-Application-Type=generic
 Icon=%{name}
-Exec=%{name}
-Name=FishDoc
+Exec=/usr/bin/sailjail -p %{name}.desktop %{_bindir}/%{name}
+Name=Notes++
 
 [X-Sailjail]
-Permissions=UserDirs
-PrivateBin=harbour-fishdoc
+Permissions=UserDirs;Internet;RemovableMedia
 OrganizationName=org.gobuki
 ApplicationName=harbour-fishdoc
 EOF

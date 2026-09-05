@@ -223,8 +223,8 @@ WHERE pages_fts MATCH ?1
 
 In AsciiDoc, use:
 
-* `\*bold*` for *bold text*
-* `\_italic_` for _italic text*
+* `*bold*` for *bold text*
+* `_italic_` for _italic text_
 * `` `code` `` for `inline code`
 * `xref:page.adoc[Display]` for page links
 

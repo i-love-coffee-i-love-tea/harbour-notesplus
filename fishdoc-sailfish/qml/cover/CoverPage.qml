@@ -9,7 +9,7 @@ CoverBackground {
         spacing: Theme.paddingMedium
 
         Label {
-            text: "FishDoc"
+            text: "Notes++"
             font.pixelSize: Theme.fontSizeLarge
             color: Theme.highlightColor
             anchors.horizontalCenter: parent.horizontalCenter

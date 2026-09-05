@@ -23,23 +23,6 @@ Page {
                 text: "Font & Typography"
             }
 
-            Slider {
-                width: parent.width
-                minimumValue: 0.8
-                maximumValue: 1.5
-                stepSize: 0.1
-                value: app.fontScale
-                label: "Document Font Size"
-                valueText: {
-                    var pct = Math.round(value * 100)
-                    if (pct === 100) return "100% (Default)"
-                    return pct + "%"
-                }
-                onSliderValueChanged: {
-                    app.setFontScale(Math.round(value * 10) / 10)
-                }
-            }
-
             ComboBox {
                 width: parent.width
                 label: "Font Family"
@@ -64,6 +47,23 @@ Page {
                         case 3: app.setFontFamily("monospace"); break
                         default: app.setFontFamily(""); break
                     }
+                }
+            }
+
+            Slider {
+                width: parent.width
+                minimumValue: 0.8
+                maximumValue: 1.5
+                stepSize: 0.1
+                value: app.fontScale
+                label: "Document Font Size"
+                valueText: {
+                    var pct = Math.round(value * 100)
+                    if (pct === 100) return "100% (Default)"
+                    return pct + "%"
+                }
+                onSliderValueChanged: {
+                    app.setFontScale(Math.round(value * 10) / 10)
                 }
             }
 
@@ -131,6 +131,18 @@ Page {
                 onCheckedChanged: {
                     if (typeof app !== "undefined" && app && app.setDropComments) {
                         app.setDropComments(checked)
+                    }
+                }
+            }
+
+            TextSwitch {
+                width: parent.width
+                text: "Allow External Images"
+                description: "Load images from remote HTTP and HTTPS web addresses"
+                checked: (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true
+                onCheckedChanged: {
+                    if (typeof app !== "undefined" && app && app.setAllowExternalImages) {
+                        app.setAllowExternalImages(checked)
                     }
                 }
             }
@@ -205,7 +217,7 @@ Page {
 
                             Label {
                                 width: parent.width
-                                text: "fn main() {\n    println!(\"Hello FishDoc!\");\n}"
+                                text: "fn main() {\n    println!(\"Hello Notes++!\");\n}"
                                 font.family: "monospace"
                                 font.pixelSize: Math.round(Theme.fontSizeSmall * app.codeFontScale)
                                 color: "#f2f2f7"
@@ -241,7 +253,7 @@ Page {
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - Theme.horizontalPageMargin * 2
-                text: "FishDoc v0.1.0\nAsciiDoc reader & notebook for Sailfish OS"
+                text: "Notes++ v0.1.0\nAsciiDoc reader & notebook for Sailfish OS"
                 color: Theme.secondaryColor
                 font.pixelSize: Theme.fontSizeSmall
                 wrapMode: Text.Wrap

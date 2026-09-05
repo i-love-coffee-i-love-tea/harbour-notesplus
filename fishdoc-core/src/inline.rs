@@ -6,6 +6,9 @@ pub enum InlineSpan {
     Bold(Vec<InlineSpan>),
     Italic(Vec<InlineSpan>),
     Code(String),
+    Monospace(Vec<InlineSpan>),
+    DoubleQuote(Vec<InlineSpan>),
+    SingleQuote(Vec<InlineSpan>),
     Link { url: String, display: String },
     Xref { target: String, display: String },
     Strikethrough(Vec<InlineSpan>),
@@ -29,6 +32,9 @@ impl InlineSpan {
             InlineSpan::Bold(spans) => serde_json::json!({"type": "bold", "spans": spans_json(spans)}),
             InlineSpan::Italic(spans) => serde_json::json!({"type": "italic", "spans": spans_json(spans)}),
             InlineSpan::Code(s) => serde_json::json!({"type": "code", "value": s}),
+            InlineSpan::Monospace(spans) => serde_json::json!({"type": "code", "spans": spans_json(spans), "value": spans.iter().map(|s| s.plain_text()).collect::<String>()}),
+            InlineSpan::DoubleQuote(spans) => serde_json::json!({"type": "quote", "spans": spans_json(spans)}),
+            InlineSpan::SingleQuote(spans) => serde_json::json!({"type": "squote", "spans": spans_json(spans)}),
             InlineSpan::Link { url, display } => serde_json::json!({"type": "link", "url": url, "display": display}),
             InlineSpan::Xref { target, display } => serde_json::json!({"type": "xref", "target": target, "display": display}),
             InlineSpan::Strikethrough(spans) => serde_json::json!({"type": "strikethrough", "spans": spans_json(spans)}),
@@ -82,7 +88,9 @@ impl InlineSpan {
             InlineSpan::Text(s) => s.clone(),
             InlineSpan::Bold(spans) | InlineSpan::Italic(spans) |
             InlineSpan::Strikethrough(spans) | InlineSpan::Superscript(spans) |
-            InlineSpan::Subscript(spans) => spans.iter().map(|s| s.plain_text()).collect(),
+            InlineSpan::Subscript(spans) | InlineSpan::Monospace(spans) => spans.iter().map(|s| s.plain_text()).collect(),
+            InlineSpan::DoubleQuote(spans) => format!("“{}”", spans.iter().map(|s| s.plain_text()).collect::<String>()),
+            InlineSpan::SingleQuote(spans) => format!("‘{}’", spans.iter().map(|s| s.plain_text()).collect::<String>()),
             InlineSpan::Code(s) => s.clone(),
             InlineSpan::Link { display, .. } | InlineSpan::Xref { display, .. } => display.clone(),
             InlineSpan::Image { alt, target, .. } => if !alt.is_empty() { alt.clone() } else { target.clone() },
@@ -102,14 +110,86 @@ fn spans_json(spans: &[InlineSpan]) -> Vec<serde_json::Value> {
     spans.iter().map(|s| s.to_json()).collect()
 }
 
+pub fn decode_html_entities(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            let mut entity = String::new();
+            let mut found_semi = false;
+            while let Some(&next_c) = chars.peek() {
+                if next_c == ';' {
+                    chars.next();
+                    found_semi = true;
+                    break;
+                } else if next_c.is_alphanumeric() || next_c == '#' {
+                    entity.push(chars.next().unwrap());
+                    if entity.len() > 10 {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if found_semi {
+                if let Some(stripped_hex) = entity.strip_prefix("#x").or_else(|| entity.strip_prefix("#X")) {
+                    if let Ok(code) = u32::from_str_radix(stripped_hex, 16) {
+                        if let Some(decoded_char) = char::from_u32(code) {
+                            result.push(decoded_char);
+                            continue;
+                        }
+                    }
+                } else if let Some(stripped_dec) = entity.strip_prefix('#') {
+                    if let Ok(code) = stripped_dec.parse::<u32>() {
+                        if let Some(decoded_char) = char::from_u32(code) {
+                            result.push(decoded_char);
+                            continue;
+                        }
+                    }
+                } else {
+                    match entity.as_str() {
+                        "euro" => { result.push('€'); continue; }
+                        "amp" => { result.push('&'); continue; }
+                        "lt" => { result.push('<'); continue; }
+                        "gt" => { result.push('>'); continue; }
+                        "quot" => { result.push('"'); continue; }
+                        "apos" => { result.push('\''); continue; }
+                        "nbsp" => { result.push('\u{00A0}'); continue; }
+                        "copy" => { result.push('©'); continue; }
+                        "reg" => { result.push('®'); continue; }
+                        "trade" => { result.push('™'); continue; }
+                        "mdash" => { result.push('—'); continue; }
+                        "ndash" => { result.push('–'); continue; }
+                        "hellip" => { result.push('…'); continue; }
+                        "bull" => { result.push('•'); continue; }
+                        _ => {}
+                    }
+                }
+                result.push('&');
+                result.push_str(&entity);
+                result.push(';');
+            } else {
+                result.push('&');
+                result.push_str(&entity);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Parse inline formatting from a text line.
 pub fn parse_inline(text: &str) -> Vec<InlineSpan> {
     let mut spans = Vec::new();
-    parse_inline_recursive(text, &mut spans, false);
+    let decoded = decode_html_entities(text);
+    parse_inline_recursive(&decoded, &mut spans);
     spans
 }
 
-fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
+fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     // Hidden index term: (((term1,term2,term3)))
     if rest.starts_with("(((") {
         if let Some(end) = rest.find(")))") {
@@ -124,7 +204,7 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
             let inner = &rest[2..end];
             let consumed = end + 2;
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
             return Some((InlineSpan::Text(text), consumed));
         }
@@ -156,7 +236,7 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
             let consumed = end + 2;
             if let Some((_id, disp)) = inner.split_once(',') {
                 let mut spans = Vec::new();
-                parse_inline_recursive(disp.trim(), &mut spans, true);
+                parse_inline_recursive(disp.trim(), &mut spans);
                 let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
                 return Some((InlineSpan::Text(text), consumed));
             } else {
@@ -253,6 +333,19 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
         }
     }
 
+    // stem: stem:[formula] or asciimath:[formula] or latexmath:[formula]
+    if rest.starts_with("stem:") || rest.starts_with("asciimath:") || rest.starts_with("latexmath:") {
+        let prefix_len = if rest.starts_with("stem:") { 5 } else { 10 };
+        let after_prefix = &rest[prefix_len..];
+        if let Some(open) = after_prefix.find('[') {
+            if let Some(close) = after_prefix[open..].find(']') {
+                let formula = after_prefix[open + 1..open + close].to_string();
+                let consumed = prefix_len + open + close + 1;
+                return Some((InlineSpan::Code(formula), consumed));
+            }
+        }
+    }
+
     // footnote: footnote:[Text] or footnote:id[Text] or footnoteref:[id, Text]
     if rest.starts_with("footnote:") || rest.starts_with("footnoteref:") {
         let is_ref = rest.starts_with("footnoteref:");
@@ -316,7 +409,7 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
             if let Some(end) = rest[cb + 2..].find('#') {
                 let inner = &rest[cb + 2..cb + 2 + end];
                 let mut spans = Vec::new();
-                parse_inline_recursive(inner, &mut spans, true);
+                parse_inline_recursive(inner, &mut spans);
                 let consumed = cb + 2 + end + 1;
                 return Some((InlineSpan::Mark(spans), consumed));
             }
@@ -327,40 +420,48 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
     if rest.starts_with('#') && rest.len() > 1 && !rest.starts_with("##") {
         if let Some(inner) = find_closing(rest, '#', '#') {
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
             return Some((InlineSpan::Mark(spans), consumed));
         }
     }
 
     // Unconstrained bold: **text**
-    if !in_nested && rest.starts_with("**") {
+    if rest.starts_with("**") {
         if let Some(end) = rest[2..].find("**") {
             let inner = &rest[2..2 + end];
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
             return Some((InlineSpan::Bold(spans), consumed));
         }
     }
 
     // Unconstrained italic: __text__
-    if !in_nested && rest.starts_with("__") {
+    if rest.starts_with("__") {
         if let Some(end) = rest[2..].find("__") {
             let inner = &rest[2..2 + end];
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
             return Some((InlineSpan::Italic(spans), consumed));
         }
     }
 
     // Unconstrained code: ``text``
-    if !in_nested && rest.starts_with("``") {
+    if rest.starts_with("``") {
         if let Some(end) = rest[2..].find("``") {
             let inner = &rest[2..2 + end];
+            let mut spans = Vec::new();
+            parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
-            return Some((InlineSpan::Code(inner.to_string()), consumed));
+            let has_formatting = spans.iter().any(|s| !matches!(s, InlineSpan::Text(_)));
+            if has_formatting {
+                return Some((InlineSpan::Monospace(spans), consumed));
+            } else {
+                let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
+                return Some((InlineSpan::Code(text), consumed));
+            }
         }
     }
 
@@ -369,10 +470,9 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
         if let Some(end) = rest[2..].find("`\"") {
             let inner = &rest[2..2 + end];
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
-            let text = format!("“{}”", spans.iter().map(|s| s.plain_text()).collect::<String>());
-            return Some((InlineSpan::Text(text), consumed));
+            return Some((InlineSpan::DoubleQuote(spans), consumed));
         }
     }
 
@@ -381,28 +481,27 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
         if let Some(end) = rest[2..].find("`'") {
             let inner = &rest[2..2 + end];
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
-            let text = format!("‘{}’", spans.iter().map(|s| s.plain_text()).collect::<String>());
-            return Some((InlineSpan::Text(text), consumed));
+            return Some((InlineSpan::SingleQuote(spans), consumed));
         }
     }
 
     // bold: *text*
-    if !in_nested && rest.starts_with('*') {
+    if rest.starts_with('*') {
         if let Some(inner) = find_closing(rest, '*', '*') {
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
             return Some((InlineSpan::Bold(spans), consumed));
         }
     }
 
     // italic: _text_
-    if !in_nested && rest.starts_with('_') {
+    if rest.starts_with('_') {
         if let Some(inner) = find_closing(rest, '_', '_') {
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
             return Some((InlineSpan::Italic(spans), consumed));
         }
@@ -412,7 +511,7 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
     if rest.starts_with('~') {
         if let Some(inner) = find_closing(rest, '~', '~') {
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
             return Some((InlineSpan::Strikethrough(spans), consumed));
         }
@@ -422,7 +521,7 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
     if rest.starts_with('^') {
         if let Some(inner) = find_closing(rest, '^', '^') {
             let mut spans = Vec::new();
-            parse_inline_recursive(inner, &mut spans, true);
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
             return Some((InlineSpan::Superscript(spans), consumed));
         }
@@ -431,15 +530,34 @@ fn try_match(rest: &str, in_nested: bool) -> Option<(InlineSpan, usize)> {
     // inline code: `code`
     if rest.starts_with('`') {
         if let Some(inner) = find_closing(rest, '`', '`') {
+            let mut spans = Vec::new();
+            parse_inline_recursive(inner, &mut spans);
             let consumed = inner.len() + 2;
-            return Some((InlineSpan::Code(inner.to_string()), consumed));
+            let has_formatting = spans.iter().any(|s| !matches!(s, InlineSpan::Text(_)));
+            if has_formatting {
+                return Some((InlineSpan::Monospace(spans), consumed));
+            } else {
+                let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
+                return Some((InlineSpan::Code(text), consumed));
+            }
         }
     }
 
     None
 }
 
-fn parse_inline_recursive(text: &str, out: &mut Vec<InlineSpan>, in_nested: bool) {
+fn push_text(out: &mut Vec<InlineSpan>, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(InlineSpan::Text(last)) = out.last_mut() {
+        last.push_str(text);
+    } else {
+        out.push(InlineSpan::Text(text.to_string()));
+    }
+}
+
+fn parse_inline_recursive(text: &str, out: &mut Vec<InlineSpan>) {
     if text.is_empty() {
         return;
     }
@@ -457,13 +575,13 @@ fn parse_inline_recursive(text: &str, out: &mut Vec<InlineSpan>, in_nested: bool
         if rest.starts_with('\\') && rest.len() > 1 {
             let next_char = rest[1..].chars().next().unwrap();
             if next_char == '*' || next_char == '_' || next_char == '`' || next_char == '^' || next_char == '~' || next_char == '\\' {
-                out.push(InlineSpan::Text(next_char.to_string()));
+                push_text(out, &next_char.to_string());
                 pos_idx += 2; // skip \ and the escaped char
                 continue;
             }
         }
 
-        if let Some((span, consumed)) = try_match(rest, in_nested) {
+        if let Some((span, consumed)) = try_match(rest) {
             out.push(span);
             // Advance pos_idx by the number of chars consumed
             let end_byte = byte_pos + consumed;
@@ -491,13 +609,14 @@ fn parse_inline_recursive(text: &str, out: &mut Vec<InlineSpan>, in_nested: bool
                     || ahead.starts_with("footnoteref:") || ahead.starts_with('<')
                     || ahead.starts_with("((") || ahead.starts_with("<<") || ahead.starts_with("[[")
                     || ahead.starts_with("kbd:[") || ahead.starts_with("btn:[") || ahead.starts_with("menu:")
+                    || ahead.starts_with("stem:") || ahead.starts_with("asciimath:") || ahead.starts_with("latexmath:")
                     || ahead.starts_with("+++") || ahead.starts_with("pass:[") || ahead.starts_with("[.") {
                     break;
                 }
                 end_idx += 1;
             }
             let end_byte = if end_idx < char_count { char_positions[end_idx] } else { text.len() };
-            out.push(InlineSpan::Text(text[byte_pos..end_byte].to_string()));
+            push_text(out, &text[byte_pos..end_byte]);
             pos_idx = end_idx;
         }
     }
@@ -648,9 +767,7 @@ mod tests {
     fn backslash_escape_underscore() {
         let spans = parse_inline("\\_not italic_");
         assert_eq!(spans, vec![
-            InlineSpan::Text("_".into()),
-            InlineSpan::Text("not italic".into()),
-            InlineSpan::Text("_".into()),
+            InlineSpan::Text("_not italic_".into()),
         ]);
     }
 
@@ -658,9 +775,51 @@ mod tests {
     fn backslash_escape_asterisk() {
         let spans = parse_inline("\\*not bold\\*");
         assert_eq!(spans, vec![
-            InlineSpan::Text("*".into()),
-            InlineSpan::Text("not bold".into()),
-            InlineSpan::Text("*".into()),
+            InlineSpan::Text("*not bold*".into()),
+        ]);
+    }
+
+    #[test]
+    fn bold_italic_nested() {
+        let spans = parse_inline("*_bold italic_*");
+        assert_eq!(spans, vec![
+            InlineSpan::Bold(vec![
+                InlineSpan::Italic(vec![
+                    InlineSpan::Text("bold italic".into()),
+                ])
+            ])
+        ]);
+
+        let spans2 = parse_inline("_*italic bold*_");
+        assert_eq!(spans2, vec![
+            InlineSpan::Italic(vec![
+                InlineSpan::Bold(vec![
+                    InlineSpan::Text("italic bold".into()),
+                ])
+            ])
+        ]);
+    }
+
+    #[test]
+    fn smart_quotes_with_formatted_monospace() {
+        let spans = parse_inline("'```e = mc^2^ *_the scent of science_* _smells like a genius_```'");
+        assert_eq!(spans, vec![
+            InlineSpan::SingleQuote(vec![
+                InlineSpan::Monospace(vec![
+                    InlineSpan::Text("e = mc".into()),
+                    InlineSpan::Superscript(vec![InlineSpan::Text("2".into())]),
+                    InlineSpan::Text(" ".into()),
+                    InlineSpan::Bold(vec![
+                        InlineSpan::Italic(vec![
+                            InlineSpan::Text("the scent of science".into()),
+                        ])
+                    ]),
+                    InlineSpan::Text(" ".into()),
+                    InlineSpan::Italic(vec![
+                        InlineSpan::Text("smells like a genius".into()),
+                    ]),
+                ])
+            ])
         ]);
     }
 
@@ -805,11 +964,16 @@ mod tests {
     }
 
     #[test]
-    fn inline_unconstrained_and_smart_quotes() {
-        let s1 = parse_inline("**ul**timate and __war__lock and \"`smart double`\" and '`smart single`'");
-        assert_eq!(s1[0], InlineSpan::Bold(vec![InlineSpan::Text("ul".into())]));
-        assert_eq!(s1[1], InlineSpan::Text("timate and ".into()));
-        assert_eq!(s1[2], InlineSpan::Italic(vec![InlineSpan::Text("war".into())]));
-        assert_eq!(s1[3], InlineSpan::Text("lock and “.smart double.” and ‘.smart single.’"[..9].into())); // smart quote check
+    fn inline_html_entities() {
+        let spans = parse_inline("Price: 100&#x20ac; &amp; 50&euro; for &copy; 2026");
+        let plain = spans.iter().map(|s| s.plain_text()).collect::<String>();
+        assert_eq!(plain, "Price: 100€ & 50€ for © 2026");
+    }
+
+    #[test]
+    fn inline_math_stem() {
+        let spans = parse_inline("Formula: stem:[sqrt(4) = 2] or asciimath:[x^2 + y^2 = r^2]");
+        assert_eq!(spans[1], InlineSpan::Code("sqrt(4) = 2".into()));
+        assert_eq!(spans[3], InlineSpan::Code("x^2 + y^2 = r^2".into()));
     }
 }

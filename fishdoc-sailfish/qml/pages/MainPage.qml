@@ -36,30 +36,6 @@ Page {
         searchField.forceActiveFocus()
     }
 
-    function getNoteColor(name) {
-        var palette = [
-            "#e67e22", // orange
-            "#3498db", // blue
-            "#2ecc71", // green
-            "#9b59b6", // purple
-            "#f1c40f", // yellow
-            "#e74c3c", // red
-            "#1abc9c", // teal
-            "#e84393", // pink
-            "#00cec9", // cyan
-            "#6c5ce7", // indigo
-            "#fdcb6e", // amber
-            "#00b894"  // emerald
-        ];
-        var hash = 0;
-        if (name) {
-            for (var i = 0; i < name.length; i++) {
-                hash = (hash * 31 + name.charCodeAt(i)) & 0x7FFFFFFF;
-            }
-        }
-        return palette[hash % palette.length];
-    }
-
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: column.height + Theme.paddingLarge
@@ -98,7 +74,7 @@ Page {
             width: parent.width
 
             PageHeader {
-                title: "FishDoc"
+                title: "Notes++"
             }
 
             SearchField {
@@ -120,91 +96,19 @@ Page {
                 visible: searchField.text.length > 0
             }
 
-            Grid {
+            NoteCardGrid {
                 id: searchGrid
                 width: parent.width
-                columns: isPortrait ? 2 : (width > 1200 ? 4 : 3)
-                spacing: 0
+                isPortraitOrientation: isPortrait
+                model: searchField.text.length > 0 ? parsedSearchResults : []
+                searchTerm: searchField.text
                 visible: searchField.text.length > 0 && parsedSearchResults.length > 0
-
-                property real cellWidth: Math.floor(width / columns)
-
-                Repeater {
-                    model: searchField.text.length > 0 ? parsedSearchResults : 0
-
-                    delegate: BackgroundItem {
-                        id: searchGridItem
-                        width: (index % searchGrid.columns === searchGrid.columns - 1) ? (searchGrid.width - searchGrid.cellWidth * (searchGrid.columns - 1)) : searchGrid.cellWidth
-                        height: searchGrid.cellWidth
-                        onClicked: {
-                            pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                                pageName: modelData.name,
-                                searchTerm: searchField.text
-                            })
-                            bridge.load_page(modelData.name)
-                        }
-
-                        Rectangle {
-                            id: searchCardBox
-                            anchors.fill: parent
-                            color: searchGridItem.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.22) : Theme.rgba(Theme.highlightBackgroundColor, 0.05)
-                            border.color: searchGridItem.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.12)
-                            border.width: 1
-
-                            MiniDocPreview {
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    top: parent.top
-                                    bottom: searchCardFooter.top
-                                    leftMargin: Theme.paddingMedium
-                                    rightMargin: Theme.paddingMedium
-                                    topMargin: Theme.paddingMedium
-                                    bottomMargin: 0
-                                }
-                                showBorder: false
-                                previewBlocksJson: modelData ? (modelData.preview_blocks_json || "") : ""
-                                snippet: modelData ? (modelData.snippet || "") : ""
-                                highlighted: searchGridItem.highlighted
-                            }
-
-                            Item {
-                                id: searchCardFooter
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    bottom: parent.bottom
-                                    leftMargin: Theme.paddingMedium
-                                    rightMargin: Theme.paddingMedium
-                                    bottomMargin: Theme.paddingSmall
-                                }
-                                height: Theme.paddingLarge
-
-                                Rectangle {
-                                    id: searchColorBar
-                                    anchors {
-                                        left: parent.left
-                                        verticalCenter: parent.verticalCenter
-                                    }
-                                    width: Math.round(Theme.itemSizeExtraSmall * 0.6)
-                                    height: 4
-                                    radius: 2
-                                    color: getNoteColor(modelData ? modelData.name : "")
-                                }
-
-                                Label {
-                                    id: searchIndexLabel
-                                    anchors {
-                                        right: parent.right
-                                        verticalCenter: parent.verticalCenter
-                                    }
-                                    text: (index + 1).toString()
-                                    font.pixelSize: Theme.fontSizeExtraSmall
-                                    color: Theme.secondaryColor
-                                }
-                            }
-                        }
-                    }
+                onItemClicked: function(itemData, itemIndex) {
+                    pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                        pageName: itemData.name,
+                        searchTerm: searchField.text
+                    })
+                    bridge.load_page(itemData.name)
                 }
             }
 
@@ -250,91 +154,17 @@ Page {
                 visible: searchField.text.length === 0
             }
 
-            Grid {
+            NoteCardGrid {
                 id: recentGrid
                 width: parent.width
-                columns: isPortrait ? 2 : (width > 1200 ? 4 : 3)
-                spacing: 0
+                isPortraitOrientation: isPortrait
+                model: searchField.text.length === 0 ? parsedRecentPages : []
                 visible: searchField.text.length === 0
-
-                property real cellWidth: Math.floor(width / columns)
-
-                Repeater {
-                    model: searchField.text.length === 0 ? parsedRecentPages : 0
-
-                    delegate: BackgroundItem {
-                        id: recentGridItem
-                        width: (index % recentGrid.columns === recentGrid.columns - 1) ? (recentGrid.width - recentGrid.cellWidth * (recentGrid.columns - 1)) : recentGrid.cellWidth
-                        height: recentGrid.cellWidth
-                        visible: searchField.text.length === 0
-                        onClicked: {
-                            pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                                pageName: modelData.name
-                            })
-                            bridge.load_page(modelData.name)
-                        }
-
-                        Rectangle {
-                            id: recentCardBox
-                            anchors.fill: parent
-                            color: recentGridItem.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.22) : Theme.rgba(Theme.highlightBackgroundColor, 0.05)
-                            border.color: recentGridItem.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.12)
-                            border.width: 1
-
-                            MiniDocPreview {
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    top: parent.top
-                                    bottom: recentCardFooter.top
-                                    leftMargin: Theme.paddingMedium
-                                    rightMargin: Theme.paddingMedium
-                                    topMargin: Theme.paddingMedium
-                                    bottomMargin: 0
-                                }
-                                showBorder: false
-                                previewBlocksJson: modelData ? (modelData.preview_blocks_json || "") : ""
-                                snippet: modelData ? (modelData.snippet || "") : ""
-                                highlighted: recentGridItem.highlighted
-                            }
-
-                            Item {
-                                id: recentCardFooter
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    bottom: parent.bottom
-                                    leftMargin: Theme.paddingMedium
-                                    rightMargin: Theme.paddingMedium
-                                    bottomMargin: Theme.paddingSmall
-                                }
-                                height: Theme.paddingLarge
-
-                                Rectangle {
-                                    id: recentColorBar
-                                    anchors {
-                                        left: parent.left
-                                        verticalCenter: parent.verticalCenter
-                                    }
-                                    width: Math.round(Theme.itemSizeExtraSmall * 0.6)
-                                    height: 4
-                                    radius: 2
-                                    color: getNoteColor(modelData ? modelData.name : "")
-                                }
-
-                                Label {
-                                    id: recentIndexLabel
-                                    anchors {
-                                        right: parent.right
-                                        verticalCenter: parent.verticalCenter
-                                    }
-                                    text: (index + 1).toString()
-                                    font.pixelSize: Theme.fontSizeExtraSmall
-                                    color: Theme.secondaryColor
-                                }
-                            }
-                        }
-                    }
+                onItemClicked: function(itemData, itemIndex) {
+                    pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                        pageName: itemData.name
+                    })
+                    bridge.load_page(itemData.name)
                 }
             }
         }
