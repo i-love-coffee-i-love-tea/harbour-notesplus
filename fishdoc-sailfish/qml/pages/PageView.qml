@@ -133,6 +133,7 @@ Page {
         PullDownMenu {
             MenuItem {
                 text: "Ask AI Assistant"
+                visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {
                     var content = bridge.get_page_source(pageName)
                     var fname = pageName.indexOf(".adoc") >= 0 ? pageName : (pageName + ".adoc")

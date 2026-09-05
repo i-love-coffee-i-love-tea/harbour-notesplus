@@ -58,6 +58,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: aiEnabledConf
+        key: "/apps/harbour-fishdoc/ai_enabled"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
         id: aiProviderConf
         key: "/apps/harbour-fishdoc/ai_provider"
         defaultValue: "ollama"
@@ -113,6 +119,7 @@ ApplicationWindow {
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
+    property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
 
     property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
     property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : "http://192.168.1.1:11434"
@@ -154,6 +161,10 @@ ApplicationWindow {
 
     function setAutostartWebServer(val) {
         autostartWebServerConf.value = val
+    }
+
+    function setAiEnabled(val) {
+        aiEnabledConf.value = val
     }
 
     function setAiProvider(provider) {

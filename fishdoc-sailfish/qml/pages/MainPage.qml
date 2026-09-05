@@ -55,12 +55,14 @@ Page {
             }
             MenuItem {
                 text: "Import Assistant"
+                visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("ImportAssistantPage.qml"))
                 }
             }
             MenuItem {
                 text: "AI Assistant"
+                visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("AssistantPage.qml"))
                 }

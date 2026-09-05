@@ -1,5 +1,6 @@
 //! LLM API Client supporting Ollama native (/api/chat) and OpenAI / Xiaomi MiMoCode (/v1/chat/completions).
 
+use std::io::{BufRead, BufReader};
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -161,8 +162,18 @@ impl LlmClient {
         }
     }
 
-    /// Formats the request payload for the appropriate provider.
+    /// Formats the request payload for the appropriate provider with optional streaming flag.
     pub fn build_request_body(&self, messages: &[ChatMessage], tools: &[ToolDefinition]) -> Value {
+        self.build_request_body_with_stream(messages, tools, false)
+    }
+
+    /// Formats the request payload for the appropriate provider with explicit stream parameter.
+    pub fn build_request_body_with_stream(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolDefinition],
+        stream: bool,
+    ) -> Value {
         let serialized_messages: Vec<Value> = messages
             .iter()
             .enumerate()
@@ -266,7 +277,7 @@ impl LlmClient {
         let mut body = json!({
             "model": self.config.model,
             "messages": serialized_messages,
-            "stream": false
+            "stream": stream
         });
         if !tools.is_empty() {
             body["tools"] = json!(tools);
@@ -365,8 +376,17 @@ impl LlmClient {
 
     /// Sends a chat completion request to the configured LLM endpoint.
     pub fn send_chat(&self, messages: &[ChatMessage]) -> Result<AssistantResponse, LlmError> {
+        self.send_chat_streaming(messages, |_| {})
+    }
+
+    /// Sends a chat completion request to the configured LLM endpoint with token-by-token streaming callback.
+    pub fn send_chat_streaming<F: FnMut(&str)>(
+        &self,
+        messages: &[ChatMessage],
+        on_token: F,
+    ) -> Result<AssistantResponse, LlmError> {
         let tools = get_available_tools();
-        let body = self.build_request_body(messages, &tools);
+        let body = self.build_request_body_with_stream(messages, &tools, true);
         let url = self.resolve_chat_url();
 
         let timeout = Duration::from_secs(self.config.timeout_secs);
@@ -405,10 +425,153 @@ impl LlmClient {
             }
         };
 
-        let json_resp: Value = resp.into_json()
-            .map_err(|e| LlmError::Json(e.to_string()))?;
+        let reader = BufReader::new(resp.into_reader());
 
-        Self::parse_response(self.config.provider, &json_resp)
+        match self.config.provider {
+            LlmProvider::Ollama => Self::parse_ollama_stream(reader, on_token),
+            LlmProvider::OpenAiCompatible => Self::parse_openai_stream(reader, on_token),
+        }
+    }
+
+    /// Parses an Ollama NDJSON stream line-by-line.
+    pub fn parse_ollama_stream<R: BufRead, F: FnMut(&str)>(
+        reader: R,
+        mut on_token: F,
+    ) -> Result<AssistantResponse, LlmError> {
+        let mut accumulated_content = String::new();
+        let mut accumulated_tool_calls = Vec::new();
+
+        for line_res in reader.lines() {
+            let line = line_res.map_err(|e| LlmError::Network(format!("Stream read error: {}", e)))?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let json_val: Value = serde_json::from_str(trimmed)
+                .map_err(|e| LlmError::Json(format!("Invalid JSON line {}: {}", e, trimmed)))?;
+
+            if let Some(err_msg) = json_val.get("error").and_then(|v| v.as_str()) {
+                return Err(LlmError::InvalidResponse(err_msg.to_string()));
+            }
+
+            if let Some(msg_obj) = json_val.get("message") {
+                if let Some(token) = msg_obj.get("content").and_then(|v| v.as_str()) {
+                    if !token.is_empty() {
+                        accumulated_content.push_str(token);
+                        on_token(token);
+                    }
+                }
+
+                if let Some(tcs) = msg_obj.get("tool_calls") {
+                    if let Ok(calls) = Self::extract_tool_calls(Some(tcs)) {
+                        for call in calls {
+                            accumulated_tool_calls.push(call);
+                        }
+                    }
+                }
+            }
+
+            let is_done = json_val.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+            if is_done {
+                break;
+            }
+        }
+
+        Ok(AssistantResponse {
+            content: if accumulated_content.is_empty() { None } else { Some(accumulated_content) },
+            tool_calls: accumulated_tool_calls,
+        })
+    }
+
+    /// Parses an OpenAI/MiMoCode SSE stream line-by-line.
+    pub fn parse_openai_stream<R: BufRead, F: FnMut(&str)>(
+        reader: R,
+        mut on_token: F,
+    ) -> Result<AssistantResponse, LlmError> {
+        let mut accumulated_content = String::new();
+        let mut tool_calls_by_index: std::collections::BTreeMap<usize, (Option<String>, String, String)> = std::collections::BTreeMap::new();
+
+        for line_res in reader.lines() {
+            let line = line_res.map_err(|e| LlmError::Network(format!("Stream read error: {}", e)))?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let payload = if let Some(stripped) = trimmed.strip_prefix("data:") {
+                stripped.trim()
+            } else {
+                trimmed
+            };
+
+            if payload == "[DONE]" {
+                break;
+            }
+
+            let json_val: Value = match serde_json::from_str(payload) {
+                Ok(v) => v,
+                Err(_) => continue, // Skip comments or non-JSON payloads
+            };
+
+            if let Some(err_obj) = json_val.get("error") {
+                let msg = err_obj.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown OpenAI error");
+                return Err(LlmError::InvalidResponse(msg.to_string()));
+            }
+
+            if let Some(choices) = json_val.get("choices").and_then(|v| v.as_array()) {
+                if let Some(choice) = choices.first() {
+                    if let Some(delta) = choice.get("delta") {
+                        if let Some(token) = delta.get("content").and_then(|v| v.as_str()) {
+                            if !token.is_empty() {
+                                accumulated_content.push_str(token);
+                                on_token(token);
+                            }
+                        }
+
+                        if let Some(tcs) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                            for tc in tcs {
+                                let idx = tc.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                                let entry = tool_calls_by_index.entry(idx).or_insert((None, String::new(), String::new()));
+                                if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+                                    entry.0 = Some(id.to_string());
+                                }
+                                if let Some(func) = tc.get("function") {
+                                    if let Some(name) = func.get("name").and_then(|v| v.as_str()) {
+                                        entry.1.push_str(name);
+                                    }
+                                    if let Some(args) = func.get("arguments").and_then(|v| v.as_str()) {
+                                        entry.2.push_str(args);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut accumulated_tool_calls = Vec::new();
+        for (_idx, (id, name, args_str)) in tool_calls_by_index {
+            if !name.is_empty() {
+                let args = serde_json::from_str::<Value>(&args_str).unwrap_or_else(|_| {
+                    json!({ "raw": args_str })
+                });
+                accumulated_tool_calls.push(ToolCall {
+                    id,
+                    tool_type: "function".to_string(),
+                    function: crate::agent::tools::FunctionCall {
+                        name,
+                        arguments: args,
+                    },
+                });
+            }
+        }
+
+        Ok(AssistantResponse {
+            content: if accumulated_content.is_empty() { None } else { Some(accumulated_content) },
+            tool_calls: accumulated_tool_calls,
+        })
     }
 }
 
@@ -611,5 +774,73 @@ mod tests {
         assert_eq!(msgs[3]["role"], "tool");
         assert_eq!(msgs[3]["tool_call_id"], "call_abc123");
         assert_eq!(msgs[3]["content"], "[{\"filename\":\"a.adoc\"}]");
+    }
+
+    #[test]
+    fn test_parse_ollama_stream_tokens() {
+        let stream_data = "\
+{\"model\":\"llama3.2\",\"created_at\":\"2026-09-05T20:00:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"done\":false}\n\
+{\"model\":\"llama3.2\",\"created_at\":\"2026-09-05T20:00:01Z\",\"message\":{\"role\":\"assistant\",\"content\":\" world\"},\"done\":false}\n\
+{\"model\":\"llama3.2\",\"created_at\":\"2026-09-05T20:00:02Z\",\"message\":{\"role\":\"assistant\",\"content\":\"!\"},\"done\":true}\n";
+
+        let mut tokens_received = Vec::new();
+        let resp = LlmClient::parse_ollama_stream(stream_data.as_bytes(), |tok| {
+            tokens_received.push(tok.to_string());
+        }).expect("Stream parse should succeed");
+
+        assert_eq!(tokens_received, vec!["Hello", " world", "!"]);
+        assert_eq!(resp.content.as_deref(), Some("Hello world!"));
+        assert!(resp.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ollama_stream_with_tool_calls() {
+        let stream_data = "\
+{\"model\":\"llama3.2\",\"created_at\":\"2026-09-05T20:00:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"function\":{\"name\":\"list_notes\",\"arguments\":{}}}]},\"done\":true}\n";
+
+        let mut tokens_received = Vec::new();
+        let resp = LlmClient::parse_ollama_stream(stream_data.as_bytes(), |tok| {
+            tokens_received.push(tok.to_string());
+        }).expect("Stream parse should succeed");
+
+        assert!(tokens_received.is_empty());
+        assert!(resp.content.is_none());
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].function.name, "list_notes");
+    }
+
+    #[test]
+    fn test_parse_openai_stream_tokens() {
+        let stream_data = "\
+data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"Async\"}}]}\n\
+\n\
+data: {\"choices\":[{\"delta\":{\"content\":\" stream\"}}]}\n\
+data: {\"choices\":[{\"delta\":{\"content\":\" working\"}}]}\n\
+data: [DONE]\n";
+
+        let mut tokens_received = Vec::new();
+        let resp = LlmClient::parse_openai_stream(stream_data.as_bytes(), |tok| {
+            tokens_received.push(tok.to_string());
+        }).expect("Stream parse should succeed");
+
+        assert_eq!(tokens_received, vec!["Async", " stream", " working"]);
+        assert_eq!(resp.content.as_deref(), Some("Async stream working"));
+        assert!(resp.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn test_parse_openai_stream_tool_calls() {
+        let stream_data = "\
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"search_\"}}]}}]}\n\
+data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"notes\",\"arguments\":\"{\\\"query\\\":\\\"test\\\"}\"}}]}}]}\n\
+data: [DONE]\n";
+
+        let resp = LlmClient::parse_openai_stream(stream_data.as_bytes(), |_| {})
+            .expect("Stream parse should succeed");
+
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(resp.tool_calls[0].function.name, "search_notes");
+        assert_eq!(resp.tool_calls[0].function.arguments["query"], "test");
     }
 }

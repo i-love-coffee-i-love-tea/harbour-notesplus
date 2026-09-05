@@ -69,7 +69,7 @@ Page {
 
     Timer {
         id: pollTimer
-        interval: 120
+        interval: 50
         running: agentBridge.agent_busy
         repeat: true
         onTriggered: {
@@ -290,17 +290,64 @@ Page {
                         }
                     }
                 }
+
+                // Live Streaming Assistant Bubble
+                Item {
+                    width: parent.width
+                    height: liveMsgBubble.height + Theme.paddingSmall
+                    visible: agentBridge.agent_busy && agentBridge.streaming_text.length > 0
+
+                    Rectangle {
+                        id: liveMsgBubble
+                        width: parent.width
+                        height: liveMsgTextCol.height + Theme.paddingMedium * 2
+                        radius: Theme.paddingSmall
+                        color: Theme.rgba(Theme.highlightBackgroundColor, 0.18)
+
+                        Column {
+                            id: liveMsgTextCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.margins: Theme.paddingMedium
+                            spacing: Theme.paddingSmall
+
+                            Row {
+                                spacing: Theme.paddingSmall
+                                Label {
+                                    text: "🤖 Assistant"
+                                    font.pixelSize: Theme.fontSizeExtraSmall
+                                    font.bold: true
+                                    color: Theme.highlightColor
+                                }
+                                BusyIndicator {
+                                    size: BusyIndicatorSize.ExtraSmall
+                                    running: true
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
+
+                            Label {
+                                width: parent.width
+                                text: agentBridge.streaming_text
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.primaryColor
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+                }
             }
 
-            // Busy Indicator
+            // Busy Indicator (when waiting for first token or executing tools)
             Item {
                 width: parent.width
                 height: Theme.itemSizeMedium
-                visible: agentBridge.agent_busy
+                visible: agentBridge.agent_busy && agentBridge.streaming_text.length === 0
 
                 BusyIndicator {
                     anchors.centerIn: parent
-                    running: agentBridge.agent_busy
+                    running: agentBridge.agent_busy && agentBridge.streaming_text.length === 0
                     size: BusyIndicatorSize.Small
                 }
             }

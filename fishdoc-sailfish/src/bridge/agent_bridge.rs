@@ -39,6 +39,7 @@ pub struct AgentBridge {
     last_snapshot_id: qt_property!(String; NOTIFY undo_state_changed),
     last_created_note: qt_property!(String; NOTIFY last_created_note_changed),
     error_message: qt_property!(String; NOTIFY error_occurred),
+    streaming_text: qt_property!(String; NOTIFY streaming_text_changed),
 
     // Configuration properties
     provider_type: qt_property!(String; NOTIFY config_changed),
@@ -60,6 +61,7 @@ pub struct AgentBridge {
     error_occurred: qt_signal!(message: String),
     response_finished: qt_signal!(content: String),
     undo_completed: qt_signal!(message: String),
+    streaming_text_changed: qt_signal!(),
 
     // Methods
     configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool)),
@@ -76,6 +78,7 @@ pub struct AgentBridge {
     // Internal shared state
     session: Arc<Mutex<AgentSession>>,
     worker_result: Arc<Mutex<Option<WorkerOutput>>>,
+    streaming_buffer: Arc<Mutex<String>>,
 }
 
 impl Default for AgentBridge {
@@ -115,6 +118,7 @@ impl Default for AgentBridge {
             last_snapshot_id: String::new(),
             last_created_note: String::new(),
             error_message: String::new(),
+            streaming_text: String::new(),
             provider_type: "ollama".to_string(),
             endpoint_url: "http://192.168.1.1:11434".to_string(),
             model_name: "llama3.2".to_string(),
@@ -132,6 +136,7 @@ impl Default for AgentBridge {
             error_occurred: Default::default(),
             response_finished: Default::default(),
             undo_completed: Default::default(),
+            streaming_text_changed: Default::default(),
             configure: Default::default(),
             reset_session: Default::default(),
             send_prompt: Default::default(),
@@ -144,6 +149,7 @@ impl Default for AgentBridge {
             poll_worker: Default::default(),
             session: Arc::new(Mutex::new(session)),
             worker_result: Arc::new(Mutex::new(None)),
+            streaming_buffer: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -318,16 +324,28 @@ impl AgentBridge {
 
     fn spawn_worker(&mut self, task: WorkerTask) {
         self.agent_busy = true;
+        self.streaming_text = String::new();
         self.busy_changed();
+        self.streaming_text_changed();
+
+        if let Ok(mut buf) = self.streaming_buffer.lock() {
+            buf.clear();
+        }
 
         let session_arc = Arc::clone(&self.session);
         let result_arc = Arc::clone(&self.worker_result);
+        let streaming_buf_arc = Arc::clone(&self.streaming_buffer);
 
         thread::spawn(move || {
             let output = match session_arc.lock() {
                 Ok(mut session) => match task {
                     WorkerTask::SendPrompt(text) => {
-                        let step_res = session.send_prompt(&text);
+                        let stream_buf = Arc::clone(&streaming_buf_arc);
+                        let step_res = session.send_prompt_streaming(&text, move |tok| {
+                            if let Ok(mut b) = stream_buf.lock() {
+                                b.push_str(tok);
+                            }
+                        });
                         let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
                         let pending = session.pending_action().cloned();
                         let can_undo = session.can_undo();
@@ -344,7 +362,12 @@ impl AgentBridge {
                         }
                     }
                     WorkerTask::ConfirmAction(approved) => {
-                        let step_res = session.confirm_pending_action(approved);
+                        let stream_buf = Arc::clone(&streaming_buf_arc);
+                        let step_res = session.confirm_pending_action_streaming(approved, move |tok| {
+                            if let Ok(mut b) = stream_buf.lock() {
+                                b.push_str(tok);
+                            }
+                        });
                         let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
                         let pending = session.pending_action().cloned();
                         let can_undo = session.can_undo();
@@ -408,6 +431,13 @@ impl AgentBridge {
             return false;
         }
 
+        if let Ok(buf) = self.streaming_buffer.lock() {
+            if *buf != self.streaming_text {
+                self.streaming_text = buf.clone();
+                self.streaming_text_changed();
+            }
+        }
+
         let output_opt = match self.worker_result.lock() {
             Ok(mut r) => r.take(),
             Err(_) => None,
@@ -418,6 +448,12 @@ impl AgentBridge {
             self.can_undo = output.can_undo;
             self.last_snapshot_id = output.last_snapshot_id.unwrap_or_default();
             self.last_created_note = output.last_created_note.unwrap_or_default();
+            self.streaming_text = String::new();
+            self.streaming_text_changed();
+
+            if let Ok(mut buf) = self.streaming_buffer.lock() {
+                buf.clear();
+            }
 
             if let Some(pending) = output.pending_action {
                 self.pending_action_json = serde_json::to_string(&pending).unwrap_or_default();

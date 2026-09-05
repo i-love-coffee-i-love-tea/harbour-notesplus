@@ -65,7 +65,7 @@ Page {
 
     Timer {
         id: pollTimer
-        interval: 120
+        interval: 50
         running: agentBridge.agent_busy
         repeat: true
         onTriggered: {
@@ -322,7 +322,51 @@ Page {
                 anchors.horizontalCenter: parent.horizontalCenter
                 size: BusyIndicatorSize.Medium
                 running: agentBridge.agent_busy
-                visible: agentBridge.agent_busy
+                visible: agentBridge.agent_busy && agentBridge.streaming_text.length === 0
+            }
+
+            // Live Streaming Progress Card
+            Rectangle {
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: streamCol.height + Theme.paddingMedium * 2
+                color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
+                radius: Theme.paddingSmall
+                border.color: Theme.rgba(Theme.highlightColor, 0.3)
+                border.width: 1
+                visible: agentBridge.agent_busy && agentBridge.streaming_text.length > 0
+
+                Column {
+                    id: streamCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.paddingMedium
+                    spacing: Theme.paddingSmall
+
+                    Row {
+                        spacing: Theme.paddingSmall
+                        Label {
+                            text: "Converting..."
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            font.bold: true
+                            color: Theme.highlightColor
+                        }
+                        BusyIndicator {
+                            size: BusyIndicatorSize.ExtraSmall
+                            running: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Label {
+                        width: parent.width
+                        text: agentBridge.streaming_text
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.primaryColor
+                        wrapMode: Text.Wrap
+                    }
+                }
             }
 
             // Undo Banner

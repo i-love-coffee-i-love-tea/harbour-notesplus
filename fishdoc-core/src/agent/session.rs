@@ -115,16 +115,26 @@ impl AgentSession {
 
     /// Appends a user prompt and drives the conversation loop.
     pub fn send_prompt(&mut self, user_prompt: &str) -> AgentStepResult {
+        self.send_prompt_streaming(user_prompt, |_| {})
+    }
+
+    /// Appends a user prompt and drives the conversation loop with a streaming token callback.
+    pub fn send_prompt_streaming<F: FnMut(&str)>(&mut self, user_prompt: &str, on_token: F) -> AgentStepResult {
         if self.messages.is_empty() {
             self.reset_session(None, None);
         }
 
         self.messages.push(ChatMessage::user(user_prompt));
-        self.run_loop()
+        self.run_loop_streaming(on_token)
     }
 
     /// Resolves pending confirmation (approving or rejecting) and resumes the loop.
     pub fn confirm_pending_action(&mut self, approved: bool) -> AgentStepResult {
+        self.confirm_pending_action_streaming(approved, |_| {})
+    }
+
+    /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.
+    pub fn confirm_pending_action_streaming<F: FnMut(&str)>(&mut self, approved: bool, on_token: F) -> AgentStepResult {
         let pending = match self.pending_action.take() {
             Some(p) => p,
             None => return AgentStepResult::Error("No pending action to confirm".to_string()),
@@ -145,17 +155,17 @@ impl AgentSession {
             ));
         }
 
-        self.run_loop()
+        self.run_loop_streaming(on_token)
     }
 
-    /// Runs the LLM tool execution loop until an answer or confirmation gate is reached.
-    fn run_loop(&mut self) -> AgentStepResult {
+    /// Runs the LLM tool execution loop with token streaming until an answer or confirmation gate is reached.
+    fn run_loop_streaming<F: FnMut(&str)>(&mut self, mut on_token: F) -> AgentStepResult {
         let mut turns = 0;
 
         while turns < self.max_tool_turns {
             turns += 1;
 
-            let response = match self.client.send_chat(&self.messages) {
+            let response = match self.client.send_chat_streaming(&self.messages, &mut on_token) {
                 Ok(resp) => resp,
                 Err(err) => return AgentStepResult::Error(format!("LLM Request Failed: {}", err)),
             };
