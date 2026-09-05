@@ -149,8 +149,19 @@ Page {
                 }
             }
             MenuItem {
-                text: "Export to PDF"
-                onClicked: bridge.export_pdf(pageName)
+                text: "Open in Browser"
+                onClicked: {
+                    bridge.open_in_browser(pageName)
+                }
+            }
+            MenuItem {
+                text: "Export to HTML5"
+                onClicked: {
+                    var path = bridge.export_html(pageName)
+                    if (path) {
+                        remorsePopup.execute("Exported to " + path, function() {})
+                    }
+                }
             }
             MenuItem {
                 text: "Delete Page"

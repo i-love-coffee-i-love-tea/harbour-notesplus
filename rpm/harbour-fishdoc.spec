@@ -1,7 +1,7 @@
 Name:       harbour-fishdoc
 Summary:    Notes++ — AsciiDoc notes app for Sailfish OS
 Version:    0.1.0
-Release:    25
+Release:    26
 Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-fishdoc
@@ -20,7 +20,7 @@ BuildRequires:  meego-rpm-config
 %description
 Notes++ is an AsciiDoc notes app for Sailfish OS.
 Journal with auto-managed daily named pages, page linking,
-full-text search, and PDF export.
+full-text search, HTML5 export, and embedded documentation web server.
 
 %prep
 %setup -q -n %{name}-%{version}

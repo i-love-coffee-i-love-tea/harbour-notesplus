@@ -48,6 +48,28 @@ Page {
                 }
             }
             MenuItem {
+                text: bridge.web_server_running ? ("Web Server: " + bridge.web_server_url) : "Start Web Server"
+                onClicked: {
+                    if (bridge.web_server_running) {
+                        bridge.stop_web_server()
+                    } else {
+                        var url = bridge.start_web_server()
+                        if (url) {
+                            remorsePopup.execute("Server running at " + url, function() {})
+                        }
+                    }
+                }
+            }
+            MenuItem {
+                text: "Export All to HTML5"
+                onClicked: {
+                    var out = bridge.export_all_html()
+                    if (out) {
+                        remorsePopup.execute("Exported notes to " + out, function() {})
+                    }
+                }
+            }
+            MenuItem {
                 text: "New Page"
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
@@ -169,4 +191,6 @@ Page {
             }
         }
     }
+
+    RemorsePopup { id: remorsePopup }
 }

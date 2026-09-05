@@ -16,12 +16,6 @@ pub(super) struct PendingResult {
     pub error: Option<String>,
 }
 
-/// Pending async result from export_pdf
-pub(super) struct PdfExportResult {
-    pub path: Option<String>,
-    pub error: Option<String>,
-}
-
 /// QML bridge exposing FishDoc functionality to the UI.
 #[derive(QObject)]
 pub struct FishdocBridge {
@@ -39,6 +33,8 @@ pub struct FishdocBridge {
     recent_journal_lines: qt_property!(QVariantList; NOTIFY data_refreshed),
     is_loading: qt_property!(bool; NOTIFY loading_changed),
     drop_comments: qt_property!(bool; NOTIFY drop_comments_changed),
+    web_server_running: qt_property!(bool; NOTIFY web_server_status_changed),
+    web_server_url: qt_property!(String; NOTIFY web_server_status_changed),
     error_message: qt_property!(String; NOTIFY error_occurred),
 
     // Signals
@@ -47,9 +43,10 @@ pub struct FishdocBridge {
     data_refreshed: qt_signal!(),
     loading_changed: qt_signal!(),
     drop_comments_changed: qt_signal!(),
+    web_server_status_changed: qt_signal!(),
     error_occurred: qt_signal!(message: String),
     page_saved: qt_signal!(),
-    pdf_exported: qt_signal!(path: String),
+    html_exported: qt_signal!(path: String),
 
     // Methods
     load_page: qt_method!(fn(&mut self, name: String)),
@@ -67,7 +64,12 @@ pub struct FishdocBridge {
     set_drop_comments: qt_method!(fn(&mut self, drop: bool)),
     load_main_page_data: qt_method!(fn(&mut self)),
     poll_results: qt_method!(fn(&mut self) -> bool),
-    export_pdf: qt_method!(fn(&mut self, page_name: String)),
+    export_html: qt_method!(fn(&mut self, page_name: String) -> String),
+    export_all_html: qt_method!(fn(&mut self) -> String),
+    open_in_browser: qt_method!(fn(&mut self, page_name: String)),
+    start_web_server: qt_method!(fn(&mut self) -> String),
+    stop_web_server: qt_method!(fn(&mut self)),
+    toggle_web_server: qt_method!(fn(&mut self) -> bool),
 
     // Internal state
     conn: Option<rusqlite::Connection>,
@@ -75,7 +77,7 @@ pub struct FishdocBridge {
     data_dir: PathBuf,
     current_blocks_data: Vec<Block>,
     pending: Arc<Mutex<Option<PendingResult>>>,
-    pdf_pending: Arc<Mutex<Option<PdfExportResult>>>,
+    server_handle: Option<fishdoc_core::server::HttpServerHandle>,
 }
 
 impl Default for FishdocBridge {
@@ -98,15 +100,18 @@ impl Default for FishdocBridge {
             recent_journal_lines: QVariantList::default(),
             is_loading: false,
             drop_comments: true,
+            web_server_running: false,
+            web_server_url: String::new(),
             error_message: String::new(),
             page_changed: Default::default(),
             search_results_changed: Default::default(),
             data_refreshed: Default::default(),
             loading_changed: Default::default(),
             drop_comments_changed: Default::default(),
+            web_server_status_changed: Default::default(),
             error_occurred: Default::default(),
             page_saved: Default::default(),
-            pdf_exported: Default::default(),
+            html_exported: Default::default(),
             load_page: Default::default(),
             save_block: Default::default(),
             save_block_range: Default::default(),
@@ -122,13 +127,18 @@ impl Default for FishdocBridge {
             set_drop_comments: Default::default(),
             load_main_page_data: Default::default(),
             poll_results: Default::default(),
-            export_pdf: Default::default(),
+            export_html: Default::default(),
+            export_all_html: Default::default(),
+            open_in_browser: Default::default(),
+            start_web_server: Default::default(),
+            stop_web_server: Default::default(),
+            toggle_web_server: Default::default(),
             conn: None,
             notes_path,
             data_dir,
             current_blocks_data: Vec::new(),
             pending: Arc::new(Mutex::new(None)),
-            pdf_pending: Arc::new(Mutex::new(None)),
+            server_handle: None,
         }
     }
 }

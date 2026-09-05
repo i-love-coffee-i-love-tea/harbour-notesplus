@@ -148,6 +148,41 @@ Page {
             }
 
             SectionHeader {
+                text: "Web Server & HTML5 Export"
+            }
+
+            TextSwitch {
+                text: "Embedded Documentation Server"
+                description: bridge.web_server_running
+                    ? ("Server active: " + bridge.web_server_url)
+                    : "Serve notes over WiFi to browse documentation on your PC"
+                checked: bridge.web_server_running
+                onClicked: {
+                    bridge.toggle_web_server()
+                }
+            }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Open Web Portal in Browser"
+                visible: bridge.web_server_running
+                onClicked: {
+                    bridge.open_in_browser("")
+                }
+            }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Export All Notes as HTML5"
+                onClicked: {
+                    var out = bridge.export_all_html()
+                    if (out) {
+                        remorsePopup.execute("Exported to " + out, function() {})
+                    }
+                }
+            }
+
+            SectionHeader {
                 text: "Preview"
             }
 
@@ -260,4 +295,6 @@ Page {
             }
         }
     }
+
+    RemorsePopup { id: remorsePopup }
 }

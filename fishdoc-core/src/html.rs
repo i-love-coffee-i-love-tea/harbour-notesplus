@@ -144,7 +144,8 @@ impl<'a> HtmlRenderContext<'a> {
                 format!("<p>{}</p>", content)
             }
             Block::OrderedListItem { marker, reversed, children, .. } => {
-                let mut out = format!(r#"<li class="ordered-list-item" data-marker="{marker}">"#);
+                let rev_attr = if *reversed { " data-reversed=\"true\"" } else { "" };
+                let mut out = format!(r#"<li class="ordered-list-item"{rev_attr} data-marker="{marker}">"#);
                 out.push_str(&self.render_blocks(children));
                 out.push_str("</li>");
                 out

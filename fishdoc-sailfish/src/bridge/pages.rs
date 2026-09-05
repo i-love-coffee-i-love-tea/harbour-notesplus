@@ -1,4 +1,5 @@
 use qmetaobject::*;
+use std::path::PathBuf;
 
 use fishdoc_core::block::Block;
 use fishdoc_core::db;
@@ -406,9 +407,124 @@ impl FishdocBridge {
         self.data_refreshed();
     }
 
-    fn export_pdf_impl(&mut self, _page_name: String) {
-        self.error_message = "PDF export is not available in this build".to_string();
-        self.error_occurred(self.error_message.clone());
+    fn export_html_impl(&mut self, page_name: String) -> String {
+        self.ensure_init();
+        let filename = if self.is_journal_page || page_name == "Journal" || page_name == "journal" {
+            "journal.adoc".to_string()
+        } else {
+            self.resolve_page_filename(&page_name)
+        };
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let export_dir = PathBuf::from(&home).join("Documents").join("Notes++ Exports");
+        let title = page_name.strip_suffix(".adoc").unwrap_or(&page_name);
+        let output_path = export_dir.join(format!("{}.html", title));
+
+        match fishdoc_core::html::export_page_to_html5(&self.notes_path, &filename, &output_path) {
+            Ok(path) => {
+                let path_str = path.to_string_lossy().to_string();
+                self.html_exported(path_str.clone());
+                path_str
+            }
+            Err(e) => {
+                self.error_message = format!("Export failed: {}", e);
+                self.error_occurred(self.error_message.clone());
+                String::new()
+            }
+        }
+    }
+
+    fn export_all_html_impl(&mut self) -> String {
+        self.ensure_init();
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let export_dir = PathBuf::from(&home).join("Documents").join("Notes++ Exports");
+        let _ = std::fs::create_dir_all(&export_dir);
+
+        let mut exported_count = 0;
+        if let Ok(entries) = std::fs::read_dir(&self.notes_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if ext == "adoc" {
+                        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                            let title = filename.strip_suffix(".adoc").unwrap_or(filename);
+                            let out_file = export_dir.join(format!("{}.html", title));
+                            if fishdoc_core::html::export_page_to_html5(&self.notes_path, filename, &out_file).is_ok() {
+                                exported_count += 1;
+                            }
+                        }
+                    } else if ["png", "jpg", "jpeg", "svg", "gif", "webp"].contains(&ext.to_ascii_lowercase().as_str()) {
+                        if let Some(filename) = path.file_name() {
+                            let _ = std::fs::copy(&path, export_dir.join(filename));
+                        }
+                    }
+                }
+            }
+        }
+
+        let result_dir_str = export_dir.to_string_lossy().to_string();
+        self.html_exported(format!("{} ({} notes)", result_dir_str, exported_count));
+        result_dir_str
+    }
+
+    fn open_in_browser_impl(&mut self, page_name: String) {
+        if self.web_server_running {
+            let filename = if self.is_journal_page || page_name == "Journal" || page_name == "journal" {
+                "journal.adoc".to_string()
+            } else {
+                self.resolve_page_filename(&page_name)
+            };
+            let port = self.server_handle.as_ref().map(|h| h.port()).unwrap_or(8080);
+            let url = format!("http://127.0.0.1:{}/page/{}", port, filename);
+            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+        } else {
+            let path_str = self.export_html_impl(page_name);
+            if !path_str.is_empty() {
+                let _ = std::process::Command::new("xdg-open").arg(&path_str).spawn();
+            }
+        }
+    }
+
+    fn start_web_server_impl(&mut self) -> String {
+        self.ensure_init();
+        if self.web_server_running {
+            return self.web_server_url.clone();
+        }
+
+        match fishdoc_core::server::start_server(self.notes_path.clone(), 8080) {
+            Ok(handle) => {
+                let primary_url = handle.primary_url();
+                self.web_server_url = primary_url.clone();
+                self.web_server_running = true;
+                self.server_handle = Some(handle);
+                self.web_server_status_changed();
+                primary_url
+            }
+            Err(e) => {
+                self.error_message = format!("Failed to start web server: {}", e);
+                self.error_occurred(self.error_message.clone());
+                String::new()
+            }
+        }
+    }
+
+    fn stop_web_server_impl(&mut self) {
+        if let Some(handle) = self.server_handle.take() {
+            handle.stop();
+        }
+        self.web_server_running = false;
+        self.web_server_url = String::new();
+        self.web_server_status_changed();
+    }
+
+    fn toggle_web_server_impl(&mut self) -> bool {
+        if self.web_server_running {
+            self.stop_web_server_impl();
+            false
+        } else {
+            !self.start_web_server_impl().is_empty()
+        }
     }
 
     fn set_drop_comments_impl(&mut self, drop: bool) {
@@ -436,5 +552,10 @@ impl FishdocBridge {
     pub fn toggle_checkbox(&mut self, block_index: i32, item_path: String) { self.toggle_checkbox_impl(block_index, item_path); }
     pub fn set_drop_comments(&mut self, drop: bool) { self.set_drop_comments_impl(drop); }
     pub fn load_main_page_data(&mut self) { self.load_main_page_data_impl(); }
-    pub fn export_pdf(&mut self, page_name: String) { self.export_pdf_impl(page_name); }
+    pub fn export_html(&mut self, page_name: String) -> String { self.export_html_impl(page_name) }
+    pub fn export_all_html(&mut self) -> String { self.export_all_html_impl() }
+    pub fn open_in_browser(&mut self, page_name: String) { self.open_in_browser_impl(page_name); }
+    pub fn start_web_server(&mut self) -> String { self.start_web_server_impl() }
+    pub fn stop_web_server(&mut self) { self.stop_web_server_impl(); }
+    pub fn toggle_web_server(&mut self) -> bool { self.toggle_web_server_impl() }
 }

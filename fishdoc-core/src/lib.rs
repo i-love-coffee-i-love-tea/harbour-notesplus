@@ -6,3 +6,4 @@ pub mod page;
 pub mod parser;
 pub mod html;
 pub mod search;
+pub mod server;
