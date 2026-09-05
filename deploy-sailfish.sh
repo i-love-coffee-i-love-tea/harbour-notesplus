@@ -77,6 +77,9 @@ REMOTE_DOWNLOADS="$REMOTE_HOME/Downloads"
 REMOTE_DEST="$REMOTE_DOWNLOADS/$RPM_FILE"
 
 # 4. Copy RPM to phone's Downloads directory
+echo "Stopping any running harbour-fishdoc processes on $TARGET_HOST..."
+ssh "$TARGET_HOST" 'killall -9 harbour-fishdoc 2>/dev/null || true'
+
 echo "Copying $RPM_FILE to $TARGET_HOST:$REMOTE_DOWNLOADS/..."
 ssh "$TARGET_HOST" "mkdir -p '$REMOTE_DOWNLOADS'"
 scp -p "$RPM_PATH" "$TARGET_HOST:$REMOTE_DEST"

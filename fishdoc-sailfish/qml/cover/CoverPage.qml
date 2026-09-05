@@ -45,7 +45,11 @@ CoverBackground {
         CoverAction {
             iconSource: "image://theme/icon-cover-new"
             onTriggered: {
-                app.openJournal()
+                if (typeof app !== "undefined" && app && app.journalEnabled) {
+                    app.openJournal()
+                } else {
+                    app.openSearch()
+                }
             }
         }
     }

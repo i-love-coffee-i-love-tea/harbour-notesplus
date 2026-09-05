@@ -67,7 +67,7 @@ pub struct AgentBridge {
     configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool)),
     reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
     send_prompt: qt_method!(fn(&mut self, text: String)),
-    run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_content: String)),
+    run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_filename: String, context_content: String)),
     import_text: qt_method!(fn(&mut self, source_text: String, target_title: String, mode: String, custom_instruction: String)),
     fetch_url_content: qt_method!(fn(&mut self, url: String) -> String),
     read_local_file: qt_method!(fn(&mut self, file_path: String) -> String),
@@ -236,6 +236,11 @@ impl AgentBridge {
         if self.agent_busy || text.trim().is_empty() {
             return;
         }
+        if let Ok(mut session) = self.session.lock() {
+            session.push_user_message(&text);
+            self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+        }
+        self.messages_changed();
         self.spawn_worker(WorkerTask::SendPrompt(text));
     }
 
@@ -243,17 +248,28 @@ impl AgentBridge {
         &mut self,
         template_id: String,
         input_text: String,
+        context_filename: String,
         context_content: String,
     ) {
         if self.agent_busy {
             return;
         }
+        let fname_opt = if !context_filename.trim().is_empty() {
+            Some(context_filename.as_str())
+        } else {
+            None
+        };
         let active_opt = if !context_content.trim().is_empty() {
             Some(context_content.as_str())
         } else {
             None
         };
-        let formatted_prompt = build_template_instruction(&template_id, &input_text, active_opt);
+        let formatted_prompt = build_template_instruction(&template_id, &input_text, fname_opt, active_opt);
+        if let Ok(mut session) = self.session.lock() {
+            session.push_user_message(&formatted_prompt);
+            self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+        }
+        self.messages_changed();
         self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
     }
 
@@ -278,6 +294,11 @@ impl AgentBridge {
             None
         };
         let formatted_prompt = build_import_instruction(&source_text, title_opt, &mode, custom_opt);
+        if let Ok(mut session) = self.session.lock() {
+            session.push_user_message(&formatted_prompt);
+            self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+        }
+        self.messages_changed();
         self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
     }
 

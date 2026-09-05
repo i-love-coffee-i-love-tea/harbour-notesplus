@@ -187,6 +187,18 @@ Page {
                     }
                 }
 
+                TextSwitch {
+                    width: parent.width
+                    text: "Enable Daily Journal"
+                    description: "Show daily journal entries and quick capture on the main page"
+                    checked: (typeof app !== "undefined" && app && app.journalEnabled !== undefined) ? app.journalEnabled : true
+                    onCheckedChanged: {
+                        if (typeof app !== "undefined" && app && app.setJournalEnabled) {
+                            app.setJournalEnabled(checked)
+                        }
+                    }
+                }
+
                 SectionHeader {
                     text: "Live Preview"
                 }

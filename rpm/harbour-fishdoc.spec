@@ -74,9 +74,9 @@ mkdir -p %{buildroot}%{_datadir}/applications
 cat > %{buildroot}%{_datadir}/applications/%{name}.desktop << EOF
 [Desktop Entry]
 Type=Application
-X-Nemo-Application-Type=generic
+X-Nemo-Application-Type=silica-qt5
 Icon=%{name}
-Exec=/usr/bin/sailjail -p %{name}.desktop %{_bindir}/%{name}
+Exec=%{name}
 Name=Notes++
 
 [X-Sailjail]

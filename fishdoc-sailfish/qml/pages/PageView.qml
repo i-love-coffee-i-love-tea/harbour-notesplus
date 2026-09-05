@@ -10,6 +10,11 @@ Page {
     property string searchTerm: ""
     property int targetBlockIndex: -1
     property bool hasScrolledToSearchTerm: false
+    property int editingBlockIndex: -1
+    property string editingRawText: ""
+    property string editingCurrentText: ""
+    property bool isAddingNewBlock: false
+    property string newBlockText: ""
 
     property var collapsedTocBlocks: ({})
 
@@ -128,6 +133,7 @@ Page {
     SilicaListView {
         id: listView
         anchors.fill: parent
+        clip: true
         model: bridge.blocks_version >= 0 ? bridge.current_blocks : []
 
         PullDownMenu {
@@ -189,8 +195,58 @@ Page {
         }
 
         footer: Item {
+            id: listFooter
             width: listView.width
-            height: Theme.paddingLarge * 2
+            height: pageView.isAddingNewBlock ? (newBlockEditor.height + Theme.paddingLarge * 2) : Math.max(Theme.itemSizeExtraLarge * 2, listView.height - listView.contentHeight + Theme.itemSizeLarge)
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: !pageView.isAddingNewBlock && pageView.editingBlockIndex < 0
+                onClicked: {
+                    pageView.startAddingNewBlock()
+                }
+            }
+
+            Item {
+                id: newBlockEditor
+                width: parent.width
+                height: pageView.isAddingNewBlock ? (inlineNewTextArea.implicitHeight + Theme.paddingMedium) : 0
+                visible: pageView.isAddingNewBlock
+                anchors.top: parent.top
+                anchors.topMargin: Theme.paddingSmall
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.horizontalPageMargin / 2
+                    anchors.top: parent.top
+                    anchors.topMargin: Theme.paddingSmall
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Theme.paddingSmall
+                    width: 2
+                    color: Theme.highlightColor
+                    opacity: 0.8
+                    radius: 1
+                }
+
+                TextArea {
+                    id: inlineNewTextArea
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: pageView.newBlockText
+                    placeholderText: "Type text, task (* [ ]), or heading..."
+                    font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    color: Theme.primaryColor
+                    background: null
+                    onTextChanged: {
+                        if (pageView.isAddingNewBlock) {
+                            pageView.newBlockText = text
+                        }
+                    }
+                }
+            }
         }
 
         delegate: BlockDelegate {
@@ -199,6 +255,8 @@ Page {
             allBlocks: pageView.parsedBlocks
             blockIndex: index
             searchTerm: pageView.searchTerm
+            isEditing: pageView.editingBlockIndex === index
+            editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""
             isTocCollapsed: pageView.isTocCollapsed(index, (blockData && blockData.headings) ? blockData.headings.length : 0)
             onToggleToc: function(idx) {
                 pageView.toggleToc(idx, (blockData && blockData.headings) ? blockData.headings.length : 0)
@@ -214,56 +272,171 @@ Page {
                 bridge.toggle_checkbox(idx, itemPath)
             }
             onEditRequested: function(idx, raw) {
-                var blocks = pageView.parsedBlocks || []
-                if (idx < 0 || idx >= blocks.length) return
-
-                var startIdx = idx
-                var endIdx = idx
-
-                if (blocks[idx].type === "heading") {
-                    startIdx = idx
-                    endIdx = idx
-                    while (endIdx + 1 < blocks.length && blocks[endIdx + 1].type !== "heading") {
-                        endIdx++
-                    }
-                } else {
-                    startIdx = idx
-                    while (startIdx > 0 && blocks[startIdx - 1].type !== "heading") {
-                        startIdx--
-                    }
-                    endIdx = idx
-                    while (endIdx + 1 < blocks.length && blocks[endIdx + 1].type !== "heading") {
-                        endIdx++
-                    }
+                if (pageView.isAddingNewBlock) {
+                    pageView.saveNewBlock()
                 }
-
-                var combinedRaw = ""
-                var cursorOffset = 0
-                for (var k = startIdx; k <= endIdx; k++) {
-                    if (k === idx) {
-                        cursorOffset = combinedRaw.length
-                    }
-                    var r = blocks[k].raw !== undefined ? blocks[k].raw : (blocks[k].raw_text || "")
-                    if (combinedRaw.length > 0) {
-                        combinedRaw += "\n" + r
-                    } else {
-                        combinedRaw = r
-                    }
+                var actualRaw = raw
+                if ((!actualRaw || actualRaw.length === 0) && pageView.parsedBlocks && pageView.parsedBlocks[idx]) {
+                    var b = pageView.parsedBlocks[idx]
+                    actualRaw = (b.raw !== undefined) ? b.raw : (b.raw_text || "")
                 }
-
-                var count = endIdx - startIdx + 1
-                var editor = pageStack.push(Qt.resolvedUrl("../components/BlockEditor.qml"), {
-                    blockIndex: startIdx,
-                    blockCount: count,
-                    rawText: combinedRaw,
-                    initialCursorPosition: cursorOffset
-                })
-                editor.accepted.connect(function() {
-                    bridge.load_page(pageName)
-                })
+                pageView.editingRawText = actualRaw
+                pageView.editingCurrentText = actualRaw
+                pageView.editingBlockIndex = idx
+            }
+            onTextModified: function(idx, newText) {
+                if (pageView.editingBlockIndex === idx) {
+                    pageView.editingCurrentText = newText
+                }
+            }
+            onSaveRequested: function(idx, newRaw) {
+                bridge.save_block(idx, newRaw)
+                pageView.editingBlockIndex = -1
+                pageView.editingRawText = ""
+                pageView.editingCurrentText = ""
+            }
+            onCancelEditRequested: function() {
+                pageView.cancelCurrentEditing()
             }
         }
 
         RemorsePopup { id: remorsePopup }
+    }
+
+    // Stationary floating action sidebar for in-place editing (transparent, non-moving)
+    InPlaceEditSidebar {
+        id: inPlaceSidebar
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.paddingMedium
+        anchors.verticalCenter: parent.verticalCenter
+        visible: pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock
+        onAccepted: {
+            if (pageView.isAddingNewBlock) {
+                pageView.saveNewBlock()
+            } else {
+                pageView.saveCurrentEditingBlock()
+            }
+        }
+        onCanceled: {
+            if (pageView.isAddingNewBlock) {
+                pageView.cancelNewBlock()
+            } else {
+                pageView.cancelCurrentEditing()
+            }
+        }
+        onPrefixRequested: function(prefix, multiLine) {
+            if (pageView.isAddingNewBlock) {
+                pageView.applyNewBlockPrefix(prefix, multiLine)
+            } else {
+                pageView.applyBlockPrefix(prefix, multiLine)
+            }
+        }
+        onLinkRequested: {
+            var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+                selectedText: ""
+            })
+            dialog.accepted.connect(function() {
+                var link = dialog.formattedLink
+                if (!link) return
+                if (pageView.isAddingNewBlock) {
+                    pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + " " : "") + link
+                } else if (pageView.editingBlockIndex >= 0) {
+                    var cur = pageView.editingCurrentText || ""
+                    var updated = (cur.length > 0 ? cur + " " : "") + link
+                    pageView.editingRawText = updated
+                    pageView.editingCurrentText = updated
+                }
+            })
+        }
+    }
+
+    function startAddingNewBlock() {
+        if (editingBlockIndex >= 0) {
+            saveCurrentEditingBlock()
+        }
+        newBlockText = ""
+        isAddingNewBlock = true
+        Qt.callLater(function() {
+            listView.positionViewAtEnd()
+        })
+    }
+
+    function saveNewBlock() {
+        if (isAddingNewBlock) {
+            var trimmed = (newBlockText || "").trim()
+            if (trimmed.length > 0) {
+                bridge.append_to_current_page(trimmed, false)
+            }
+            isAddingNewBlock = false
+            newBlockText = ""
+        }
+    }
+
+    function cancelNewBlock() {
+        isAddingNewBlock = false
+        newBlockText = ""
+    }
+
+    function applyNewBlockPrefix(prefix, multiLineList) {
+        var txt = newBlockText || ""
+        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
+        if (multiLineList && txt.indexOf("\n") !== -1) {
+            var lines = txt.split("\n")
+            var resultLines = []
+            for (var i = 0; i < lines.length; i++) {
+                var l = lines[i]
+                if (l.trim().length > 0) {
+                    var lRest = regex.test(l) ? l.replace(regex, "") : l
+                    resultLines.push(prefix + lRest)
+                } else {
+                    resultLines.push(l)
+                }
+            }
+            newBlockText = resultLines.join("\n")
+        } else {
+            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
+            newBlockText = prefix + rest
+        }
+    }
+
+    function applyBlockPrefix(prefix, multiLineList) {
+        var txt = editingCurrentText || ""
+        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
+        if (multiLineList && txt.indexOf("\n") !== -1) {
+            var lines = txt.split("\n")
+            var resultLines = []
+            for (var i = 0; i < lines.length; i++) {
+                var l = lines[i]
+                if (l.trim().length > 0) {
+                    var lRest = regex.test(l) ? l.replace(regex, "") : l
+                    resultLines.push(prefix + lRest)
+                } else {
+                    resultLines.push(l)
+                }
+            }
+            var newText = resultLines.join("\n")
+            editingRawText = newText
+            editingCurrentText = newText
+        } else {
+            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
+            var newText = prefix + rest
+            editingRawText = newText
+            editingCurrentText = newText
+        }
+    }
+
+    function saveCurrentEditingBlock() {
+        if (editingBlockIndex >= 0) {
+            bridge.save_block(editingBlockIndex, editingCurrentText)
+            editingBlockIndex = -1
+            editingRawText = ""
+            editingCurrentText = ""
+        }
+    }
+
+    function cancelCurrentEditing() {
+        editingBlockIndex = -1
+        editingRawText = ""
+        editingCurrentText = ""
     }
 }

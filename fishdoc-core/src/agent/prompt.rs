@@ -83,9 +83,11 @@ pub fn build_system_prompt(
 pub fn build_template_instruction(
     template_id: &str,
     user_input: &str,
+    active_filename: Option<&str>,
     active_content: Option<&str>,
 ) -> String {
-    let base_content = if !user_input.trim().is_empty() {
+    let has_input = !user_input.trim().is_empty();
+    let base_content = if has_input {
         user_input.trim()
     } else if let Some(content) = active_content {
         content.trim()
@@ -95,28 +97,60 @@ pub fn build_template_instruction(
 
     match template_id {
         "expand_draft" => {
-            format!(
-                "Please expand and draft the following ideas into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations:\n\n{}",
-                base_content
-            )
+            if !has_input && active_filename.is_some() {
+                let fname = active_filename.unwrap();
+                format!(
+                    "Please expand and draft the ideas in the active note '{}' into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations. Call the `edit_note` tool with the complete expanded AsciiDoc content and filename.\n\nNote Content:\n{}",
+                    fname, base_content
+                )
+            } else {
+                format!(
+                    "Please expand and draft the following ideas into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations:\n\n{}",
+                    base_content
+                )
+            }
         }
         "fix_grammar" => {
-            format!(
-                "Please review and correct the spelling, grammar, punctuation, and formatting in the following text while strictly preserving and enforcing proper AsciiDoc syntax:\n\n{}",
-                base_content
-            )
+            if !has_input && active_filename.is_some() {
+                let fname = active_filename.unwrap();
+                format!(
+                    "Please review and correct the spelling, grammar, punctuation, and formatting in the active note '{}' while strictly preserving and enforcing proper AsciiDoc syntax. Call the `edit_note` tool with the complete corrected AsciiDoc content and filename.\n\nNote Content:\n{}",
+                    fname, base_content
+                )
+            } else {
+                format!(
+                    "Please review and correct the spelling, grammar, punctuation, and formatting in the following text while strictly preserving and enforcing proper AsciiDoc syntax:\n\n{}",
+                    base_content
+                )
+            }
         }
         "beautify" => {
-            format!(
-                "Please beautify the following AsciiDoc content by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate:\n\n{}",
-                base_content
-            )
+            if !has_input && active_filename.is_some() {
+                let fname = active_filename.unwrap();
+                format!(
+                    "Please beautify the active note '{}' by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate. Call the `edit_note` tool with the complete beautified AsciiDoc content and filename.\n\nNote Content:\n{}",
+                    fname, base_content
+                )
+            } else {
+                format!(
+                    "Please beautify the following AsciiDoc content by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate:\n\n{}",
+                    base_content
+                )
+            }
         }
         "extract_todos" => {
-            format!(
-                "Please analyze the following text and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`:\n\n{}",
-                base_content
-            )
+            if !has_input && active_filename.is_some() {
+                let fname = active_filename.unwrap();
+                format!(
+                    "Please analyze the active note '{}' and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`.\n\nNote Content:\n{}",
+                    fname, base_content
+                )
+            } else {
+                format!(
+                    "Please analyze the following text and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`:\n\n{}",
+                    base_content
+                )
+            }
         }
         "analyze_external" => {
             format!(
@@ -215,16 +249,17 @@ mod tests {
 
     #[test]
     fn test_template_instructions() {
-        let extract = build_template_instruction("extract_todos", "Meeting notes: Alice will write doc", None);
+        let extract = build_template_instruction("extract_todos", "Meeting notes: Alice will write doc", None, None);
         assert!(extract.contains("extract all actionable tasks"));
         assert!(extract.contains("Meeting notes: Alice will write doc"));
         assert!(extract.contains("* [ ]"));
 
-        let beautify = build_template_instruction("beautify", "", Some("= Simple note\nSome text"));
-        assert!(beautify.contains("beautify the following AsciiDoc"));
+        let beautify = build_template_instruction("beautify", "", Some("note.adoc"), Some("= Simple note\nSome text"));
+        assert!(beautify.contains("beautify the active note 'note.adoc'"));
+        assert!(beautify.contains("edit_note"));
         assert!(beautify.contains("= Simple note"));
 
-        let import = build_template_instruction("import_convert", "# Markdown header\nSome markdown text", None);
+        let import = build_template_instruction("import_convert", "# Markdown header\nSome markdown text", None, None);
         assert!(import.contains("import and convert the following external text"));
         assert!(import.contains("Markdown header"));
     }

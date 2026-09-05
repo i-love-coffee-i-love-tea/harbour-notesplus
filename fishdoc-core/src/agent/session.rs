@@ -113,6 +113,14 @@ impl AgentSession {
         self.messages.push(ChatMessage::system(sys_prompt));
     }
 
+    /// Appends a user prompt to the conversation history.
+    pub fn push_user_message(&mut self, user_prompt: &str) {
+        if self.messages.is_empty() {
+            self.reset_session(None, None);
+        }
+        self.messages.push(ChatMessage::user(user_prompt));
+    }
+
     /// Appends a user prompt and drives the conversation loop.
     pub fn send_prompt(&mut self, user_prompt: &str) -> AgentStepResult {
         self.send_prompt_streaming(user_prompt, |_| {})
@@ -124,7 +132,10 @@ impl AgentSession {
             self.reset_session(None, None);
         }
 
-        self.messages.push(ChatMessage::user(user_prompt));
+        let already_pushed = self.messages.last().map(|m| m.role.as_str() == "user" && m.content.as_deref() == Some(user_prompt)).unwrap_or(false);
+        if !already_pushed {
+            self.messages.push(ChatMessage::user(user_prompt));
+        }
         self.run_loop_streaming(on_token)
     }
 

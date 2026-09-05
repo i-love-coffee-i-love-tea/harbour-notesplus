@@ -14,6 +14,8 @@ Item {
     property bool interactive: true
     property int renderCounter: 0
     property string searchTerm: ""
+    property bool isEditing: false
+    property string editingRawText: ""
 
     property bool isMatchedBySearch: {
         if (!interactive || !searchTerm || searchTerm.length === 0 || !blockData) return false
@@ -35,13 +37,16 @@ Item {
 
     signal clicked(int index)
     signal editRequested(int index, string raw)
+    signal textModified(int index, string text)
+    signal saveRequested(int index, string raw)
+    signal cancelEditRequested()
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
     signal toggleToc(int blockIndex)
     signal jumpToBlock(int targetIndex)
 
     width: parent ? parent.width : Screen.width
-    height: blockLoader.height
+    height: isEditing ? (inlineEditorContainer.height + Theme.paddingSmall) : blockLoader.height
 
     onBlockDataChanged: {
         localBlockData = blockData
@@ -83,13 +88,22 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        enabled: delegate.interactive && blockData && (blockData.type !== "toc")
-        visible: delegate.interactive
-        z: -1
+        enabled: delegate.interactive && !delegate.isEditing && blockData && (blockData.type !== "toc")
+        visible: delegate.interactive && !delegate.isEditing
         onClicked: {
-            if (delegate.interactive) {
+            if (delegate.interactive && !delegate.isEditing) {
+                var raw = ""
+                if (delegate.localBlockData && delegate.localBlockData.raw !== undefined) {
+                    raw = delegate.localBlockData.raw
+                } else if (delegate.blockData && delegate.blockData.raw !== undefined) {
+                    raw = delegate.blockData.raw
+                } else if (delegate.localBlockData && delegate.localBlockData.raw_text) {
+                    raw = delegate.localBlockData.raw_text
+                } else if (delegate.blockData && delegate.blockData.raw_text) {
+                    raw = delegate.blockData.raw_text
+                }
                 delegate.clicked(delegate.blockIndex)
-                delegate.editRequested(delegate.blockIndex, (delegate.localBlockData && delegate.localBlockData.raw !== undefined) ? delegate.localBlockData.raw : ((delegate.localBlockData && delegate.localBlockData.raw_text) ? delegate.localBlockData.raw_text : ""))
+                delegate.editRequested(delegate.blockIndex, raw)
             }
         }
     }
@@ -97,6 +111,7 @@ Item {
     Loader {
         id: blockLoader
         width: parent.width
+        visible: !delegate.isEditing
         sourceComponent: {
             if (!blockData || !blockData.type) return emptyComponent
             switch (blockData.type) {
@@ -266,6 +281,59 @@ Item {
         Item {
             height: Theme.paddingSmall
             width: parent ? parent.width : Screen.width
+        }
+    }
+
+    Item {
+        id: inlineEditorContainer
+        width: parent ? parent.width : Screen.width
+        height: isEditing ? (inlineTextArea.implicitHeight + Theme.paddingMedium) : 0
+        visible: isEditing
+
+        // Subtle vertical accent line on the left to indicate the active in-place block
+        Rectangle {
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.horizontalPageMargin / 2
+            anchors.top: parent.top
+            anchors.topMargin: Theme.paddingSmall
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Theme.paddingSmall
+            width: 2
+            color: Theme.highlightColor
+            opacity: 0.8
+            radius: 1
+        }
+
+        TextArea {
+            id: inlineTextArea
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Theme.horizontalPageMargin
+            anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
+            anchors.verticalCenter: parent.verticalCenter
+            text: delegate.editingRawText
+            placeholderText: "Edit block..."
+            font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+            color: Theme.primaryColor
+            background: null
+            onTextChanged: {
+                if (delegate.isEditing) {
+                    delegate.textModified(delegate.blockIndex, text)
+                }
+            }
+        }
+    }
+
+    onIsEditingChanged: {
+        if (isEditing) {
+            inlineTextArea.text = editingRawText
+            inlineTextArea.forceActiveFocus()
+        }
+    }
+
+    onEditingRawTextChanged: {
+        if (isEditing) {
+            inlineTextArea.text = editingRawText
         }
     }
 }

@@ -6,6 +6,7 @@ use fishdoc_core::db;
 use fishdoc_core::journal;
 use fishdoc_core::page;
 use fishdoc_core::parser;
+use fishdoc_core::search as search_mod;
 
 use super::{FishdocBridge, PendingResult};
 
@@ -76,67 +77,13 @@ impl FishdocBridge {
     }
 
     fn save_block_impl(&mut self, index: i32, raw_text: String) {
-        let idx = index as usize;
-        if idx >= self.current_blocks_data.len() {
-            ::log::warn!("save_block: index {} out of range", idx);
-            return;
-        }
-
-        let filename = if self.is_journal_page {
-            "journal.adoc".to_string()
-        } else {
-            self.resolve_page_filename(&self.current_page_name)
-        };
-        let path = self.notes_path.join(&filename);
-
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                ::log::warn!("save_block: read failed: {}", e);
-                return;
-            }
-        };
-
-        let old_raw = self.current_blocks_data[idx].raw_text();
-        let old_lines: Vec<&str> = content.lines().collect();
-        let mut new_lines: Vec<String> = Vec::with_capacity(old_lines.len());
-        let mut replaced = false;
-        for line in &old_lines {
-            if !replaced && *line == old_raw {
-                new_lines.push(raw_text.clone());
-                replaced = true;
-            } else {
-                new_lines.push(line.to_string());
-            }
-        }
-
-        if !replaced {
-            ::log::warn!("save_block: could not find block {} raw text in file", idx);
-            return;
-        }
-
-        let new_content = new_lines.join("\n");
-        if let Err(e) = std::fs::write(&path, &new_content) {
-            ::log::warn!("save_block: write failed: {}", e);
-            return;
-        }
-
-        if let Some(conn) = self.conn() {
-            if let Ok(Some(info)) = page::get_page(conn, &filename) {
-                let _ = db::update_fts_content(conn, info.id, &new_content);
-            }
-        }
+        self.save_block_range_impl(index, 1, raw_text);
     }
 
     fn save_block_range_impl(&mut self, start_index: i32, count: i32, raw_text: String) {
         let start_idx = start_index as usize;
         let count = count as usize;
-        if start_idx >= self.current_blocks_data.len() {
-            ::log::warn!("save_block_range: index {} out of range", start_idx);
-            return;
-        }
 
-        let end_idx = (start_idx + count).min(self.current_blocks_data.len());
         let filename = if self.is_journal_page {
             "journal.adoc".to_string()
         } else {
@@ -152,36 +99,259 @@ impl FishdocBridge {
             }
         };
 
-        let mut old_raws = Vec::new();
-        for b in &self.current_blocks_data[start_idx..end_idx] {
-            old_raws.push(b.raw_text());
-        }
-        let old_combined = old_raws.join("\n");
+        let mut all = parser::parse_blocks_with_options(&content, self.drop_comments);
+        if start_idx <= all.len() {
+            let end_idx = (start_idx + count).min(all.len());
+            let new_blocks = parser::parse_blocks_with_options(&raw_text, self.drop_comments);
+            all.splice(start_idx..end_idx, new_blocks);
+            let new_content = parser::blocks_to_adoc(&all);
 
-        let new_content = if content.contains(&old_combined) {
-            content.replacen(&old_combined, &raw_text, 1)
-        } else {
-            let mut all = parser::parse_blocks(&content);
-            if start_idx < all.len() {
-                let end = (start_idx + count).min(all.len());
-                let new_blocks = parser::parse_blocks(&raw_text);
-                all.splice(start_idx..end, new_blocks);
-                parser::blocks_to_adoc(&all)
-            } else {
-                content
+            if let Err(e) = std::fs::write(&path, &new_content) {
+                ::log::warn!("save_block_range: write failed: {}", e);
+                return;
             }
+
+            if let Some(conn) = self.conn() {
+                if let Ok(Some(info)) = page::get_page(conn, &filename) {
+                    let _ = db::update_fts_content(conn, info.id, &new_content);
+                }
+            }
+
+            self.page_saved();
+            let page_name = self.current_page_name.clone();
+            if !page_name.is_empty() {
+                self.load_page_impl(page_name);
+            }
+        }
+    }
+
+    fn append_to_current_page_impl(&mut self, text: String, is_task: bool) {
+        self.ensure_init();
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        let is_journal = self.is_journal_page || self.current_page_name == "Journal" || self.current_page_name == "journal";
+        let line_to_append = if is_task {
+            if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
+                trimmed.to_string()
+            } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
+                format!("* {}", &trimmed[2..])
+            } else if let Some(stripped) = trimmed.strip_prefix("* ") {
+                format!("* [ ] {}", stripped)
+            } else if let Some(stripped) = trimmed.strip_prefix("- ") {
+                format!("* [ ] {}", stripped)
+            } else {
+                format!("* [ ] {}", trimmed)
+            }
+        } else {
+            trimmed.to_string()
         };
 
-        if let Err(e) = std::fs::write(&path, &new_content) {
-            ::log::warn!("save_block_range: write failed: {}", e);
+        if is_journal {
+            if let Err(e) = journal::append_to_journal_today(&self.notes_path, &line_to_append) {
+                self.error_message = format!("Failed to append to journal: {}", e);
+                self.error_occurred(self.error_message.clone());
+                return;
+            }
+            if let Some(conn) = self.conn() {
+                let path = self.notes_path.join("journal.adoc");
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(Some(info)) = page::get_page(conn, "journal.adoc") {
+                        let _ = db::update_fts_content(conn, info.id, &content);
+                    }
+                }
+            }
+            self.page_saved();
+            self.load_page_impl("Journal".to_string());
+            return;
+        }
+
+        let filename = self.resolve_page_filename(&self.current_page_name);
+        let path = self.notes_path.join(&filename);
+
+        let mut content = std::fs::read_to_string(&path).unwrap_or_default();
+
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&line_to_append);
+        content.push('\n');
+
+        if let Err(e) = std::fs::write(&path, &content) {
+            self.error_message = format!("Failed to append to note: {}", e);
+            self.error_occurred(self.error_message.clone());
             return;
         }
 
         if let Some(conn) = self.conn() {
             if let Ok(Some(info)) = page::get_page(conn, &filename) {
-                let _ = db::update_fts_content(conn, info.id, &new_content);
+                let _ = db::update_fts_content(conn, info.id, &content);
             }
         }
+
+        self.page_saved();
+        let page_name = self.current_page_name.clone();
+        if !page_name.is_empty() {
+            self.load_page_impl(page_name);
+        }
+    }
+
+    fn save_journal_block_impl(&mut self, index: i32, raw_text: String) {
+        let idx = index as usize;
+        let filename = "journal.adoc".to_string();
+        let path = self.notes_path.join(&filename);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                ::log::warn!("save_journal_block: read failed: {}", e);
+                return;
+            }
+        };
+
+        let mut all = parser::parse_blocks_with_options(&content, self.drop_comments);
+        if idx < all.len() {
+            let new_blocks = parser::parse_blocks_with_options(&raw_text, self.drop_comments);
+            all.splice(idx..idx + 1, new_blocks);
+            let new_content = parser::blocks_to_adoc(&all);
+            if let Err(e) = std::fs::write(&path, &new_content) {
+                ::log::warn!("save_journal_block: write failed: {}", e);
+                return;
+            }
+
+            if let Some(conn) = self.conn() {
+                if let Ok(Some(info)) = page::get_page(conn, &filename) {
+                    let _ = db::update_fts_content(conn, info.id, &new_content);
+                }
+            }
+
+            self.page_saved();
+            self.load_main_page_data_impl();
+        }
+    }
+
+    fn toggle_journal_checkbox_impl(&mut self, block_index: i32, item_path: String) {
+        let idx = block_index as usize;
+        let filename = "journal.adoc".to_string();
+        let path = self.notes_path.join(&filename);
+
+        if idx < self.journal_blocks_data.len() {
+            let mut curr = Some(&mut self.journal_blocks_data[idx]);
+            if !item_path.is_empty() {
+                for part in item_path.split('.') {
+                    if let Ok(child_idx) = part.parse::<usize>() {
+                        curr = match curr {
+                            Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                            Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                            _ => None,
+                        };
+                    } else {
+                        curr = None;
+                        break;
+                    }
+                }
+            }
+            if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
+                if let Some(c) = checked {
+                    *checked = Some(!*c);
+                    if raw.contains("[ ] ") {
+                        *raw = raw.replacen("[ ] ", "[x] ", 1);
+                    } else if raw.contains("[x] ") {
+                        *raw = raw.replacen("[x] ", "[ ] ", 1);
+                    } else if raw.contains("[X] ") {
+                        *raw = raw.replacen("[X] ", "[ ] ", 1);
+                    }
+                }
+            }
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let mut blocks = parser::parse_blocks(&content);
+        if idx < blocks.len() {
+            let mut curr = Some(&mut blocks[idx]);
+            if !item_path.is_empty() {
+                for part in item_path.split('.') {
+                    if let Ok(child_idx) = part.parse::<usize>() {
+                        curr = match curr {
+                            Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                            Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                            _ => None,
+                        };
+                    } else {
+                        curr = None;
+                        break;
+                    }
+                }
+            }
+            if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
+                if let Some(c) = checked {
+                    *checked = Some(!*c);
+                    if raw.contains("[ ] ") {
+                        *raw = raw.replacen("[ ] ", "[x] ", 1);
+                    } else if raw.contains("[x] ") {
+                        *raw = raw.replacen("[x] ", "[ ] ", 1);
+                    } else if raw.contains("[X] ") {
+                        *raw = raw.replacen("[X] ", "[ ] ", 1);
+                    }
+                }
+                let new_content = parser::blocks_to_adoc(&blocks);
+                let _ = std::fs::write(&path, &new_content);
+                if let Some(conn) = self.conn() {
+                    if let Ok(Some(info)) = page::get_page(conn, &filename) {
+                        let _ = db::update_fts_content(conn, info.id, &new_content);
+                    }
+                }
+                self.page_saved();
+                self.load_main_page_data_impl();
+            }
+        }
+    }
+
+    fn append_to_journal_impl(&mut self, text: String, is_task: bool) {
+        self.ensure_init();
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        let line_to_append = if is_task {
+            if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
+                trimmed.to_string()
+            } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
+                format!("* {}", &trimmed[2..])
+            } else if let Some(stripped) = trimmed.strip_prefix("* ") {
+                format!("* [ ] {}", stripped)
+            } else if let Some(stripped) = trimmed.strip_prefix("- ") {
+                format!("* [ ] {}", stripped)
+            } else {
+                format!("* [ ] {}", trimmed)
+            }
+        } else {
+            trimmed.to_string()
+        };
+
+        if let Err(e) = journal::append_to_journal_today(&self.notes_path, &line_to_append) {
+            self.error_message = format!("Failed to append to journal: {}", e);
+            self.error_occurred(self.error_message.clone());
+            return;
+        }
+
+        if let Some(conn) = self.conn() {
+            let path = self.notes_path.join("journal.adoc");
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(Some(info)) = page::get_page(conn, "journal.adoc") {
+                    let _ = db::update_fts_content(conn, info.id, &content);
+                }
+            }
+        }
+
+        self.page_saved();
+        self.load_main_page_data_impl();
     }
 
     fn get_page_source_impl(&mut self, name: String) -> String {
@@ -393,6 +563,23 @@ impl FishdocBridge {
             }
         }
 
+        let _ = journal::init_journal(&self.notes_path);
+        match journal::get_journal_blocks(&self.notes_path, Some(15), self.drop_comments) {
+            Ok(blocks) => {
+                let mut list = QVariantList::default();
+                for b in &blocks {
+                    let map = b.to_qvariant_map();
+                    let json_str = serde_json::to_string(&map).unwrap_or_default();
+                    list.push(QString::from(json_str).into());
+                }
+                self.journal_blocks = list;
+                self.journal_blocks_data = blocks;
+            }
+            Err(e) => {
+                ::log::warn!("Failed to load journal blocks: {}", e);
+            }
+        }
+
         match journal::recent_journal_lines(&self.notes_path, 5) {
             Ok(lines) => {
                 let mut list = QVariantList::default();
@@ -541,10 +728,78 @@ impl FishdocBridge {
         }
     }
 
+    fn get_linkable_pages_json_impl(&mut self, query: String) -> String {
+        self.ensure_init();
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return "[]".to_string(),
+        };
+
+        let query = query.trim();
+        let mut results = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        if query.is_empty() {
+            if let Ok(pages) = page::list_pages(conn) {
+                for p in pages {
+                    if seen.insert(p.filename.clone()) {
+                        results.push(serde_json::json!({
+                            "filename": p.filename,
+                            "title": p.title,
+                            "updated_at": p.updated_at,
+                            "is_journal": p.is_journal,
+                            "snippet": ""
+                        }));
+                    }
+                }
+            }
+        } else {
+            // Search pages using FTS
+            if let Ok(search_results) = search_mod::search_pages(conn, query) {
+                for r in search_results {
+                    if seen.insert(r.page.filename.clone()) {
+                        results.push(serde_json::json!({
+                            "filename": r.page.filename,
+                            "title": r.page.title,
+                            "updated_at": r.page.updated_at,
+                            "is_journal": r.page.is_journal,
+                            "snippet": r.snippet
+                        }));
+                    }
+                }
+            }
+
+            // Also search all pages for title / filename substring matching
+            if let Ok(all_pages) = page::list_pages(conn) {
+                let q_lower = query.to_lowercase();
+                for p in all_pages {
+                    if (p.title.to_lowercase().contains(&q_lower) || p.filename.to_lowercase().contains(&q_lower))
+                        && seen.insert(p.filename.clone())
+                    {
+                        results.push(serde_json::json!({
+                            "filename": p.filename,
+                            "title": p.title,
+                            "updated_at": p.updated_at,
+                            "is_journal": p.is_journal,
+                            "snippet": ""
+                        }));
+                    }
+                }
+            }
+        }
+
+        serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string())
+    }
+
     // QML method wrappers
+    pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }
     pub fn save_block(&mut self, index: i32, raw_text: String) { self.save_block_impl(index, raw_text); }
     pub fn save_block_range(&mut self, start_index: i32, count: i32, raw_text: String) { self.save_block_range_impl(start_index, count, raw_text); }
+    pub fn append_to_current_page(&mut self, text: String, is_task: bool) { self.append_to_current_page_impl(text, is_task); }
+    pub fn save_journal_block(&mut self, index: i32, raw_text: String) { self.save_journal_block_impl(index, raw_text); }
+    pub fn toggle_journal_checkbox(&mut self, block_index: i32, item_path: String) { self.toggle_journal_checkbox_impl(block_index, item_path); }
+    pub fn append_to_journal(&mut self, text: String, is_task: bool) { self.append_to_journal_impl(text, is_task); }
     pub fn get_page_source(&mut self, name: String) -> String { self.get_page_source_impl(name) }
     pub fn save_page_source(&mut self, name: String, content: String) { self.save_page_source_impl(name, content); }
     pub fn create_page(&mut self, name: String) { self.create_page_impl(name); }

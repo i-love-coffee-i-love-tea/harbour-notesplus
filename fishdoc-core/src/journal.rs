@@ -3,14 +3,135 @@ use std::path::Path;
 use chrono::Local;
 
 use crate::block::Block;
+use crate::parser;
+
+/// Check if a line is a date heading for the given date (e.g. YYYY-MM-DD),
+/// supporting any heading level (=, ==, ===, etc.) or Markdown style (#, ##, etc.)
+pub fn is_date_heading_for_day(line: &str, day_str: &str) -> bool {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('=') && !trimmed.starts_with('#') {
+        return false;
+    }
+    let rest = trimmed.trim_start_matches('=').trim_start_matches('#').trim();
+    if rest == day_str {
+        return true;
+    }
+    if rest.starts_with(day_str) {
+        let remainder = &rest[day_str.len()..];
+        if remainder.starts_with(' ')
+            || remainder.starts_with(':')
+            || remainder.starts_with('-')
+            || remainder.starts_with('–')
+            || remainder.starts_with('—')
+            || remainder.starts_with('\t')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Extract date string (YYYY-MM-DD) from a heading line if it is a date heading.
+pub fn get_date_from_heading(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('=') && !trimmed.starts_with('#') {
+        return None;
+    }
+    let rest = trimmed.trim_start_matches('=').trim_start_matches('#').trim();
+    if rest.len() >= 10 && is_date_string(&rest[..10]) {
+        Some(&rest[..10])
+    } else {
+        None
+    }
+}
+
+/// Clean up journal content:
+/// - Removes empty date headings for past days.
+/// - Removes empty duplicate headings for today if another heading for today exists with content.
+/// - Ensures today's heading exists at the top if no heading for today exists.
+pub fn clean_journal_content(content: &str, today: &str) -> String {
+    let mut blocks = parser::parse_blocks(content);
+    let mut indices_to_remove = Vec::new();
+
+    for i in 0..blocks.len() {
+        if let Block::Heading { raw, .. } = &blocks[i] {
+            let trimmed = raw.trim();
+            if let Some(_date) = get_date_from_heading(trimmed) {
+                let is_today = is_date_heading_for_day(trimmed, today);
+
+                // Check if all blocks until the next heading are empty
+                let mut all_empty = true;
+                let mut next_is_same_day_heading = false;
+                let mut j = i + 1;
+                while j < blocks.len() {
+                    match &blocks[j] {
+                        Block::Heading { raw: next_raw, .. } => {
+                            if is_today && is_date_heading_for_day(next_raw, today) {
+                                next_is_same_day_heading = true;
+                            }
+                            break;
+                        }
+                        Block::EmptyLine => {}
+                        _ => {
+                            all_empty = false;
+                            break;
+                        }
+                    }
+                    j += 1;
+                }
+
+                // If it's an empty past day heading OR an empty duplicate today heading: remove it
+                if (all_empty && !is_today) || (all_empty && is_today && next_is_same_day_heading) {
+                    indices_to_remove.push(i);
+                    for k in (i + 1)..j {
+                        indices_to_remove.push(k);
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove in reverse order to preserve indices
+    for &idx in indices_to_remove.iter().rev() {
+        if idx < blocks.len() {
+            blocks.remove(idx);
+        }
+    }
+
+    // Check if any heading for today exists
+    let has_today_heading = blocks.iter().any(|b| {
+        if let Block::Heading { raw, .. } = b {
+            is_date_heading_for_day(raw, today)
+        } else {
+            false
+        }
+    });
+
+    if !has_today_heading {
+        let today_heading_block = Block::Heading {
+            level: 2,
+            spans: crate::inline::parse_inline(today),
+            raw: format!("== {}", today),
+        };
+        if blocks.is_empty() {
+            blocks.push(today_heading_block);
+        } else {
+            blocks.insert(0, Block::EmptyLine);
+            blocks.insert(0, today_heading_block);
+        }
+    }
+
+    let mut result = parser::blocks_to_adoc(&blocks);
+    if !result.is_empty() && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
 
 /// Initialize the journal for today.
-/// Uses raw string operations — avoids the AsciiDoc parser which panics on
-/// multi-byte UTF-8 characters (em-dash, accented chars, etc.).
 pub fn init_journal(notes_dir: &Path) -> Result<(), String> {
     let path = notes_dir.join("journal.adoc");
     let today = Local::now().format("%Y-%m-%d").to_string();
-    let today_heading = format!("== {}", today);
 
     let content = if path.exists() {
         std::fs::read_to_string(&path).map_err(|e| e.to_string())?
@@ -18,41 +139,25 @@ pub fn init_journal(notes_dir: &Path) -> Result<(), String> {
         String::new()
     };
 
-    // Check if today's heading already exists
-    if content.lines().any(|l| l.trim() == today_heading) {
-        return Ok(());
+    let cleaned = clean_journal_content(&content, &today);
+    if cleaned != content {
+        std::fs::write(&path, cleaned).map_err(|e| e.to_string())?;
     }
-
-    // Prepend today's heading
-    let new_content = if content.is_empty() {
-        format!("{}\n", today_heading)
-    } else {
-        format!("{}\n\n{}", today_heading, content)
-    };
-
-    std::fs::write(&path, new_content).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// Remove date headings (== YYYY-MM-DD) that have no content before the next heading.
 /// Preserves today's heading even if empty.
 pub fn remove_empty_day_headings(blocks: &mut Vec<Block>, today: &str) {
-    let today_heading = format!("== {}", today);
     let mut indices_to_remove = Vec::new();
 
     for i in 0..blocks.len() {
-        // Check if this is a level-2 date heading
-        if let Block::Heading { level: 2, raw, .. } = &blocks[i] {
+        if let Block::Heading { raw, .. } = &blocks[i] {
             let trimmed = raw.trim();
-            if trimmed == today_heading {
+            if is_date_heading_for_day(trimmed, today) {
                 continue; // Never remove today's heading
             }
-            // Check if it looks like a date heading
-            if !trimmed.starts_with("== ") {
-                continue;
-            }
-            let date_part = &trimmed[3..];
-            if !is_date_string(date_part.trim()) {
+            if get_date_from_heading(trimmed).is_none() {
                 continue;
             }
 
@@ -88,8 +193,6 @@ pub fn remove_empty_day_headings(blocks: &mut Vec<Block>, today: &str) {
 }
 
 /// Get the last N non-empty lines from the journal for preview.
-/// Uses raw string splitting — avoids the AsciiDoc parser which panics on
-/// multi-byte UTF-8 characters (em-dash, accented chars, etc.).
 pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String>, String> {
     let path = notes_dir.join("journal.adoc");
     if !path.exists() {
@@ -104,6 +207,77 @@ pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String
 
     let start = if lines.len() > limit { lines.len() - limit } else { 0 };
     Ok(lines[start..].to_vec())
+}
+
+/// Append a line (task or note) directly under today's date heading in journal.adoc.
+pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), String> {
+    init_journal(notes_dir)?;
+    let path = notes_dir.join("journal.adoc");
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let today = Local::now().format("%Y-%m-%d").to_string();
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut today_idx = None;
+    for (i, &l) in lines.iter().enumerate() {
+        if is_date_heading_for_day(l, &today) {
+            today_idx = Some(i);
+            break;
+        }
+    }
+
+    let insert_idx = if let Some(t_idx) = today_idx {
+        let mut next_heading_idx = lines.len();
+        for (j, &l) in lines.iter().enumerate().skip(t_idx + 1) {
+            let trimmed = l.trim();
+            if trimmed.starts_with('=') || trimmed.starts_with('#') {
+                if get_date_from_heading(trimmed).is_some() && !is_date_heading_for_day(trimmed, &today) {
+                    next_heading_idx = j;
+                    break;
+                }
+            }
+        }
+        let mut target = next_heading_idx;
+        while target > t_idx + 1 && lines[target - 1].trim().is_empty() {
+            target -= 1;
+        }
+        target
+    } else {
+        lines.len()
+    };
+
+    let mut new_lines = Vec::new();
+    for (idx, &l) in lines.iter().enumerate() {
+        if idx == insert_idx {
+            new_lines.push(line);
+        }
+        new_lines.push(l);
+    }
+    if insert_idx == lines.len() {
+        new_lines.push(line);
+    }
+
+    let mut new_content = new_lines.join("\n");
+    if !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    std::fs::write(&path, new_content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Get parsed and rendered journal blocks.
+pub fn get_journal_blocks(notes_dir: &Path, limit: Option<usize>, drop_comments: bool) -> Result<Vec<Block>, String> {
+    init_journal(notes_dir)?;
+    let path = notes_dir.join("journal.adoc");
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    remove_empty_day_headings(&mut blocks, &today);
+    if let Some(lim) = limit {
+        if blocks.len() > lim {
+            blocks.truncate(lim);
+        }
+    }
+    Ok(blocks)
 }
 
 fn is_date_string(s: &str) -> bool {
@@ -208,5 +382,95 @@ mod tests {
         let notes = dir.path();
         let lines = recent_journal_lines(notes, 5).unwrap();
         assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn append_to_journal_today_inserts_under_today_heading() {
+        let dir = TempDir::new().unwrap();
+        let notes = dir.path();
+        let today = Local::now().format("%Y-%m-%d").to_string();
+
+        let initial_content = format!("== {}\n\n* Task 1\n\n== 2026-01-01\n\n* Old task\n", today);
+        std::fs::write(notes.join("journal.adoc"), initial_content).unwrap();
+
+        append_to_journal_today(notes, "* [ ] Task 2").unwrap();
+
+        let content = std::fs::read_to_string(notes.join("journal.adoc")).unwrap();
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines[0], &format!("== {}", today));
+        assert_eq!(lines[1], "* Task 1");
+        assert_eq!(lines[2], "* [ ] Task 2");
+        assert_eq!(lines[3], "== 2026-01-01");
+        assert_eq!(lines[4], "* Old task");
+    }
+
+    #[test]
+    fn get_journal_blocks_parses_and_preserves_today() {
+        let dir = TempDir::new().unwrap();
+        let notes = dir.path();
+        let today = Local::now().format("%Y-%m-%d").to_string();
+
+        append_to_journal_today(notes, "* [ ] Buy groceries").unwrap();
+
+        let blocks = get_journal_blocks(notes, None, true).unwrap();
+        assert!(blocks.len() >= 2);
+        match &blocks[0] {
+            Block::Heading { raw, .. } => assert!(raw.contains(&today)),
+            _ => panic!("expected today heading"),
+        }
+        match &blocks[1] {
+            Block::UnorderedListItem { checked, raw, .. } => {
+                assert_eq!(*checked, Some(false));
+                assert!(raw.contains("Buy groceries"));
+            }
+            _ => panic!("expected task item block"),
+        }
+    }
+
+    #[test]
+    fn is_date_heading_for_day_matches_all_heading_levels() {
+        assert!(is_date_heading_for_day("= 2026-09-06", "2026-09-06"));
+        assert!(is_date_heading_for_day("== 2026-09-06", "2026-09-06"));
+        assert!(is_date_heading_for_day("=== 2026-09-06", "2026-09-06"));
+        assert!(is_date_heading_for_day("==== 2026-09-06", "2026-09-06"));
+        assert!(is_date_heading_for_day("== 2026-09-06 - Sunday", "2026-09-06"));
+        assert!(is_date_heading_for_day("# 2026-09-06", "2026-09-06"));
+        assert!(is_date_heading_for_day("## 2026-09-06", "2026-09-06"));
+        assert!(!is_date_heading_for_day("== 2026-09-05", "2026-09-06"));
+        assert!(!is_date_heading_for_day("Not a heading 2026-09-06", "2026-09-06"));
+    }
+
+    #[test]
+    fn init_journal_preserves_single_and_triple_equals_headings() {
+        let dir = TempDir::new().unwrap();
+        let notes = dir.path();
+        let today = Local::now().format("%Y-%m-%d").to_string();
+
+        // Level 1 heading
+        let content = format!("= {}\n\nMy custom entry\n", today);
+        std::fs::write(notes.join("journal.adoc"), content).unwrap();
+        init_journal(notes).unwrap();
+
+        let read_back = std::fs::read_to_string(notes.join("journal.adoc")).unwrap();
+        assert_eq!(read_back.matches(&today).count(), 1);
+        assert!(read_back.starts_with(&format!("= {}", today)));
+
+        // Level 3 heading
+        let content3 = format!("=== {}\n\nMy level 3 entry\n", today);
+        std::fs::write(notes.join("journal.adoc"), content3).unwrap();
+        init_journal(notes).unwrap();
+
+        let read_back3 = std::fs::read_to_string(notes.join("journal.adoc")).unwrap();
+        assert_eq!(read_back3.matches(&today).count(), 1);
+        assert!(read_back3.starts_with(&format!("=== {}", today)));
+    }
+
+    #[test]
+    fn clean_journal_content_removes_empty_duplicate_today() {
+        let today = "2026-09-06";
+        let raw = format!("== {}\n\n= {}\n\nMy note content\n", today, today);
+        let cleaned = clean_journal_content(&raw, today);
+        assert_eq!(cleaned.matches(today).count(), 1);
+        assert!(cleaned.contains("My note content"));
     }
 }

@@ -58,6 +58,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: journalEnabledConf
+        key: "/apps/harbour-fishdoc/journal_enabled"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
         id: aiEnabledConf
         key: "/apps/harbour-fishdoc/ai_enabled"
         defaultValue: true
@@ -119,6 +125,7 @@ ApplicationWindow {
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
+    property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
 
     property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
@@ -161,6 +168,10 @@ ApplicationWindow {
 
     function setAutostartWebServer(val) {
         autostartWebServerConf.value = val
+    }
+
+    function setJournalEnabled(val) {
+        journalEnabledConf.value = val
     }
 
     function setAiEnabled(val) {

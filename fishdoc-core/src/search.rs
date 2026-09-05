@@ -229,4 +229,14 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].page.title, "UniqueMeetingNotes");
     }
+
+    #[test]
+    fn search_case_insensitive_title() {
+        let (conn, _dir) = setup();
+        let _p = create_test_page(&conn, "ProjectRoadmap");
+
+        let results = search_pages(&conn, "roadmap").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].page.title, "ProjectRoadmap");
+    }
 }

@@ -303,29 +303,29 @@ Rectangle {
         var start = Math.min(targetTextArea.selectionStart, targetTextArea.selectionEnd)
         var end = Math.max(targetTextArea.selectionStart, targetTextArea.selectionEnd)
         var txt = targetTextArea.text || ""
+        var selected = (start !== end && start >= 0 && end <= txt.length) ? txt.substring(start, end) : ""
 
-        if (start !== end && start >= 0 && end <= txt.length) {
-            var selected = txt.substring(start, end)
-            var snippet = ""
-            if (selected.indexOf("http://") === 0 || selected.indexOf("https://") === 0) {
-                snippet = selected + "[Title]"
+        var dialog = pageStack.push(Qt.resolvedUrl("../pages/PageLinkDialog.qml"), {
+            selectedText: selected
+        })
+        dialog.accepted.connect(function() {
+            var link = dialog.formattedLink
+            if (!link) return
+            if (start !== end && start >= 0 && end <= txt.length) {
+                var before = txt.substring(0, start)
+                var after = txt.substring(end)
+                targetTextArea.text = before + link + after
+                targetTextArea.cursorPosition = start + link.length
             } else {
-                snippet = "https://example.com[" + selected + "]"
+                var pos = targetTextArea.cursorPosition
+                if (pos < 0 || pos > txt.length) pos = txt.length
+                var before = txt.substring(0, pos)
+                var after = txt.substring(pos)
+                targetTextArea.text = before + link + after
+                targetTextArea.cursorPosition = pos + link.length
             }
-            var before = txt.substring(0, start)
-            var after = txt.substring(end)
-            targetTextArea.text = before + snippet + after
-            targetTextArea.cursorPosition = start + snippet.length
-        } else {
-            var pos = targetTextArea.cursorPosition
-            if (pos < 0 || pos > txt.length) pos = txt.length
-            var snippet = "https://example.com[Link title]"
-            var before = txt.substring(0, pos)
-            var after = txt.substring(pos)
-            targetTextArea.text = before + snippet + after
-            targetTextArea.cursorPosition = pos + snippet.length
-        }
-        targetTextArea.forceActiveFocus()
+            targetTextArea.forceActiveFocus()
+        })
     }
 
     function insertLinePrefix(snippet) {
