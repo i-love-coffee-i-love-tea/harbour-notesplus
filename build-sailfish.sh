@@ -26,6 +26,7 @@ rsync -a --delete \
     --exclude='rpms/' \
     --exclude='.sfdk/' \
     --exclude='.mimocode/' \
+    --exclude='tile-test/' \
     --exclude='Cargo.lock' \
     "$SCRIPT_DIR/" "$WORKSPACE/"
 

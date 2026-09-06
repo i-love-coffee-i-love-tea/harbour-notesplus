@@ -1,17 +1,116 @@
-use std::io::{Read, Write};
+//! Embedded HTTP server and REST / SSE API for Fishdoc Web Editor & AI Assistant.
+
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::html::adoc_to_html5;
+use rusqlite::Connection;
+use serde_json::json;
+
+use crate::agent::{
+    build_template_instruction, AgentSession, AgentStepResult, LlmClient, LlmConfig, LlmProvider,
+    PermissionConfig, PermissionManager,
+};
+use crate::block::Block;
+use crate::db;
+use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
+use crate::page;
+use crate::parser;
+
+pub mod web_assets;
+use web_assets::{APP_JS, INDEX_HTML, STYLE_CSS};
+
+/// Server configuration holding paths, networking, and AI client parameters.
+#[derive(Clone, Debug)]
+pub struct ServerConfig {
+    pub notes_dir: PathBuf,
+    pub db_path: PathBuf,
+    pub backup_dir: PathBuf,
+    pub port: u16,
+    pub llm_config: LlmConfig,
+    pub permission_config: PermissionConfig,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let data_dir = PathBuf::from(&home).join(".local").join("share").join("harbour-fishdoc");
+        let notes_dir = data_dir.join("notes");
+        let db_path = data_dir.join("fishdoc.db");
+        let backup_dir = data_dir.join("backups");
+        Self {
+            notes_dir,
+            db_path,
+            backup_dir,
+            port: 8080,
+            llm_config: LlmConfig::default(),
+            permission_config: PermissionConfig::default(),
+        }
+    }
+}
+
+/// Shared runtime context passed across request worker threads.
+#[derive(Clone)]
+pub struct ServerContext {
+    pub notes_dir: PathBuf,
+    pub db_path: PathBuf,
+    pub backup_dir: PathBuf,
+    pub session: Arc<Mutex<AgentSession>>,
+    pub llm_config: Arc<Mutex<LlmConfig>>,
+    pub perm_config: Arc<Mutex<PermissionConfig>>,
+}
+
+impl ServerContext {
+    pub fn new(config: ServerConfig) -> Self {
+        let _ = fs::create_dir_all(&config.notes_dir);
+        let _ = fs::create_dir_all(&config.backup_dir);
+
+        let perm_mgr = PermissionManager::new(config.permission_config.clone());
+        let client = LlmClient::new(config.llm_config.clone());
+        let mut session = AgentSession::new(
+            &config.notes_dir,
+            &config.db_path,
+            &config.backup_dir,
+            perm_mgr,
+            client,
+        );
+        session.reset_session(None, None);
+
+        Self {
+            notes_dir: config.notes_dir,
+            db_path: config.db_path,
+            backup_dir: config.backup_dir,
+            session: Arc::new(Mutex::new(session)),
+            llm_config: Arc::new(Mutex::new(config.llm_config)),
+            perm_config: Arc::new(Mutex::new(config.permission_config)),
+        }
+    }
+
+    /// Updates the active LLM client and permission configurations.
+    pub fn update_llm_config(&self, config: LlmConfig, perm_config: Option<PermissionConfig>) {
+        let mut cfg_guard = self.llm_config.lock().unwrap();
+        *cfg_guard = config.clone();
+        if let Some(p) = perm_config {
+            let mut perm_guard = self.perm_config.lock().unwrap();
+            *perm_guard = p;
+        }
+        let new_client = LlmClient::new(config);
+        let perm_mgr = PermissionManager::new(self.perm_config.lock().unwrap().clone());
+        self.session.lock().unwrap().update_config(perm_mgr, new_client);
+    }
+}
 
 /// Handle for controlling the running embedded HTTP server.
 pub struct HttpServerHandle {
     is_running: Arc<AtomicBool>,
     port: u16,
     local_urls: Vec<String>,
+    context: ServerContext,
 }
 
 impl HttpServerHandle {
@@ -34,16 +133,49 @@ impl HttpServerHandle {
             .unwrap_or_else(|| format!("http://127.0.0.1:{}", self.port))
     }
 
+    pub fn context(&self) -> &ServerContext {
+        &self.context
+    }
+
     pub fn stop(&self) {
         self.is_running.store(false, Ordering::SeqCst);
-        // Ping the server to unblock the listener accept loop
         let _ = TcpStream::connect(format!("127.0.0.1:{}", self.port));
     }
 }
 
-/// Start the embedded documentation HTTP server on a background thread.
+/// Start the embedded documentation HTTP server with default configuration.
 pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServerHandle, String> {
-    let port = if requested_port == 0 { 8080 } else { requested_port };
+    let mut config = ServerConfig::default();
+    config.notes_dir = notes_path.clone();
+    config.db_path = notes_path.parent().unwrap_or(&notes_path).join("fishdoc.db");
+    config.backup_dir = notes_path.parent().unwrap_or(&notes_path).join("backups");
+    config.port = requested_port;
+    start_server_with_config(config)
+}
+
+/// Start the embedded documentation HTTP server with full explicit configuration.
+pub fn start_server_full(
+    notes_dir: PathBuf,
+    db_path: PathBuf,
+    backup_dir: PathBuf,
+    requested_port: u16,
+    llm_config: Option<LlmConfig>,
+    permission_config: Option<PermissionConfig>,
+) -> Result<HttpServerHandle, String> {
+    let config = ServerConfig {
+        notes_dir,
+        db_path,
+        backup_dir,
+        port: requested_port,
+        llm_config: llm_config.unwrap_or_default(),
+        permission_config: permission_config.unwrap_or_default(),
+    };
+    start_server_with_config(config)
+}
+
+/// Start the embedded documentation HTTP server with a `ServerConfig`.
+pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle, String> {
+    let port = if config.port == 0 { 8080 } else { config.port };
     let mut listener = None;
 
     for p in port..(port + 20) {
@@ -69,10 +201,10 @@ pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServ
 
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
-    let notes_path_clone = notes_path.clone();
+    let context = ServerContext::new(config);
+    let context_clone = context.clone();
 
     thread::spawn(move || {
-        // Set timeout on accept so thread can check running flag periodically
         let _ = listener.set_nonblocking(false);
 
         while is_running_clone.load(Ordering::SeqCst) {
@@ -81,9 +213,9 @@ pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServ
                     if !is_running_clone.load(Ordering::SeqCst) {
                         break;
                     }
-                    let notes_dir = notes_path_clone.clone();
+                    let ctx = context_clone.clone();
                     thread::spawn(move || {
-                        handle_http_client(stream, &notes_dir);
+                        handle_http_client(stream, ctx);
                     });
                 }
                 Err(_) => {
@@ -97,73 +229,650 @@ pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServ
         is_running,
         port: actual_port,
         local_urls,
+        context,
     })
 }
 
-fn handle_http_client(mut stream: TcpStream, notes_dir: &Path) {
-    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
+struct ParsedHttpRequest {
+    method: String,
+    path: String,
+    query: Option<String>,
+    _headers: HashMap<String, String>,
+    body: Vec<u8>,
+}
 
-    let mut buffer = [0u8; 4096];
-    let bytes_read = match stream.read(&mut buffer) {
-        Ok(n) if n > 0 => n,
-        _ => return,
-    };
-
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let mut lines = request.lines();
-    let request_line = match lines.next() {
-        Some(l) => l,
-        None => return,
-    };
+fn parse_http_request(stream: &mut TcpStream) -> Result<ParsedHttpRequest, String> {
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+    let mut request_line = String::new();
+    reader.read_line(&mut request_line).map_err(|e| e.to_string())?;
 
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
-        send_response(&mut stream, 400, "Bad Request", "text/plain", b"Bad Request");
-        return;
+        return Err("Invalid request line".to_string());
     }
 
-    let method = parts[0];
+    let method = parts[0].to_uppercase();
     let raw_path = parts[1];
-
-    if method != "GET" && method != "HEAD" {
-        send_response(&mut stream, 405, "Method Not Allowed", "text/plain", b"Method Not Allowed");
-        return;
-    }
-
     let (path, query) = match raw_path.split_once('?') {
         Some((p, q)) => (url_decode(p), Some(url_decode(q))),
         None => (url_decode(raw_path), None),
     };
 
-    let clean_path = path.trim_start_matches('/');
+    let mut headers = HashMap::new();
+    loop {
+        let mut line = String::new();
+        let bytes = reader.read_line(&mut line).map_err(|e| e.to_string())?;
+        if bytes == 0 || line == "\r\n" || line == "\n" {
+            break;
+        }
+        if let Some((k, v)) = line.split_once(':') {
+            headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
+        }
+    }
 
-    if clean_path.is_empty() || clean_path == "index.html" {
-        // Render Notes Index / Dashboard
-        let html = render_dashboard_html(notes_dir, query.as_deref());
+    let content_length: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let mut body = vec![0u8; content_length];
+    if content_length > 0 {
+        reader.read_exact(&mut body).map_err(|e| e.to_string())?;
+    }
+
+    Ok(ParsedHttpRequest {
+        method,
+        path,
+        query,
+        _headers: headers,
+        body,
+    })
+}
+
+fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(120)));
+
+    let req = match parse_http_request(&mut stream) {
+        Ok(r) => r,
+        Err(_) => {
+            send_response(&mut stream, 400, "Bad Request", "text/plain", b"Bad Request");
+            return;
+        }
+    };
+
+    // Handle CORS preflight requests
+    if req.method == "OPTIONS" {
+        send_response(&mut stream, 200, "OK", "text/plain", b"");
+        return;
+    }
+
+    let clean_path = req.path.trim_start_matches('/');
+
+    // Reject path traversal attempts
+    if clean_path.contains("..") {
+        send_response(&mut stream, 403, "Forbidden", "text/plain", b"Forbidden");
+        return;
+    }
+
+    // 1. Static Web Application Root & Assets
+    if req.method == "GET" && (clean_path.is_empty() || clean_path == "index.html") {
+        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+        return;
+    }
+
+    if req.method == "GET" && clean_path == "app.js" {
+        send_response(&mut stream, 200, "OK", "application/javascript; charset=utf-8", APP_JS.as_bytes());
+        return;
+    }
+
+    if req.method == "GET" && clean_path == "style.css" {
+        send_response(&mut stream, 200, "OK", "text/css; charset=utf-8", STYLE_CSS.as_bytes());
+        return;
+    }
+
+    // 2. REST API: Notes Management
+    if clean_path == "api/notes" {
+        match req.method.as_str() {
+            "GET" => {
+                let list = list_all_notes_json(&ctx.notes_dir, req.query.as_deref());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", list.as_bytes());
+                return;
+            }
+            "POST" => {
+                let body_str = String::from_utf8_lossy(&req.body);
+                let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+                let title = json_body.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Note");
+                let content = json_body.get("content").and_then(|v| v.as_str()).unwrap_or("");
+
+                let filename = make_slug_filename(title);
+                let file_path = ctx.notes_dir.join(&filename);
+                if let Err(e) = fs::write(&file_path, content) {
+                    let err = json!({ "error": format!("Failed to create note: {}", e) });
+                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes());
+                    return;
+                }
+
+                // Index in SQLite if DB is present
+                if let Ok(conn) = Connection::open(&ctx.db_path) {
+                    let _ = db::init_schema(&conn);
+                    if let Ok(p) = page::create_page(&conn, &ctx.notes_dir, title, false) {
+                        let _ = db::update_fts_content(&conn, p.id, content);
+                    }
+                }
+
+                let resp = json!({
+                    "ok": true,
+                    "filename": filename,
+                    "title": title
+                });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    if clean_path.starts_with("api/notes/") {
+        let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
+        let filename = if note_name.ends_with(".adoc") {
+            note_name.to_string()
+        } else {
+            format!("{}.adoc", note_name)
+        };
+        let file_path = ctx.notes_dir.join(&filename);
+
+        match req.method.as_str() {
+            "GET" => {
+                if file_path.is_file() {
+                    if let Ok(content) = fs::read_to_string(&file_path) {
+                        send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes());
+                        return;
+                    }
+                }
+                send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note not found\"}");
+                return;
+            }
+            "PUT" => {
+                let content = if let Ok(json_body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    json_body.get("content").and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_else(|| String::from_utf8_lossy(&req.body).to_string())
+                } else {
+                    String::from_utf8_lossy(&req.body).to_string()
+                };
+
+                if let Err(e) = fs::write(&file_path, &content) {
+                    let err = json!({ "error": format!("Failed to save note: {}", e) });
+                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes());
+                    return;
+                }
+
+                // Update database index
+                if let Ok(conn) = Connection::open(&ctx.db_path) {
+                    let _ = db::init_schema(&conn);
+                    let title = extract_title_from_adoc(&content, &filename);
+                    if let Ok(Some(existing_page)) = page::get_page(&conn, &filename) {
+                        let _ = db::update_fts_content(&conn, existing_page.id, &content);
+                    } else {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let _ = conn.execute(
+                            "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count) VALUES (?1, ?2, 0, ?3, ?3, 0)",
+                            rusqlite::params![filename, title, now],
+                        );
+                        if let Ok(page_id) = conn.query_row(
+                            "SELECT id FROM pages WHERE filename = ?1",
+                            rusqlite::params![filename],
+                            |row| row.get::<_, i64>(0),
+                        ) {
+                            let _ = db::update_fts_content(&conn, page_id, &content);
+                        }
+                    }
+                }
+
+                let resp = json!({ "ok": true, "filename": filename });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                return;
+            }
+            "DELETE" => {
+                if file_path.is_file() {
+                    let _ = fs::remove_file(&file_path);
+                    if let Ok(conn) = Connection::open(&ctx.db_path) {
+                        let _ = conn.execute("DELETE FROM pages WHERE filename = ?1", rusqlite::params![filename]);
+                    }
+                }
+                let resp = json!({ "ok": true });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // 2b. REST API: Toggle checklist item in note
+    if req.method == "POST" && clean_path.starts_with("api/notes/") && clean_path.ends_with("/toggle") {
+        let raw_name = clean_path
+            .strip_prefix("api/notes/")
+            .unwrap()
+            .strip_suffix("/toggle")
+            .unwrap();
+        let filename = if raw_name.ends_with(".adoc") {
+            raw_name.to_string()
+        } else {
+            format!("{}.adoc", raw_name)
+        };
+        let file_path = ctx.notes_dir.join(&filename);
+        if file_path.is_file() {
+            if let Ok(content) = fs::read_to_string(&file_path) {
+                let body_str = String::from_utf8_lossy(&req.body);
+                let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+                let block_idx = json_body.get("block_index").and_then(|v| v.as_u64()).map(|v| v as usize);
+                let item_idx = json_body.get("item_index").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(0);
+                let target_checked = json_body.get("checked").and_then(|v| v.as_bool());
+
+                let mut blocks = parser::parse_blocks(&content);
+                let mut updated = false;
+
+                if let Some(b_idx) = block_idx {
+                    if b_idx < blocks.len() {
+                        if let Block::UnorderedListItem { ref mut checked, ref mut raw, .. } = blocks[b_idx] {
+                            let new_val = target_checked.unwrap_or_else(|| !checked.unwrap_or(false));
+                            *checked = Some(new_val);
+                            if new_val {
+                                *raw = raw.replacen("[ ]", "[x]", 1).replacen("[*]", "[x]", 1);
+                            } else {
+                                *raw = raw.replacen("[x]", "[ ]", 1).replacen("[X]", "[ ]", 1).replacen("[*]", "[ ]", 1);
+                            }
+                            updated = true;
+                        }
+                    }
+                } else {
+                    let mut check_count = 0;
+                    for b in &mut blocks {
+                        if let Block::UnorderedListItem { ref mut checked, ref mut raw, .. } = b {
+                            if checked.is_some() {
+                                if check_count == item_idx {
+                                    let new_val = target_checked.unwrap_or_else(|| !checked.unwrap_or(false));
+                                    *checked = Some(new_val);
+                                    if new_val {
+                                        *raw = raw.replacen("[ ]", "[x]", 1).replacen("[*]", "[x]", 1);
+                                    } else {
+                                        *raw = raw.replacen("[x]", "[ ]", 1).replacen("[X]", "[ ]", 1).replacen("[*]", "[ ]", 1);
+                                    }
+                                    updated = true;
+                                    break;
+                                }
+                                check_count += 1;
+                            }
+                        }
+                    }
+                }
+
+                if updated {
+                    let new_content = parser::blocks_to_adoc(&blocks);
+                    let _ = fs::write(&file_path, new_content.as_bytes());
+                    let html = adoc_to_html_body(&new_content, Some(&ctx.notes_dir));
+                    let resp = json!({ "ok": true, "content": new_content, "html": html });
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                    return;
+                }
+            }
+        }
+        send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note or checklist item not found\"}");
+        return;
+    }
+
+    // 3. REST API: Render AsciiDoc to HTML
+    if clean_path == "api/render" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let (content, is_full) = if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body_str) {
+            let c = json_body.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let full = json_body.get("full").and_then(|v| v.as_bool()).unwrap_or(false);
+            (c, full)
+        } else {
+            (body_str.to_string(), false)
+        };
+
+        let html = if is_full {
+            adoc_to_html5(&content, "Rendered Document", Some(&ctx.notes_dir))
+        } else {
+            adoc_to_html_body(&content, Some(&ctx.notes_dir))
+        };
         send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes());
         return;
     }
 
-    if clean_path.starts_with("page/") || clean_path.starts_with("notes/") {
-        let note_name = clean_path.strip_prefix("page/").or_else(|| clean_path.strip_prefix("notes/")).unwrap_or("");
+    // 3b. REST API: Parse and Render Blocks AST
+    if clean_path == "api/blocks/parse" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let content = if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body_str) {
+            json_body.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        } else {
+            body_str.to_string()
+        };
+
+        let blocks = parser::parse_blocks(&content);
+        let block_items: Vec<serde_json::Value> = blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let html = blocks_to_html_body(&[b.clone()], Some(&ctx.notes_dir));
+                json!({
+                    "index": i,
+                    "raw": b.raw_text(),
+                    "html": html
+                })
+            })
+            .collect();
+
+        let resp = json!({ "blocks": block_items });
+        send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+        return;
+    }
+
+    // 4. REST / SSE API: AI Assistant (Brokered via backend AgentSession & LlmClient)
+    if clean_path == "api/ai/config" {
+        match req.method.as_str() {
+            "GET" => {
+                let cfg = ctx.llm_config.lock().unwrap();
+                let is_undo_available = ctx.session.lock().unwrap().can_undo();
+                let has_pending = ctx.session.lock().unwrap().pending_action().is_some();
+                let resp = json!({
+                    "provider": match cfg.provider {
+                        LlmProvider::Ollama => "ollama",
+                        LlmProvider::OpenAiCompatible => "openai",
+                    },
+                    "endpoint": cfg.endpoint_url,
+                    "model": cfg.model,
+                    "timeout": cfg.timeout_secs,
+                    "has_key": cfg.api_key.as_ref().map(|k| !k.is_empty()).unwrap_or(false),
+                    "can_undo": is_undo_available,
+                    "has_pending": has_pending
+                });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                return;
+            }
+            "POST" => {
+                let body_str = String::from_utf8_lossy(&req.body);
+                if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body_str) {
+                    let mut cfg_guard = ctx.llm_config.lock().unwrap();
+                    if let Some(p) = json_body.get("provider").and_then(|v| v.as_str()) {
+                        cfg_guard.provider = match p.to_lowercase().as_str() {
+                            "openai" | "mimocode" | "compatible" => LlmProvider::OpenAiCompatible,
+                            _ => LlmProvider::Ollama,
+                        };
+                    }
+                    if let Some(ep) = json_body.get("endpoint").and_then(|v| v.as_str()) {
+                        cfg_guard.endpoint_url = ep.to_string();
+                    }
+                    if let Some(m) = json_body.get("model").and_then(|v| v.as_str()) {
+                        cfg_guard.model = m.to_string();
+                    }
+                    if let Some(k) = json_body.get("api_key").and_then(|v| v.as_str()) {
+                        cfg_guard.api_key = Some(k.to_string());
+                    }
+                    if let Some(t) = json_body.get("timeout").and_then(|v| v.as_u64()) {
+                        cfg_guard.timeout_secs = t;
+                    }
+
+                    let new_client = LlmClient::new(cfg_guard.clone());
+                    let perm_mgr = PermissionManager::new(ctx.perm_config.lock().unwrap().clone());
+                    ctx.session.lock().unwrap().update_config(perm_mgr, new_client);
+
+                    let resp = json!({ "ok": true });
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                    return;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // POST /api/ai/chat -> SSE Streaming endpoint
+    if clean_path == "api/ai/chat" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+        let prompt = json_body.get("prompt").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let context_content = json_body.get("context_content").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        send_sse_header(&mut stream);
+
+        let mut session_guard = ctx.session.lock().unwrap();
+        if let Some(ref fname) = context_filename {
+            let content = context_content.unwrap_or_else(|| {
+                fs::read_to_string(ctx.notes_dir.join(fname)).unwrap_or_default()
+            });
+            session_guard.reset_session(Some((fname.as_str(), &content)), None);
+        }
+
+        let stream_mutex = Arc::new(Mutex::new(stream));
+        let stream_for_tokens = stream_mutex.clone();
+
+        let step_result = session_guard.send_prompt_streaming(&prompt, move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        });
+
+        if let Ok(mut s) = stream_mutex.lock() {
+            match step_result {
+                AgentStepResult::Finished { content, last_snapshot_id } => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "finished",
+                        "content": content,
+                        "last_snapshot_id": last_snapshot_id,
+                        "can_undo": session_guard.can_undo(),
+                        "last_created_note": session_guard.last_created_note()
+                    }));
+                }
+                AgentStepResult::RequiresConfirmation(pending) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "pending_confirmation",
+                        "action": {
+                            "tool_name": pending.tool_name,
+                            "filename": pending.filename,
+                            "reason": pending.reason,
+                            "diff": pending.diff.lines.iter().map(|l| json!({
+                                "diff_type": format!("{:?}", l.line_type).to_lowercase(),
+                                "text": l.content
+                            })).collect::<Vec<_>>()
+                        }
+                    }));
+                }
+                AgentStepResult::Error(err) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "error",
+                        "error": err
+                    }));
+                }
+            }
+            send_sse_done(&mut s);
+        }
+        return;
+    }
+
+    // POST /api/ai/template -> Quick action runner
+    if clean_path == "api/ai/template" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+        let template_id = json_body.get("template_id").and_then(|v| v.as_str()).unwrap_or("summarize");
+        let content = json_body.get("content").and_then(|v| v.as_str()).unwrap_or("");
+        let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).unwrap_or("note.adoc");
+
+        let instruction = build_template_instruction(template_id, "", Some(context_filename), Some(content));
+
+        send_sse_header(&mut stream);
+        let mut session_guard = ctx.session.lock().unwrap();
+        session_guard.reset_session(Some((context_filename, content)), None);
+
+        let stream_mutex = Arc::new(Mutex::new(stream));
+        let stream_for_tokens = stream_mutex.clone();
+
+        let step_result = session_guard.send_prompt_streaming(&instruction, move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        });
+
+        if let Ok(mut s) = stream_mutex.lock() {
+            match step_result {
+                AgentStepResult::Finished { content, last_snapshot_id } => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "finished",
+                        "content": content,
+                        "last_snapshot_id": last_snapshot_id,
+                        "can_undo": session_guard.can_undo()
+                    }));
+                }
+                AgentStepResult::RequiresConfirmation(pending) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "pending_confirmation",
+                        "action": {
+                            "tool_name": pending.tool_name,
+                            "filename": pending.filename,
+                            "reason": pending.reason,
+                            "diff": pending.diff.lines.iter().map(|l| json!({
+                                "diff_type": format!("{:?}", l.line_type).to_lowercase(),
+                                "text": l.content
+                            })).collect::<Vec<_>>()
+                        }
+                    }));
+                }
+                AgentStepResult::Error(err) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "error",
+                        "error": err
+                    }));
+                }
+            }
+            send_sse_done(&mut s);
+        }
+        return;
+    }
+
+    // POST /api/ai/confirm -> Tool call confirmation
+    if clean_path == "api/ai/confirm" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+        let approved = json_body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        send_sse_header(&mut stream);
+        let mut session_guard = ctx.session.lock().unwrap();
+
+        let stream_mutex = Arc::new(Mutex::new(stream));
+        let stream_for_tokens = stream_mutex.clone();
+
+        let step_result = session_guard.confirm_pending_action_streaming(approved, move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        });
+
+        if let Ok(mut s) = stream_mutex.lock() {
+            match step_result {
+                AgentStepResult::Finished { content, last_snapshot_id } => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "finished",
+                        "content": content,
+                        "last_snapshot_id": last_snapshot_id,
+                        "can_undo": session_guard.can_undo()
+                    }));
+                }
+                AgentStepResult::RequiresConfirmation(pending) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "pending_confirmation",
+                        "action": {
+                            "tool_name": pending.tool_name,
+                            "filename": pending.filename,
+                            "reason": pending.reason,
+                            "diff": pending.diff.lines.iter().map(|l| json!({
+                                "diff_type": format!("{:?}", l.line_type).to_lowercase(),
+                                "text": l.content
+                            })).collect::<Vec<_>>()
+                        }
+                    }));
+                }
+                AgentStepResult::Error(err) => {
+                    send_sse_event(&mut s, &json!({
+                        "type": "error",
+                        "error": err
+                    }));
+                }
+            }
+            send_sse_done(&mut s);
+        }
+        return;
+    }
+
+    // POST /api/ai/undo -> Revert last AI snapshot
+    if clean_path == "api/ai/undo" && req.method == "POST" {
+        let mut session_guard = ctx.session.lock().unwrap();
+        match session_guard.undo_last_action() {
+            Ok(msg) => {
+                let resp = json!({ "ok": true, "message": msg, "can_undo": session_guard.can_undo() });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+            }
+            Err(err) => {
+                let resp = json!({ "ok": false, "error": err, "can_undo": session_guard.can_undo() });
+                send_response(&mut stream, 400, "Bad Request", "application/json; charset=utf-8", resp.to_string().as_bytes());
+            }
+        }
+        return;
+    }
+
+    // 5. Page URLs: /page/{name}, /notes/{name}, /edit/{name}
+    if clean_path.starts_with("page/") || clean_path.starts_with("notes/") || clean_path.starts_with("edit/") {
+        let note_name = clean_path
+            .strip_prefix("page/")
+            .or_else(|| clean_path.strip_prefix("notes/"))
+            .or_else(|| clean_path.strip_prefix("edit/"))
+            .unwrap_or("");
+
         let filename = if note_name.ends_with(".adoc") {
             note_name.to_string()
         } else {
             format!("{}.adoc", note_name)
         };
 
-        let file_path = notes_dir.join(&filename);
-        if file_path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
-                let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
-                let html = render_web_page_html(&content, title, notes_dir, &filename);
-                send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes());
-                return;
+        // If explicitly requested standalone export/view
+        if let Some(q) = req.query.as_deref() {
+            if q.contains("export=1") || q.contains("download=1") {
+                let file_path = ctx.notes_dir.join(&filename);
+                if file_path.is_file() {
+                    if let Ok(content) = fs::read_to_string(&file_path) {
+                        let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
+                        let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
+                        send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title));
+                        return;
+                    }
+                }
+            } else if q.contains("view=rendered") {
+                let file_path = ctx.notes_dir.join(&filename);
+                if file_path.is_file() {
+                    if let Ok(content) = fs::read_to_string(&file_path) {
+                        let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
+                        let html = render_web_page_html(&content, title, &ctx.notes_dir, &filename);
+                        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes());
+                        return;
+                    }
+                }
             }
         }
+
+        // Default: serve the Vue 3 interactive editor app (app router loads the note)
+        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+        return;
     }
 
+    // 6. Raw Note text endpoint
     if clean_path.starts_with("raw/") {
         let note_name = clean_path.strip_prefix("raw/").unwrap_or("");
         let filename = if note_name.ends_with(".adoc") {
@@ -172,15 +881,16 @@ fn handle_http_client(mut stream: TcpStream, notes_dir: &Path) {
             format!("{}.adoc", note_name)
         };
 
-        let file_path = notes_dir.join(&filename);
+        let file_path = ctx.notes_dir.join(&filename);
         if file_path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
+            if let Ok(content) = fs::read_to_string(&file_path) {
                 send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes());
                 return;
             }
         }
     }
 
+    // 7. Standalone HTML5 export download
     if clean_path.starts_with("export/") {
         let note_name = clean_path.strip_prefix("export/").unwrap_or("");
         let filename = if note_name.ends_with(".adoc") {
@@ -191,26 +901,26 @@ fn handle_http_client(mut stream: TcpStream, notes_dir: &Path) {
             format!("{}.adoc", note_name)
         };
 
-        let file_path = notes_dir.join(&filename);
+        let file_path = ctx.notes_dir.join(&filename);
         if file_path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&file_path) {
+            if let Ok(content) = fs::read_to_string(&file_path) {
                 let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
-                let html = adoc_to_html5(&content, title, Some(notes_dir));
+                let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
                 send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title));
                 return;
             }
         }
     }
 
-    // Static asset from notes directory (images, svgs, etc.)
+    // 8. Static asset from notes directory (images, svgs, stylesheets, etc.)
     let asset_path = if clean_path.starts_with("assets/") {
-        notes_dir.join(clean_path.strip_prefix("assets/").unwrap_or(clean_path))
+        ctx.notes_dir.join(clean_path.strip_prefix("assets/").unwrap_or(clean_path))
     } else {
-        notes_dir.join(clean_path)
+        ctx.notes_dir.join(clean_path)
     };
 
     if asset_path.is_file() {
-        if let Ok(bytes) = std::fs::read(&asset_path) {
+        if let Ok(bytes) = fs::read(&asset_path) {
             let ext = asset_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let mime = match ext.as_str() {
                 "jpg" | "jpeg" => "image/jpeg",
@@ -228,12 +938,12 @@ fn handle_http_client(mut stream: TcpStream, notes_dir: &Path) {
         }
     }
 
-    send_response(&mut stream, 404, "Not Found", "text/html; charset=utf-8", b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Notes Index</a></p>");
+    send_response(&mut stream, 404, "Not Found", "text/html; charset=utf-8", b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Fishdoc Editor</a></p>");
 }
 
 fn send_response(stream: &mut TcpStream, status_code: u16, status_text: &str, content_type: &str, body: &[u8]) {
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n",
         status_code,
         status_text,
         content_type,
@@ -246,7 +956,7 @@ fn send_response(stream: &mut TcpStream, status_code: u16, status_text: &str, co
 
 fn send_attachment_response(stream: &mut TcpStream, status_code: u16, status_text: &str, content_type: &str, body: &[u8], filename: &str) {
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nContent-Disposition: attachment; filename=\"{}\"\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nContent-Disposition: attachment; filename=\"{}\"\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n",
         status_code,
         status_text,
         content_type,
@@ -258,110 +968,97 @@ fn send_attachment_response(stream: &mut TcpStream, status_code: u16, status_tex
     let _ = stream.flush();
 }
 
-fn render_dashboard_html(notes_dir: &Path, search_query: Option<&str>) -> String {
+fn send_sse_header(stream: &mut TcpStream) {
+    let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n";
+    let _ = stream.write_all(header.as_bytes());
+    let _ = stream.flush();
+}
+
+fn send_sse_event(stream: &mut TcpStream, data: &serde_json::Value) {
+    let payload = format!("data: {}\n\n", data);
+    let _ = stream.write_all(payload.as_bytes());
+    let _ = stream.flush();
+}
+
+fn send_sse_done(stream: &mut TcpStream) {
+    let _ = stream.write_all(b"data: [DONE]\n\n");
+    let _ = stream.flush();
+}
+
+fn list_all_notes_json(notes_dir: &Path, search_query: Option<&str>) -> String {
     let mut notes = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(notes_dir) {
+    if let Ok(entries) = fs::read_dir(notes_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("adoc") {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    let title = name.strip_suffix(".adoc").unwrap_or(name);
+                    let mut title = name.strip_suffix(".adoc").unwrap_or(name).to_string();
                     let mut snippet = String::new();
-                    if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(content) = fs::read_to_string(&path) {
                         for line in content.lines() {
                             let trimmed = line.trim();
-                            if !trimmed.is_empty() && !trimmed.starts_with('=') && !trimmed.starts_with("//") {
+                            if trimmed.starts_with("= ") {
+                                title = trimmed.trim_start_matches("= ").trim().to_string();
+                            } else if snippet.is_empty() && !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with(':') {
                                 snippet = trimmed.chars().take(120).collect();
-                                break;
                             }
                         }
                     }
-                    notes.push((title.to_string(), name.to_string(), snippet));
+                    notes.push((title, name.to_string(), snippet));
                 }
             }
         }
     }
 
-    notes.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    notes.sort_by_key(|a| a.0.to_lowercase());
 
-    let query_str = search_query.unwrap_or("").trim();
-    let filtered_notes: Vec<_> = if query_str.is_empty() {
+    let query_str = search_query.unwrap_or("").trim().to_lowercase();
+    let filtered: Vec<_> = if query_str.is_empty() {
         notes
     } else {
-        let q = query_str.to_lowercase();
         notes
             .into_iter()
-            .filter(|(title, filename, snippet)| {
-                title.to_lowercase().contains(&q)
-                    || filename.to_lowercase().contains(&q)
-                    || snippet.to_lowercase().contains(&q)
+            .filter(|(t, fn_name, snip)| {
+                t.to_lowercase().contains(&query_str)
+                    || fn_name.to_lowercase().contains(&query_str)
+                    || snip.to_lowercase().contains(&query_str)
             })
             .collect()
     };
 
-    let mut cards_html = String::new();
-    for (title, filename, snippet) in &filtered_notes {
-        cards_html.push_str(&format!(
-            r#"<a class="note-card" href="/page/{filename}">
-                <div class="note-card-title">{title}</div>
-                <div class="note-card-snippet">{snippet}</div>
-                <div class="note-card-footer">
-                    <span class="view-link">View Page &rarr;</span>
-                    <span class="export-link" onclick="event.preventDefault(); window.location.href='/export/{filename}';">HTML5</span>
-                </div>
-            </a>"#,
-            filename = filename,
-            title = escape_html(title),
-            snippet = escape_html(snippet)
-        ));
-    }
+    let json_items: Vec<_> = filtered
+        .into_iter()
+        .map(|(t, fn_name, snip)| {
+            json!({
+                "title": t,
+                "filename": fn_name,
+                "snippet": snip
+            })
+        })
+        .collect();
 
-    if cards_html.is_empty() {
-        cards_html = "<div class=\"empty-state\"><p>No notes found matching your search.</p></div>".to_string();
-    }
+    serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string())
+}
 
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notes++ Documentation Library</title>
-    <style>
-{css}
-    </style>
-</head>
-<body class="dashboard-body">
-    <header class="top-nav">
-        <div class="nav-container">
-            <div class="brand">
-                <span class="logo">&#128214;</span> <strong>Notes++</strong> <span class="badge">Web Portal</span>
-            </div>
-            <form class="search-form" method="GET" action="/">
-                <input type="text" name="q" placeholder="Search documentation..." value="{query}">
-                <button type="submit">Search</button>
-            </form>
-        </div>
-    </header>
-    <main class="dashboard-main">
-        <div class="dashboard-header">
-            <h2>Your Documentation ({count} notes)</h2>
-            <p>Live documentation server running on Sailfish OS. Click any note to read or download as standalone HTML5.</p>
-        </div>
-        <div class="notes-grid">
-            {cards}
-        </div>
-    </main>
-    <footer class="dashboard-footer">
-        <p>Served live by <strong>Notes++</strong> on Sailfish OS</p>
-    </footer>
-</body>
-</html>"#,
-        css = DASHBOARD_CSS,
-        query = escape_html(query_str),
-        count = filtered_notes.len(),
-        cards = cards_html
-    )
+fn make_slug_filename(title: &str) -> String {
+    let slug: String = title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = slug.trim_matches('-');
+    let final_slug = if trimmed.is_empty() { "untitled" } else { trimmed };
+    format!("{}.adoc", final_slug)
+}
+
+fn extract_title_from_adoc(content: &str, fallback_filename: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("= ") {
+            return trimmed.trim_start_matches("= ").trim().to_string();
+        }
+    }
+    fallback_filename.trim_end_matches(".adoc").replace('_', " ")
 }
 
 fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filename: &str) -> String {
@@ -370,7 +1067,7 @@ fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filen
     let top_bar = format!(
         r#"<div class="web-page-topbar">
             <div class="topbar-left">
-                <a class="nav-btn" href="/">&larr; Notes Index</a>
+                <a class="nav-btn" href="/">&larr; Fishdoc Web Editor</a>
                 <span class="page-current-title">{}</span>
             </div>
             <div class="topbar-right">
@@ -393,7 +1090,6 @@ fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filen
 fn get_local_ip_addresses() -> Vec<String> {
     let mut ips = Vec::new();
 
-    // 1. Try finding local IP via UDP probe (zero traffic, binds routing table)
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("8.8.8.8:80").is_ok() {
             if let Ok(addr) = socket.local_addr() {
@@ -405,12 +1101,10 @@ fn get_local_ip_addresses() -> Vec<String> {
         }
     }
 
-    // 2. Read Linux /proc/net/arp or ifconfig if available
-    if let Ok(arp) = std::fs::read_to_string("/proc/net/arp") {
+    if let Ok(arp) = fs::read_to_string("/proc/net/arp") {
         for line in arp.lines().skip(1) {
             if let Some(ip) = line.split_whitespace().next() {
                 if ip.starts_with("192.168.") || ip.starts_with("10.") || ip.starts_with("172.") {
-                    // Try to probe that network segment
                     if let Ok(probe_sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                         if probe_sock.connect(format!("{}:80", ip)).is_ok() {
                             if let Ok(addr) = probe_sock.local_addr() {
@@ -434,301 +1128,197 @@ fn get_local_ip_addresses() -> Vec<String> {
 }
 
 fn url_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut bytes = s.bytes();
-    while let Some(b) = bytes.next() {
-        if b == b'%' {
-            let h1 = bytes.next().unwrap_or(0);
-            let h2 = bytes.next().unwrap_or(0);
-            if let (Some(d1), Some(d2)) = (hex_val(h1), hex_val(h2)) {
-                result.push(((d1 << 4) | d2) as char);
+    let mut result = Vec::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            let h1 = chars.next();
+            let h2 = chars.next();
+            if let (Some(c1), Some(c2)) = (h1, h2) {
+                let hex_str = format!("{}{}", c1, c2);
+                if let Ok(byte) = u8::from_str_radix(&hex_str, 16) {
+                    result.push(byte);
+                    continue;
+                }
             }
-        } else if b == b'+' {
-            result.push(' ');
+            result.push(b'%');
+        } else if ch == '+' {
+            result.push(b' ');
         } else {
-            result.push(b as char);
+            result.extend_from_slice(ch.to_string().as_bytes());
         }
     }
-    result
-}
-
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
+    String::from_utf8_lossy(&result).into_owned()
 }
 
 fn escape_html(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_make_slug_filename() {
+        assert_eq!(make_slug_filename("My Note!"), "my-note.adoc");
+        assert_eq!(make_slug_filename("  "), "untitled.adoc");
+        assert_eq!(make_slug_filename("Hello World 123"), "hello-world-123.adoc");
     }
-    out
-}
 
-const DASHBOARD_CSS: &str = r#"
-:root {
-    --bg-color: #f8fafc;
-    --card-bg: #ffffff;
-    --text-color: #1e293b;
-    --text-muted: #64748b;
-    --border-color: #e2e8f0;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --header-bg: #ffffff;
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-}
+    #[test]
+    fn test_list_all_notes_json() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        fs::create_dir_all(&notes_dir).unwrap();
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg-color: #0f172a;
-        --card-bg: #1e293b;
-        --text-color: #f1f5f9;
-        --text-muted: #94a3b8;
-        --border-color: #334155;
-        --accent: #38bdf8;
-        --accent-hover: #0284c7;
-        --header-bg: #1e293b;
-        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        fs::write(notes_dir.join("alpha.adoc"), "= Alpha Note\nFirst line of content.").unwrap();
+        fs::write(notes_dir.join("beta.adoc"), "= Beta Note\nSecond line of content.").unwrap();
+
+        let json_str = list_all_notes_json(&notes_dir, None);
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_server_lifecycle_and_endpoints() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        fs::write(notes_dir.join("welcome.adoc"), "= Welcome\nTest content for server.").unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18920,
+            None,
+            None,
+        ).expect("Server should start");
+
+        assert!(server_handle.is_running());
+        let port = server_handle.port();
+        assert!(port >= 18920);
+
+        // Test GET /
+        let res_root = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+        assert_eq!(res_root.status(), 200);
+        let root_body = res_root.into_string().unwrap();
+        assert!(root_body.contains("Fishdoc Web"));
+
+        // Test GET /app.js
+        let res_js = ureq::get(&format!("http://127.0.0.1:{}/app.js", port)).call().unwrap();
+        assert_eq!(res_js.status(), 200);
+        let js_body = res_js.into_string().unwrap();
+        assert!(js_body.contains("createApp"));
+
+        // Test GET /style.css
+        let res_css = ureq::get(&format!("http://127.0.0.1:{}/style.css", port)).call().unwrap();
+        assert_eq!(res_css.status(), 200);
+
+        // Test GET /api/notes
+        let res_notes = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call().unwrap();
+        assert_eq!(res_notes.status(), 200);
+        let notes_json: serde_json::Value = res_notes.into_json().unwrap();
+        assert!(!notes_json.as_array().unwrap().is_empty());
+
+        // Test GET /api/notes/welcome.adoc
+        let res_note = ureq::get(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port)).call().unwrap();
+        assert_eq!(res_note.status(), 200);
+        assert!(res_note.into_string().unwrap().contains("Test content"));
+
+        // Test PUT /api/notes/welcome.adoc
+        let put_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
+            .set("Content-Type", "text/plain")
+            .send_string("= Welcome\nUpdated content from PUT test.")
+            .unwrap();
+        assert_eq!(put_res.status(), 200);
+        let updated_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
+        assert!(updated_file.contains("Updated content from PUT test"));
+
+        // Test POST /api/notes (create new)
+        let create_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes", port))
+            .send_json(json!({
+                "title": "New Doc",
+                "content": "= New Doc\nCreated via API"
+            }))
+            .unwrap();
+        assert_eq!(create_res.status(), 200);
+        assert!(notes_dir.join("new-doc.adoc").exists());
+
+        // Test POST /api/render
+        let render_res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
+            .send_json(json!({
+                "content": "= Header\n* Bullet item\n"
+            }))
+            .unwrap();
+        assert_eq!(render_res.status(), 200);
+        let render_html = render_res.into_string().unwrap();
+        assert!(render_html.contains("Header") && render_html.contains("Bullet item"));
+
+        // Test POST /api/blocks/parse
+        let parse_res = ureq::post(&format!("http://127.0.0.1:{}/api/blocks/parse", port))
+            .send_json(json!({
+                "content": "= Heading 1\n\nParagraph text\n\n* [ ] Task 1"
+            }))
+            .unwrap();
+        assert_eq!(parse_res.status(), 200);
+        let parse_json: serde_json::Value = parse_res.into_json().unwrap();
+        assert!(parse_json.get("blocks").and_then(|b| b.as_array()).unwrap().len() >= 3);
+
+        // Test POST /api/notes/welcome.adoc/toggle (checklist toggle)
+        fs::write(notes_dir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
+        let toggle_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
+            .send_json(json!({
+                "item_index": 0,
+                "checked": true
+            }))
+            .unwrap();
+        assert_eq!(toggle_res.status(), 200);
+        let toggled_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
+        assert!(toggled_file.contains("* [x] Task 1"));
+
+        // Test POST /api/ai/config (update config)
+        let ai_update_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/config", port))
+            .send_json(json!({
+                "provider": "ollama",
+                "endpoint": "http://127.0.0.1:11434",
+                "model": "llama3.2",
+                "timeout": 45
+            }))
+            .unwrap();
+        assert_eq!(ai_update_res.status(), 200);
+
+        // Verify updated config
+        let ai_cfg_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/ai/config", port)).call().unwrap();
+        let ai_cfg_json2: serde_json::Value = ai_cfg_res2.into_json().unwrap();
+        assert_eq!(ai_cfg_json2.get("model").unwrap(), "llama3.2");
+        assert_eq!(ai_cfg_json2.get("timeout").unwrap(), 45);
+
+        // Test GET /raw/welcome.adoc
+        let raw_res = ureq::get(&format!("http://127.0.0.1:{}/raw/welcome.adoc", port)).call().unwrap();
+        assert_eq!(raw_res.status(), 200);
+        assert!(raw_res.into_string().unwrap().contains("Task"));
+
+        // Test GET /export/welcome.adoc
+        let export_res = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.adoc", port)).call().unwrap();
+        assert_eq!(export_res.status(), 200);
+        assert!(export_res.into_string().unwrap().contains("html"));
+
+        // Test DELETE /api/notes/new-doc.adoc
+        let del_res = ureq::delete(&format!("http://127.0.0.1:{}/api/notes/new-doc.adoc", port)).call().unwrap();
+        assert_eq!(del_res.status(), 200);
+        assert!(!notes_dir.join("new-doc.adoc").exists());
+
+        // Stop server
+        server_handle.stop();
     }
 }
-
-* { box-sizing: border-box; }
-
-body.dashboard-body {
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    line-height: 1.5;
-}
-
-.top-nav {
-    background-color: var(--header-bg);
-    border-bottom: 1px solid var(--border-color);
-    padding: 12px 24px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-}
-
-.nav-container {
-    max-width: 1100px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-.brand {
-    font-size: 1.25rem;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.badge {
-    font-size: 0.75rem;
-    background: var(--accent);
-    color: #fff;
-    padding: 2px 8px;
-    border-radius: 12px;
-    font-weight: 600;
-}
-
-.search-form {
-    display: flex;
-    gap: 8px;
-}
-
-.search-form input {
-    padding: 8px 14px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    font-size: 0.9rem;
-    min-width: 240px;
-}
-
-.search-form button {
-    padding: 8px 16px;
-    background-color: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.search-form button:hover {
-    background-color: var(--accent-hover);
-}
-
-.dashboard-main {
-    max-width: 1100px;
-    margin: 32px auto;
-    padding: 0 24px;
-}
-
-.dashboard-header {
-    margin-bottom: 28px;
-}
-
-.dashboard-header h2 {
-    margin: 0 0 6px 0;
-    font-size: 1.75rem;
-}
-
-.dashboard-header p {
-    margin: 0;
-    color: var(--text-muted);
-}
-
-.notes-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 20px;
-}
-
-.note-card {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    padding: 20px;
-    text-decoration: none;
-    color: inherit;
-    box-shadow: var(--shadow);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    transition: transform 0.15s ease, border-color 0.15s ease;
-}
-
-.note-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent);
-}
-
-.note-card-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-    color: var(--text-color);
-}
-
-.note-card-snippet {
-    font-size: 0.92rem;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-    line-height: 1.45;
-    flex-grow: 1;
-}
-
-.note-card-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-top: 1px solid var(--border-color);
-    padding-top: 12px;
-    font-size: 0.85rem;
-}
-
-.view-link {
-    color: var(--accent);
-    font-weight: 600;
-}
-
-.export-link {
-    background-color: var(--bg-color);
-    border: 1px solid var(--border-color);
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-weight: 500;
-    cursor: pointer;
-}
-
-.export-link:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.empty-state {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 48px;
-    color: var(--text-muted);
-}
-
-.dashboard-footer {
-    text-align: center;
-    padding: 48px 24px;
-    color: var(--text-muted);
-    font-size: 0.85rem;
-}
-
-/* Standalone Page Topbar */
-.web-page-topbar {
-    background-color: var(--header-bg);
-    border-bottom: 1px solid var(--border-color);
-    padding: 10px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: sticky;
-    top: 0;
-    z-index: 1000;
-    box-shadow: var(--shadow);
-}
-
-.topbar-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.page-current-title {
-    font-weight: 700;
-    font-size: 1.05rem;
-}
-
-.nav-btn, .action-btn {
-    text-decoration: none;
-    font-size: 0.88rem;
-    font-weight: 600;
-    padding: 6px 14px;
-    border-radius: 6px;
-    display: inline-block;
-    border: 1px solid var(--border-color);
-    background-color: var(--card-bg);
-    color: var(--text-color);
-}
-
-.nav-btn:hover, .action-btn:hover {
-    border-color: var(--accent);
-    color: var(--accent);
-}
-
-.action-btn.primary {
-    background-color: var(--accent);
-    color: #ffffff;
-    border-color: var(--accent);
-}
-
-.action-btn.primary:hover {
-    background-color: var(--accent-hover);
-}
-"#;

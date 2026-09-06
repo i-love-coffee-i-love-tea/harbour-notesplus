@@ -64,10 +64,10 @@ pub fn parse_blocks_from_lines(lines: &[&str]) -> Vec<Block> {
             continue;
         }
 
-        // Document attribute: :toc:, :source-highlighter:, etc.
-        if is_doc_attribute(line.trim()) {
+        // Document attribute or block macro: :toc:, toc::[], :source-highlighter:, etc.
+        if is_doc_attribute(line.trim()) || line.trim() == "toc::[]" || line.trim().starts_with("toc::[") {
             let trimmed = line.trim();
-            if trimmed == ":toc:" || trimmed.starts_with(":toc:") {
+            if trimmed == ":toc:" || trimmed.starts_with(":toc:") || trimmed == "toc::[]" || trimmed.starts_with("toc::[") {
                 blocks.push(Block::Toc {
                     raw: trimmed.to_string(),
                 });

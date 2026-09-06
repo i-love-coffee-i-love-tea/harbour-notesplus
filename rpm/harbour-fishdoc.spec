@@ -1,7 +1,7 @@
 Name:       harbour-fishdoc
 Summary:    Notes++ — AsciiDoc notes app for Sailfish OS
 Version:    0.1.0
-Release:    26
+Release:    30
 Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-fishdoc

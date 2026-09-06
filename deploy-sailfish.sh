@@ -43,7 +43,7 @@ if [ -z "$RPM_PATH" ] || [ ! -f "$RPM_PATH" ]; then
 fi
 
 RPM_FILE="$(basename "$RPM_PATH")"
-APP_NAME="${RPM_FILE%%-*}"
+APP_NAME="harbour-fishdoc"
 
 # 2. Determine target host
 if [ -z "$TARGET_HOST" ]; then

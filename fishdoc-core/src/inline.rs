@@ -245,10 +245,15 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
         }
     }
 
-    // kbd:[Ctrl,Alt,Backspace]
+    // kbd:[Ctrl,Alt,Backspace] or kbd:[Ctrl+T]
     if rest.starts_with("kbd:[") {
         if let Some(end) = rest.find(']') {
-            let keys = rest[5..end].split(',').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect();
+            let inner = &rest[5..end];
+            let keys: Vec<String> = if inner.contains('+') {
+                inner.split('+').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect()
+            } else {
+                inner.split(',').map(|k| k.trim().to_string()).filter(|k| !k.is_empty()).collect()
+            };
             let consumed = end + 1;
             return Some((InlineSpan::Kbd(keys), consumed));
         }
@@ -323,12 +328,14 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     if rest.starts_with("icon:") {
         let rest_icon = &rest[5..];
         if let Some(open) = rest_icon.find('[') {
-            if let Some(close) = rest_icon[open..].find(']') {
-                let name = rest_icon[..open].to_string();
-                let opts_str = &rest_icon[open + 1..open + close];
-                let options = if opts_str.is_empty() { None } else { Some(opts_str.to_string()) };
-                let consumed = 5 + open + close + 1;
-                return Some((InlineSpan::Icon { name, options }, consumed));
+            let name = &rest_icon[..open];
+            if !name.is_empty() && !name.contains(char::is_whitespace) && !name.contains(':') {
+                if let Some(close) = rest_icon[open..].find(']') {
+                    let opts_str = &rest_icon[open + 1..open + close];
+                    let options = if opts_str.is_empty() { None } else { Some(opts_str.to_string()) };
+                    let consumed = 5 + open + close + 1;
+                    return Some((InlineSpan::Icon { name: name.to_string(), options }, consumed));
+                }
             }
         }
     }

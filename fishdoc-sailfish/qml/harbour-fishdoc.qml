@@ -178,36 +178,59 @@ ApplicationWindow {
         aiEnabledConf.value = val
     }
 
+    function syncAiConfig() {
+        if (typeof bridge !== "undefined" && bridge && typeof bridge.configure_ai === "function") {
+            bridge.configure_ai(
+                app.aiProvider || "ollama",
+                app.aiEndpoint || "http://192.168.1.1:11434",
+                app.aiModel || "llama3.2",
+                app.aiApiKey || "",
+                app.aiTimeout || 90,
+                app.aiAutoAllowRead !== undefined ? app.aiAutoAllowRead : true,
+                app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
+                app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true
+            )
+        }
+    }
+
     function setAiProvider(provider) {
         aiProviderConf.value = provider
+        syncAiConfig()
     }
 
     function setAiEndpoint(endpoint) {
         aiEndpointConf.value = endpoint
+        syncAiConfig()
     }
 
     function setAiModel(model) {
         aiModelConf.value = model
+        syncAiConfig()
     }
 
     function setAiApiKey(key) {
         aiApiKeyConf.value = key
+        syncAiConfig()
     }
 
     function setAiTimeout(secs) {
         aiTimeoutConf.value = secs
+        syncAiConfig()
     }
 
     function setAiAutoAllowRead(val) {
         aiAutoAllowReadConf.value = val
+        syncAiConfig()
     }
 
     function setAiAutoAllowCreate(val) {
         aiAutoAllowCreateConf.value = val
+        syncAiConfig()
     }
 
     function setAiRequireConfirmEdit(val) {
         aiRequireConfirmEditConf.value = val
+        syncAiConfig()
     }
 
     function openAssistant(contextFilename, contextContent) {
@@ -244,6 +267,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        syncAiConfig()
         bridge.set_drop_comments(app.dropComments)
         if (app.autostartWebServer) {
             bridge.start_web_server()

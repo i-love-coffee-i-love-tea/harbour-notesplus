@@ -498,7 +498,7 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
     Ok(())
 }
 
-fn sanitize_filename(name: &str) -> String {
+pub fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect()

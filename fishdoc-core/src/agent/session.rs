@@ -188,12 +188,13 @@ impl AgentSession {
                 asst_msg.content = response.content.clone();
                 self.messages.push(asst_msg);
 
-                // Check first tool call that requires confirmation
+                // Execute tool calls in order, pausing for confirmation if needed
                 for tool_call in &response.tool_calls {
                     let file_content = if tool_call.function.name == "edit_note" {
                         let filename = tool_call.function.arguments.get("filename")
                             .and_then(|v| v.as_str()).unwrap_or("");
-                        let file_path = self.notes_dir.join(filename);
+                        let sanitized = page::sanitize_filename(filename);
+                        let file_path = self.notes_dir.join(&sanitized);
                         fs::read_to_string(&file_path).ok()
                     } else {
                         None
@@ -209,6 +210,14 @@ impl AgentSession {
                             ));
                         }
                         PermissionDecision::RequiresConfirmation(pending) => {
+                            // Record any remaining tool calls as skipped so the LLM knows
+                            for remaining in response.tool_calls.iter().skip_while(|tc| tc.id != tool_call.id).skip(1) {
+                                self.messages.push(ChatMessage::tool_result(
+                                    remaining.id.clone(),
+                                    remaining.function.name.clone(),
+                                    "Skipped: waiting for user confirmation of prior edit".to_string(),
+                                ));
+                            }
                             self.pending_action = Some(pending.clone());
                             return AgentStepResult::RequiresConfirmation(pending);
                         }
@@ -243,10 +252,11 @@ impl AgentSession {
         match name {
             "read_note" => {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let path = self.notes_dir.join(filename);
+                let sanitized = page::sanitize_filename(filename);
+                let path = self.notes_dir.join(&sanitized);
                 match fs::read_to_string(&path) {
                     Ok(content) => content,
-                    Err(e) => format!("Error reading note '{}': {}", filename, e),
+                    Err(e) => format!("Error reading note '{}': {}", sanitized, e),
                 }
             }
             "list_notes" => {
@@ -292,11 +302,13 @@ impl AgentSession {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 match self.open_db() {
-                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, title, false) {
+                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, &page::sanitize_filename(title), false) {
                         Ok(created) => {
                             if !content.trim().is_empty() {
                                 let path = self.notes_dir.join(&created.filename);
-                                let _ = fs::write(&path, content);
+                                if let Err(e) = fs::write(&path, content) {
+                                    return format!("Error writing note content: {}", e);
+                                }
                                 let _ = db::update_fts_content(&conn, created.id, content);
                             }
                             self.last_created_note = Some(created.title.clone());
@@ -311,21 +323,29 @@ impl AgentSession {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note");
-                self.apply_note_edit(filename, content, reason)
+                self.apply_note_edit(&page::sanitize_filename(filename), content, reason)
             }
             "fetch_url" => {
                 let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                match ureq::get(url).timeout(std::time::Duration::from_secs(15)).call() {
-                    Ok(resp) => {
-                        let text = resp.into_string().unwrap_or_default();
-                        // Truncate to reasonable length for context window if large
-                        if text.len() > 6000 {
-                            format!("{}... [truncated]", &text[..6000])
-                        } else {
-                            text
+                let blocked = ["localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "::1"];
+                if blocked.iter().any(|h| url.contains(h)) {
+                    format!("URL '{}' blocked: fetching localhost/private addresses is not allowed", url)
+                } else {
+                    match ureq::get(url).timeout(std::time::Duration::from_secs(15)).call() {
+                        Ok(resp) => {
+                            let text = resp.into_string().unwrap_or_default();
+                            if text.len() > 6000 {
+                                let mut end = 6000;
+                                while end > 0 && !text.is_char_boundary(end) {
+                                    end -= 1;
+                                }
+                                format!("{}... [truncated]", &text[..end])
+                            } else {
+                                text
+                            }
                         }
+                        Err(e) => format!("Failed to fetch URL '{}': {}", url, e),
                     }
-                    Err(e) => format!("Failed to fetch URL '{}': {}", url, e),
                 }
             }
             _ => format!("Unknown tool '{}'", name),

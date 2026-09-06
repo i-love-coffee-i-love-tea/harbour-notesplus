@@ -40,7 +40,10 @@ impl BackupManager {
         let now = Utc::now();
         let timestamp = now.timestamp();
         let nanos = now.timestamp_subsec_nanos();
-        let id = format!("snap_{}_{}_{}", timestamp, nanos, filename.replace(".adoc", ""));
+        let safe_name = filename.chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect::<String>();
+        let id = format!("snap_{}_{}_{}", timestamp, nanos, safe_name);
 
         let snapshot = Snapshot {
             id: id.clone(),

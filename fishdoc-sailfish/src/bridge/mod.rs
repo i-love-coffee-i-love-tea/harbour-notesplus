@@ -79,6 +79,7 @@ pub struct FishdocBridge {
     start_web_server: qt_method!(fn(&mut self) -> String),
     stop_web_server: qt_method!(fn(&mut self)),
     toggle_web_server: qt_method!(fn(&mut self) -> bool),
+    configure_ai: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool)),
 
     // Internal state
     conn: Option<rusqlite::Connection>,
@@ -88,6 +89,8 @@ pub struct FishdocBridge {
     journal_blocks_data: Vec<Block>,
     pending: Arc<Mutex<Option<PendingResult>>>,
     server_handle: Option<fishdoc_core::server::HttpServerHandle>,
+    llm_config: fishdoc_core::agent::LlmConfig,
+    permission_config: fishdoc_core::agent::PermissionConfig,
 }
 
 impl Default for FishdocBridge {
@@ -149,6 +152,7 @@ impl Default for FishdocBridge {
             start_web_server: Default::default(),
             stop_web_server: Default::default(),
             toggle_web_server: Default::default(),
+            configure_ai: Default::default(),
             conn: None,
             notes_path,
             data_dir,
@@ -156,6 +160,8 @@ impl Default for FishdocBridge {
             journal_blocks_data: Vec::new(),
             pending: Arc::new(Mutex::new(None)),
             server_handle: None,
+            llm_config: fishdoc_core::agent::LlmConfig::default(),
+            permission_config: fishdoc_core::agent::PermissionConfig::default(),
         }
     }
 }

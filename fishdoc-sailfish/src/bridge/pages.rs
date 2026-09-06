@@ -681,7 +681,16 @@ impl FishdocBridge {
             return self.web_server_url.clone();
         }
 
-        match fishdoc_core::server::start_server(self.notes_path.clone(), 8080) {
+        let db_path = self.data_dir.join("fishdoc.db");
+        let backup_dir = self.data_dir.join("backups");
+        match fishdoc_core::server::start_server_full(
+            self.notes_path.clone(),
+            db_path,
+            backup_dir,
+            8080,
+            Some(self.llm_config.clone()),
+            Some(self.permission_config.clone()),
+        ) {
             Ok(handle) => {
                 let primary_url = handle.primary_url();
                 self.web_server_url = primary_url.clone();
@@ -791,7 +800,55 @@ impl FishdocBridge {
         serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string())
     }
 
+    fn configure_ai_impl(
+        &mut self,
+        provider: String,
+        url: String,
+        model: String,
+        key: String,
+        timeout: i32,
+        auto_read: bool,
+        auto_create: bool,
+        require_edit: bool,
+    ) {
+        let p = match provider.to_lowercase().as_str() {
+            "mimocode" | "openai" => fishdoc_core::agent::LlmProvider::OpenAiCompatible,
+            _ => fishdoc_core::agent::LlmProvider::Ollama,
+        };
+        self.llm_config.provider = p;
+        self.llm_config.endpoint_url = if url.trim().is_empty() {
+            match p {
+                fishdoc_core::agent::LlmProvider::Ollama => "http://192.168.1.1:11434".to_string(),
+                fishdoc_core::agent::LlmProvider::OpenAiCompatible => "https://api.mimocode.com".to_string(),
+            }
+        } else {
+            url.trim().to_string()
+        };
+        self.llm_config.model = if model.trim().is_empty() {
+            "llama3.2".to_string()
+        } else {
+            model.trim().to_string()
+        };
+        self.llm_config.api_key = if key.trim().is_empty() {
+            None
+        } else {
+            Some(key.trim().to_string())
+        };
+        self.llm_config.timeout_secs = if timeout > 0 { timeout as u64 } else { 90 };
+
+        self.permission_config.auto_allow_read = auto_read;
+        self.permission_config.auto_allow_create = auto_create;
+        self.permission_config.require_confirm_edit = require_edit;
+
+        if let Some(ref handle) = self.server_handle {
+            handle.context().update_llm_config(self.llm_config.clone(), Some(self.permission_config.clone()));
+        }
+    }
+
     // QML method wrappers
+    pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool) {
+        self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit);
+    }
     pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }
     pub fn save_block(&mut self, index: i32, raw_text: String) { self.save_block_impl(index, raw_text); }
