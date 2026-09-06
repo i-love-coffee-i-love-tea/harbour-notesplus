@@ -97,8 +97,7 @@ pub fn build_template_instruction(
 
     match template_id {
         "expand_draft" => {
-            if !has_input && active_filename.is_some() {
-                let fname = active_filename.unwrap();
+            if let (false, Some(fname)) = (has_input, active_filename) {
                 format!(
                     "Please expand and draft the ideas in the active note '{}' into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations. Call the `edit_note` tool with the complete expanded AsciiDoc content and filename.\n\nNote Content:\n{}",
                     fname, base_content
@@ -111,8 +110,7 @@ pub fn build_template_instruction(
             }
         }
         "fix_grammar" => {
-            if !has_input && active_filename.is_some() {
-                let fname = active_filename.unwrap();
+            if let (false, Some(fname)) = (has_input, active_filename) {
                 format!(
                     "Please review and correct the spelling, grammar, punctuation, and formatting in the active note '{}' while strictly preserving and enforcing proper AsciiDoc syntax. Call the `edit_note` tool with the complete corrected AsciiDoc content and filename.\n\nNote Content:\n{}",
                     fname, base_content
@@ -125,8 +123,7 @@ pub fn build_template_instruction(
             }
         }
         "beautify" => {
-            if !has_input && active_filename.is_some() {
-                let fname = active_filename.unwrap();
+            if let (false, Some(fname)) = (has_input, active_filename) {
                 format!(
                     "Please beautify the active note '{}' by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate. Call the `edit_note` tool with the complete beautified AsciiDoc content and filename.\n\nNote Content:\n{}",
                     fname, base_content
@@ -139,8 +136,7 @@ pub fn build_template_instruction(
             }
         }
         "extract_todos" => {
-            if !has_input && active_filename.is_some() {
-                let fname = active_filename.unwrap();
+            if let (false, Some(fname)) = (has_input, active_filename) {
                 format!(
                     "Please analyze the active note '{}' and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`.\n\nNote Content:\n{}",
                     fname, base_content

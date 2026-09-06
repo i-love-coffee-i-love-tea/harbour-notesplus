@@ -23,11 +23,11 @@ pub fn parse_source_lang(line: &str) -> Option<String> {
         return None;
     }
     let inner = t[1..t.len() - 1].trim();
-    if inner.starts_with("source,") {
-        Some(inner[7..].trim().to_string())
-    } else if inner.starts_with(',') {
+    if let Some(rest) = inner.strip_prefix("source,") {
+        Some(rest.trim().to_string())
+    } else if let Some(rest) = inner.strip_prefix(',') {
         // e.g. [,ruby] or [,xml]
-        let lang = inner[1..].trim();
+        let lang = rest.trim();
         if !lang.is_empty() {
             Some(lang.to_string())
         } else {
@@ -40,8 +40,6 @@ pub fn parse_source_lang(line: &str) -> Option<String> {
                 return Some(p.to_string());
             }
         }
-        None
-    } else if inner == "source" {
         None
     } else {
         None
@@ -131,15 +129,6 @@ pub fn parse_table_attributes(
                 }
                 _ => {}
             }
-        } else if token.starts_with("cols=") {
-            let val = &token[5..];
-            let (w, a) = parse_cols_value(val);
-            *col_widths = w;
-            *col_asciidoc = a;
-        } else if token.starts_with("frame=") {
-            *frame = Some(token[6..].trim_matches('"').trim_matches('\'').to_lowercase());
-        } else if token.starts_with("grid=") {
-            *grid = Some(token[5..].trim_matches('"').trim_matches('\'').to_lowercase());
         }
     }
 }
@@ -230,13 +219,12 @@ pub fn parse_ordered_list_attributes(attr_lines: &[&str]) -> (Option<usize>, boo
                 let v_trim = v.trim().trim_matches('"').trim_matches('\'').trim();
                 if k_trim == "start" {
                     start_num = v_trim.parse::<usize>().ok();
-                } else if k_trim == "options" || k_trim == "opts" {
-                    if v_trim.split('+').any(|opt| opt.trim() == "reversed" || opt.trim() == "%reversed")
-                        || v_trim.split(',').any(|opt| opt.trim() == "reversed" || opt.trim() == "%reversed")
+                } else if (k_trim == "options" || k_trim == "opts")
+                    && (v_trim.split('+').any(|opt| opt.trim() == "reversed" || opt.trim() == "%reversed")
+                        || v_trim.split(',').any(|opt| opt.trim() == "reversed" || opt.trim() == "%reversed"))
                     {
                         is_reversed = true;
                     }
-                }
             } else {
                 match t_clean {
                     "arabic" | "1" => numbering_style = Some(0),

@@ -255,11 +255,11 @@ impl<'a> HtmlRenderContext<'a> {
         let (class_attr, checkbox) = match checked {
             Some(true) => (
                 r#" class="checklist-item checked""#,
-                r#"<input type="checkbox" checked disabled class="checklist-checkbox"> "#,
+                r#"<input type="checkbox" checked disabled class="checklist-checkbox">"#,
             ),
             Some(false) => (
                 r#" class="checklist-item unchecked""#,
-                r#"<input type="checkbox" disabled class="checklist-checkbox"> "#,
+                r#"<input type="checkbox" disabled class="checklist-checkbox">"#,
             ),
             None => ("", ""),
         };
@@ -813,7 +813,7 @@ fn extract_title(blocks: &[Block]) -> Option<String> {
 /// Simple RFC 4648 Base64 Encoder without extra external dependencies
 fn base64_encode(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0];
         let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
@@ -899,9 +899,9 @@ const DOCUMENT_CSS: &str = r#"
         --note-border: #38bdf8;
         --tip-bg: #064e3b;
         --tip-border: #34d399;
-        --warning-bg: #451a03;
+        --warning-bg: #3d2800;
         --warning-border: #fbbf24;
-        --caution-bg: #4c0519;
+        --caution-bg: #3b0a15;
         --caution-border: #fb7185;
         --important-bg: #3b0764;
         --important-border: #c084fc;
@@ -1144,11 +1144,11 @@ blockquote {
     box-shadow: var(--shadow);
 }
 
-.admonitionblock.note { background-color: var(--note-bg); border-color: var(--note-border); }
-.admonitionblock.tip { background-color: var(--tip-bg); border-color: var(--tip-border); }
-.admonitionblock.warning { background-color: var(--warning-bg); border-color: var(--warning-border); }
-.admonitionblock.caution { background-color: var(--caution-bg); border-color: var(--caution-border); }
-.admonitionblock.important { background-color: var(--important-bg); border-color: var(--important-border); }
+.admonitionblock.note { background-color: var(--note-bg); border-color: var(--note-border); color: var(--text-color); }
+.admonitionblock.tip { background-color: var(--tip-bg); border-color: var(--tip-border); color: var(--text-color); }
+.admonitionblock.warning { background-color: var(--warning-bg); border-color: var(--warning-border); color: var(--text-color); }
+.admonitionblock.caution { background-color: var(--caution-bg); border-color: var(--caution-border); color: var(--text-color); }
+.admonitionblock.important { background-color: var(--important-bg); border-color: var(--important-border); color: var(--text-color); }
 
 .admonition-header {
     display: flex;
@@ -1212,14 +1212,37 @@ li {
     margin: 0.35em 0;
 }
 
+li > p {
+    margin: 0;
+    display: inline;
+}
+
 .checklist-item {
     list-style-type: none;
     margin-left: -20px;
+    display: flex;
+    align-items: flex-start;
+}
+
+.checklist-item p {
+    margin: 0;
+    display: inline;
 }
 
 .checklist-checkbox {
-    margin-right: 8px;
+    margin: 3px 8px 0 0;
+    cursor: pointer;
+    flex-shrink: 0;
     transform: scale(1.15);
+}
+
+.callout-item {
+    margin: 0.35em 0;
+}
+
+.callout-item p {
+    margin: 0;
+    display: inline;
 }
 
 dl.hdlist {
@@ -1513,6 +1536,27 @@ Cross reference: xref:other-page.adoc[Other Page]
         assert!(html.contains("class=\"xref\""));
         assert!(html.contains("class=\"fishdoc-icon icon-star\""));
         assert!(html.contains("class=\"fishdoc-icon icon-folder\""));
+    }
+
+    #[test]
+    fn test_checklist_rendering_and_styling() {
+        let adoc = r#"
+= Checklist Note
+
+* [ ] Buy groceries
+* [x] Finish documentation
+* Normal bullet item
+"#;
+        let html = adoc_to_html5(adoc, "Checklist Note", None);
+        assert!(html.contains("class=\"checklist-item unchecked\""));
+        assert!(html.contains("class=\"checklist-item checked\""));
+        assert!(html.contains("<input type=\"checkbox\" disabled class=\"checklist-checkbox\">"));
+        assert!(html.contains("<input type=\"checkbox\" checked disabled class=\"checklist-checkbox\">"));
+        assert!(html.contains("Buy groceries"));
+        assert!(html.contains("Finish documentation"));
+        // Verify CSS includes inline paragraph styling for list items and flex alignment
+        assert!(html.contains(".checklist-item {"));
+        assert!(html.contains("li > p {"));
     }
 
     #[test]

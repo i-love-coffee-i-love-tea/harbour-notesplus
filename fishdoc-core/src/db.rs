@@ -2,6 +2,12 @@ use rusqlite::{Connection, Result as SqlResult};
 
 /// Initialize the SQLite schema. Idempotent.
 pub fn init_schema(conn: &Connection) -> SqlResult<()> {
+    // Performance PRAGMAs
+    let _ = conn.pragma_update(None, "journal_mode", "WAL");
+    let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+    let _ = conn.pragma_update(None, "cache_size", -8000);
+    let _ = conn.pragma_update(None, "busy_timeout", 5000);
+
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS pages (

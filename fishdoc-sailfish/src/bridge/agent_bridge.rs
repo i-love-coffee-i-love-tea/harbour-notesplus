@@ -8,7 +8,7 @@ use qmetaobject::*;
 use fishdoc_core::agent::{
     build_import_instruction, build_template_instruction, fetch_url, AgentSession,
     AgentStepResult, LlmClient, LlmConfig, LlmProvider, PendingConfirmation,
-    PermissionConfig, PermissionManager,
+    PermissionConfig, PermissionManager, ModelInfo, DEFAULT_OLLAMA_ENDPOINT,
 };
 
 enum WorkerTask {
@@ -50,6 +50,9 @@ pub struct AgentBridge {
     auto_allow_read: qt_property!(bool; NOTIFY config_changed),
     auto_allow_create: qt_property!(bool; NOTIFY config_changed),
     require_confirm_edit: qt_property!(bool; NOTIFY config_changed),
+    allow_self_signed: qt_property!(bool; NOTIFY config_changed),
+    available_models: qt_property!(String; NOTIFY models_changed),
+    models_loading: qt_property!(bool; NOTIFY models_changed),
 
     // Signals
     busy_changed: qt_signal!(),
@@ -62,9 +65,10 @@ pub struct AgentBridge {
     response_finished: qt_signal!(content: String),
     undo_completed: qt_signal!(message: String),
     streaming_text_changed: qt_signal!(),
+    models_changed: qt_signal!(),
 
     // Methods
-    configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool)),
+    configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool)),
     reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
     send_prompt: qt_method!(fn(&mut self, text: String)),
     run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_filename: String, context_content: String)),
@@ -74,11 +78,14 @@ pub struct AgentBridge {
     confirm_action: qt_method!(fn(&mut self, approved: bool)),
     undo_last_action: qt_method!(fn(&mut self)),
     poll_worker: qt_method!(fn(&mut self) -> bool),
+    fetch_models: qt_method!(fn(&mut self)),
+    poll_models: qt_method!(fn(&mut self) -> bool),
 
     // Internal shared state
     session: Arc<Mutex<AgentSession>>,
     worker_result: Arc<Mutex<Option<WorkerOutput>>>,
     streaming_buffer: Arc<Mutex<String>>,
+    models_result: Arc<Mutex<Option<Result<Vec<ModelInfo>, String>>>>,
 }
 
 impl Default for AgentBridge {
@@ -119,14 +126,17 @@ impl Default for AgentBridge {
             last_created_note: String::new(),
             error_message: String::new(),
             streaming_text: String::new(),
+            available_models: String::new(),
+            models_loading: false,
             provider_type: "ollama".to_string(),
-            endpoint_url: "http://192.168.1.1:11434".to_string(),
+            endpoint_url: DEFAULT_OLLAMA_ENDPOINT.to_string(),
             model_name: "llama3.2".to_string(),
             api_key: String::new(),
             timeout_secs: 90,
             auto_allow_read: true,
             auto_allow_create: true,
             require_confirm_edit: true,
+            allow_self_signed: false,
             busy_changed: Default::default(),
             messages_changed: Default::default(),
             pending_action_changed: Default::default(),
@@ -137,6 +147,7 @@ impl Default for AgentBridge {
             response_finished: Default::default(),
             undo_completed: Default::default(),
             streaming_text_changed: Default::default(),
+            models_changed: Default::default(),
             configure: Default::default(),
             reset_session: Default::default(),
             send_prompt: Default::default(),
@@ -147,9 +158,12 @@ impl Default for AgentBridge {
             confirm_action: Default::default(),
             undo_last_action: Default::default(),
             poll_worker: Default::default(),
+            fetch_models: Default::default(),
+            poll_models: Default::default(),
             session: Arc::new(Mutex::new(session)),
             worker_result: Arc::new(Mutex::new(None)),
             streaming_buffer: Arc::new(Mutex::new(String::new())),
+            models_result: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -165,6 +179,7 @@ impl AgentBridge {
         auto_read: bool,
         auto_create: bool,
         require_edit: bool,
+        allow_self_signed: bool,
     ) {
         self.provider_type = provider.clone();
         self.endpoint_url = url.clone();
@@ -174,6 +189,7 @@ impl AgentBridge {
         self.auto_allow_read = auto_read;
         self.auto_allow_create = auto_create;
         self.require_confirm_edit = require_edit;
+        self.allow_self_signed = allow_self_signed;
 
         let provider_enum = if provider.to_lowercase() == "mimocode" || provider.to_lowercase() == "openai" {
             LlmProvider::OpenAiCompatible
@@ -187,6 +203,7 @@ impl AgentBridge {
             model,
             api_key: if key.trim().is_empty() { None } else { Some(key) },
             timeout_secs: self.timeout_secs as u64,
+            allow_self_signed,
         };
 
         let perm_config = PermissionConfig {
@@ -514,6 +531,70 @@ impl AgentBridge {
             return true;
         }
 
+        false
+    }
+
+    pub fn fetch_models(&mut self) {
+        if self.models_loading {
+            return;
+        }
+        self.models_loading = true;
+        self.models_changed();
+
+        // Build a temporary LlmClient from current config properties
+        let provider_enum = if self.provider_type.to_lowercase() == "mimocode" || self.provider_type.to_lowercase() == "openai" {
+            LlmProvider::OpenAiCompatible
+        } else {
+            LlmProvider::Ollama
+        };
+        let config = LlmConfig {
+            provider: provider_enum,
+            endpoint_url: self.endpoint_url.clone(),
+            model: self.model_name.clone(),
+            api_key: if self.api_key.trim().is_empty() { None } else { Some(self.api_key.clone()) },
+            timeout_secs: self.timeout_secs.max(15) as u64,
+            allow_self_signed: self.allow_self_signed,
+        };
+
+        let result_slot = self.models_result.clone();
+        *result_slot.lock().unwrap() = None;
+
+        thread::spawn(move || {
+            let client = LlmClient::new(config);
+            let result = client.list_models().map_err(|e| format!("{}", e));
+            if let Ok(mut guard) = result_slot.lock() {
+                *guard = Some(result);
+            }
+        });
+    }
+
+    pub fn poll_models(&mut self) -> bool {
+        let has_result = if let Ok(guard) = self.models_result.lock() {
+            guard.is_some()
+        } else {
+            false
+        };
+
+        if has_result {
+            if let Ok(mut guard) = self.models_result.lock() {
+                if let Some(result) = guard.take() {
+                    match result {
+                        Ok(models) => {
+                            self.available_models = serde_json::to_string(&models)
+                                .unwrap_or_else(|_| "[]".to_string());
+                        }
+                        Err(e) => {
+                            self.error_message = format!("Failed to fetch models: {}", e);
+                            self.error_occurred(self.error_message.clone());
+                            self.available_models = "[]".to_string();
+                        }
+                    }
+                    self.models_loading = false;
+                    self.models_changed();
+                    return true;
+                }
+            }
+        }
         false
     }
 }

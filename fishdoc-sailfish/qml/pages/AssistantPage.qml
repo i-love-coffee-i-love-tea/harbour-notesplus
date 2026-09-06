@@ -34,13 +34,14 @@ Page {
         if (typeof agentBridge !== "undefined" && agentBridge) {
             agentBridge.configure(
                 app.aiProvider || "ollama",
-                app.aiEndpoint || "http://192.168.1.1:11434",
+                app.aiEndpoint || app.defaultAiEndpoint,
                 app.aiModel || "llama3.2",
                 app.aiApiKey || "",
                 app.aiTimeout || 90,
                 app.aiAutoAllowRead !== undefined ? app.aiAutoAllowRead : true,
                 app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
-                app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true
+                app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true,
+                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false
             )
         }
     }
@@ -61,6 +62,7 @@ Page {
         onAiAutoAllowReadChanged: assistantPage.applyConfig()
         onAiAutoAllowCreateChanged: assistantPage.applyConfig()
         onAiRequireConfirmEditChanged: assistantPage.applyConfig()
+        onAiAllowSelfSignedChanged: assistantPage.applyConfig()
     }
 
     AgentBridge {

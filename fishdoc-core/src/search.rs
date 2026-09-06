@@ -91,12 +91,18 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
     }
 }
 
+/// Escapes LIKE wildcards (`%`, `_`) in user input so they're treated as literals.
+fn escape_like_pattern(s: &str) -> String {
+    s.replace('%', "\\%").replace('_', "\\_")
+}
+
 fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, String> {
-    let pattern = format!("%{}%", query);
+    let escaped = escape_like_pattern(query);
+    let pattern = format!("%{}%", escaped);
     let mut stmt = conn.prepare(
         "SELECT id, filename, title, is_journal, created_at, updated_at, block_count
          FROM pages
-         WHERE title LIKE ?1 OR filename LIKE ?1
+         WHERE title LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\'
          ORDER BY updated_at DESC
          LIMIT 50"
     ).map_err(|e| e.to_string())?;

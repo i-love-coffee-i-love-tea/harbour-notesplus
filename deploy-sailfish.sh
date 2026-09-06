@@ -73,6 +73,18 @@ REMOTE_INFO="$(ssh -o ConnectTimeout=5 "$TARGET_HOST" 'id -u; echo "$HOME"' 2>/d
 
 REMOTE_UID="$(echo "$REMOTE_INFO" | sed -n '1p')"
 REMOTE_HOME="$(echo "$REMOTE_INFO" | sed -n '2p')"
+
+# Validate REMOTE_UID is numeric and REMOTE_HOME is an absolute path
+if ! echo "$REMOTE_UID" | grep -qE '^[0-9]+$'; then
+    echo "ERROR: Unexpected REMOTE_UID '$REMOTE_UID' — expected a numeric UID."
+    echo "Raw remote info: $REMOTE_INFO"
+    exit 1
+fi
+if [ -z "$REMOTE_HOME" ] || [ "${REMOTE_HOME#/}" = "$REMOTE_HOME" ]; then
+    echo "ERROR: Unexpected REMOTE_HOME '$REMOTE_HOME' — expected an absolute path starting with /."
+    echo "Raw remote info: $REMOTE_INFO"
+    exit 1
+fi
 REMOTE_DOWNLOADS="$REMOTE_HOME/Downloads"
 REMOTE_DEST="$REMOTE_DOWNLOADS/$RPM_FILE"
 

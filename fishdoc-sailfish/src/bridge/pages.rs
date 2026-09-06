@@ -7,6 +7,7 @@ use fishdoc_core::journal;
 use fishdoc_core::page;
 use fishdoc_core::parser;
 use fishdoc_core::search as search_mod;
+use fishdoc_core::agent::DEFAULT_OLLAMA_ENDPOINT;
 
 use super::{FishdocBridge, PendingResult};
 
@@ -531,18 +532,27 @@ impl FishdocBridge {
     }
 
     fn load_main_page_data_impl(&mut self) {
+        let t_start = std::time::Instant::now();
         self.ensure_init();
+        if !self.poll_init() {
+            return;
+        }
+        eprintln!("[startup] init ready, starting data load at {:?}", t_start.elapsed());
         let conn = match self.conn() {
             Some(c) => c,
             None => return,
         };
 
+        let t = std::time::Instant::now();
         match page::recent_pages(conn, 10) {
             Ok(pages) => {
+                eprintln!("[startup] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
                 let mut list = QVariantList::default();
                 for p in &pages {
+                    let t_preview = std::time::Instant::now();
                     let preview_values = page::get_page_preview_values_with_options(&self.notes_path, &p.filename, 8, self.drop_comments);
                     let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
+                    eprintln!("[startup]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
 
                     let mut map = serde_json::Map::new();
                     map.insert("name".into(), serde_json::Value::String(p.title.clone()));
@@ -559,26 +569,13 @@ impl FishdocBridge {
                 self.recent_pages = list;
             }
             Err(e) => {
-                ::log::warn!("Failed to load recent pages: {}", e);
+                eprintln!("[startup] Failed to load recent pages: {}", e);
             }
         }
 
         let _ = journal::init_journal(&self.notes_path);
-        match journal::get_journal_blocks(&self.notes_path, Some(15), self.drop_comments) {
-            Ok(blocks) => {
-                let mut list = QVariantList::default();
-                for b in &blocks {
-                    let map = b.to_qvariant_map();
-                    let json_str = serde_json::to_string(&map).unwrap_or_default();
-                    list.push(QString::from(json_str).into());
-                }
-                self.journal_blocks = list;
-                self.journal_blocks_data = blocks;
-            }
-            Err(e) => {
-                ::log::warn!("Failed to load journal blocks: {}", e);
-            }
-        }
+        self.journal_blocks = QVariantList::default();
+        self.journal_blocks_data = Vec::new();
 
         match journal::recent_journal_lines(&self.notes_path, 5) {
             Ok(lines) => {
@@ -589,10 +586,11 @@ impl FishdocBridge {
                 self.recent_journal_lines = list;
             }
             Err(e) => {
-                ::log::warn!("Failed to load journal lines: {}", e);
+                eprintln!("[startup] Failed to load journal lines: {}", e);
             }
         }
 
+        eprintln!("[startup] load_main_page_data total: {:?}", t_start.elapsed());
         self.data_refreshed();
     }
 
@@ -666,11 +664,13 @@ impl FishdocBridge {
             };
             let port = self.server_handle.as_ref().map(|h| h.port()).unwrap_or(8080);
             let url = format!("http://127.0.0.1:{}/page/{}", port, filename);
-            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+            // Sailfish OS: use sailfish-browser instead of xdg-open
+            let _ = std::process::Command::new("sailfish-browser").arg(&url).spawn();
         } else {
             let path_str = self.export_html_impl(page_name);
             if !path_str.is_empty() {
-                let _ = std::process::Command::new("xdg-open").arg(&path_str).spawn();
+                // Open exported HTML file in browser
+                let _ = std::process::Command::new("sailfish-browser").arg(&path_str).spawn();
             }
         }
     }
@@ -683,14 +683,24 @@ impl FishdocBridge {
 
         let db_path = self.data_dir.join("fishdoc.db");
         let backup_dir = self.data_dir.join("backups");
-        match fishdoc_core::server::start_server_full(
-            self.notes_path.clone(),
+        let cert_dir = self.data_dir.join("tls");
+        let cert_path = cert_dir.join("server.crt");
+        let key_path = cert_dir.join("server.key");
+
+        let config = fishdoc_core::server::ServerConfig {
+            notes_dir: self.notes_path.clone(),
             db_path,
             backup_dir,
-            8080,
-            Some(self.llm_config.clone()),
-            Some(self.permission_config.clone()),
-        ) {
+            port: 8080,
+            llm_config: self.llm_config.clone(),
+            permission_config: self.permission_config.clone(),
+            auth_config: self.auth_config.clone(),
+            enable_tls: true,
+            tls_cert_path: Some(cert_path),
+            tls_key_path: Some(key_path),
+        };
+
+        match fishdoc_core::server::start_server_with_config(config) {
             Ok(handle) => {
                 let primary_url = handle.primary_url();
                 self.web_server_url = primary_url.clone();
@@ -810,6 +820,7 @@ impl FishdocBridge {
         auto_read: bool,
         auto_create: bool,
         require_edit: bool,
+        allow_self_signed: bool,
     ) {
         let p = match provider.to_lowercase().as_str() {
             "mimocode" | "openai" => fishdoc_core::agent::LlmProvider::OpenAiCompatible,
@@ -818,7 +829,7 @@ impl FishdocBridge {
         self.llm_config.provider = p;
         self.llm_config.endpoint_url = if url.trim().is_empty() {
             match p {
-                fishdoc_core::agent::LlmProvider::Ollama => "http://192.168.1.1:11434".to_string(),
+                fishdoc_core::agent::LlmProvider::Ollama => DEFAULT_OLLAMA_ENDPOINT.to_string(),
                 fishdoc_core::agent::LlmProvider::OpenAiCompatible => "https://api.mimocode.com".to_string(),
             }
         } else {
@@ -835,6 +846,7 @@ impl FishdocBridge {
             Some(key.trim().to_string())
         };
         self.llm_config.timeout_secs = if timeout > 0 { timeout as u64 } else { 90 };
+        self.llm_config.allow_self_signed = allow_self_signed;
 
         self.permission_config.auto_allow_read = auto_read;
         self.permission_config.auto_allow_create = auto_create;
@@ -845,9 +857,183 @@ impl FishdocBridge {
         }
     }
 
+    fn install_tls_certificate_impl(&mut self, cert_pem_or_path: String, key_pem_or_path: String) -> String {
+        self.ensure_init();
+        let tls_dir = self.data_dir.join("tls");
+        let cert_path = tls_dir.join("server.crt");
+        let key_path = tls_dir.join("server.key");
+
+        match fishdoc_core::server::tls::install_custom_tls_cert(
+            &cert_pem_or_path,
+            &key_pem_or_path,
+            &cert_path,
+            &key_path,
+        ) {
+            Ok(_) => {
+                if self.web_server_running {
+                    self.stop_web_server_impl();
+                    self.start_web_server_impl();
+                }
+                String::new()
+            }
+            Err(e) => {
+                self.error_message = format!("Failed to install SSL certificate: {}", e);
+                self.error_occurred(self.error_message.clone());
+                e
+            }
+        }
+    }
+
+    fn reset_tls_certificate_impl(&mut self) -> String {
+        self.ensure_init();
+        let tls_dir = self.data_dir.join("tls");
+        let cert_path = tls_dir.join("server.crt");
+        let key_path = tls_dir.join("server.key");
+
+        match fishdoc_core::server::tls::reset_to_self_signed_cert(&cert_path, &key_path, None) {
+            Ok(_) => {
+                if self.web_server_running {
+                    self.stop_web_server_impl();
+                    self.start_web_server_impl();
+                }
+                String::new()
+            }
+            Err(e) => {
+                self.error_message = format!("Failed to reset SSL certificate: {}", e);
+                self.error_occurred(self.error_message.clone());
+                e
+            }
+        }
+    }
+
+    fn is_custom_tls_certificate_impl(&self) -> bool {
+        let cert_path = self.data_dir.join("tls").join("server.crt");
+        fishdoc_core::server::tls::is_custom_cert_installed(&cert_path)
+    }
+
+    fn get_tls_certificate_info_json_impl(&self) -> String {
+        let tls_dir = self.data_dir.join("tls");
+        let cert_path = tls_dir.join("server.crt");
+        let key_path = tls_dir.join("server.key");
+        let is_custom = fishdoc_core::server::tls::is_custom_cert_installed(&cert_path);
+        serde_json::json!({
+            "is_custom": is_custom,
+            "cert_path": cert_path.to_string_lossy(),
+            "key_path": key_path.to_string_lossy(),
+            "exists": cert_path.exists() && key_path.exists(),
+        }).to_string()
+    }
+
+    fn configure_auth_impl(
+        &mut self,
+        enabled: bool,
+        basic_enabled: bool,
+        username: String,
+        password: String,
+        oauth_enabled: bool,
+        provider_name: String,
+        issuer_url: String,
+        client_id: String,
+        client_secret: String,
+        allowed_emails: String,
+        allow_self_signed: bool,
+    ) {
+        self.auth_config.enabled = enabled;
+        self.auth_config.basic_enabled = basic_enabled;
+        self.auth_config.basic_username = if username.trim().is_empty() {
+            "admin".to_string()
+        } else {
+            username.trim().to_string()
+        };
+        if !password.is_empty() {
+            let _ = self.auth_config.set_password(&password);
+        }
+        self.auth_config.oauth_enabled = oauth_enabled;
+        self.auth_config.oauth_provider_name = if provider_name.trim().is_empty() {
+            "OpenID Connect".to_string()
+        } else {
+            provider_name.trim().to_string()
+        };
+        self.auth_config.oauth_issuer_url = issuer_url.trim().to_string();
+        self.auth_config.oauth_client_id = client_id.trim().to_string();
+        self.auth_config.oauth_client_secret = if client_secret.trim().is_empty() {
+            None
+        } else {
+            Some(client_secret.trim().to_string())
+        };
+        self.auth_config.oauth_allowed_emails = allowed_emails
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.auth_config.allow_self_signed_oidc = allow_self_signed;
+
+        if let Some(ref handle) = self.server_handle {
+            handle.context().update_auth_config(self.auth_config.clone());
+        }
+    }
+
+    fn get_auth_info_json_impl(&self) -> String {
+        serde_json::json!({
+            "enabled": self.auth_config.enabled,
+            "basic_enabled": self.auth_config.basic_enabled,
+            "basic_username": self.auth_config.basic_username,
+            "has_password": !self.auth_config.basic_password_hash.is_empty(),
+            "oauth_enabled": self.auth_config.oauth_enabled,
+            "oauth_provider_name": self.auth_config.oauth_provider_name,
+            "oauth_issuer_url": self.auth_config.oauth_issuer_url,
+            "oauth_client_id": self.auth_config.oauth_client_id,
+            "oauth_allowed_emails": self.auth_config.oauth_allowed_emails.join(", "),
+            "allow_self_signed_oidc": self.auth_config.allow_self_signed_oidc,
+        }).to_string()
+    }
+
     // QML method wrappers
-    pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool) {
-        self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit);
+    pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool) {
+        self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit, allow_self_signed);
+    }
+    pub fn install_tls_certificate(&mut self, cert_pem_or_path: String, key_pem_or_path: String) -> String {
+        self.install_tls_certificate_impl(cert_pem_or_path, key_pem_or_path)
+    }
+    pub fn reset_tls_certificate(&mut self) -> String {
+        self.reset_tls_certificate_impl()
+    }
+    pub fn is_custom_tls_certificate(&mut self) -> bool {
+        self.is_custom_tls_certificate_impl()
+    }
+    pub fn get_tls_certificate_info_json(&mut self) -> String {
+        self.get_tls_certificate_info_json_impl()
+    }
+    pub fn configure_auth(
+        &mut self,
+        enabled: bool,
+        basic_enabled: bool,
+        username: String,
+        password: String,
+        oauth_enabled: bool,
+        provider_name: String,
+        issuer_url: String,
+        client_id: String,
+        client_secret: String,
+        allowed_emails: String,
+        allow_self_signed: bool,
+    ) {
+        self.configure_auth_impl(
+            enabled,
+            basic_enabled,
+            username,
+            password,
+            oauth_enabled,
+            provider_name,
+            issuer_url,
+            client_id,
+            client_secret,
+            allowed_emails,
+            allow_self_signed,
+        );
+    }
+    pub fn get_auth_info_json(&mut self) -> String {
+        self.get_auth_info_json_impl()
     }
     pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }

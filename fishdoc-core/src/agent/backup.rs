@@ -55,7 +55,7 @@ impl BackupManager {
 
         let file_path = self.backup_dir.join(format!("{}.json", id));
         let json_data = serde_json::to_string_pretty(&snapshot)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         fs::write(file_path, json_data)?;
 
         Ok(snapshot)
@@ -85,7 +85,7 @@ impl BackupManager {
             }
         }
 
-        list.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        list.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
         Ok(list)
     }
 

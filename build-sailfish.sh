@@ -35,6 +35,18 @@ if [ -f "$SCRIPT_DIR/Cargo.lock" ]; then
     sed 's/^version = 4$/version = 3/' "$SCRIPT_DIR/Cargo.lock" > "$WORKSPACE/Cargo.lock"
 fi
 
+echo "=== Cleaning stale build locks and processes ==="
+if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q 'sailfish-sdk-build-engine'; then
+    docker exec sailfish-sdk-build-engine_gobuki bash -c '
+        pkill -u mersdk -9 2>/dev/null || true
+        rm -f /home/mersdk/.mb2.lock* /home/mersdk/.cargo/.package-cache 2>/dev/null || true
+        rm -rf /tmp/sb2-* /tmp/rpm-tmp.* 2>/dev/null || true
+    ' 2>/dev/null || true
+fi
+pkill -9 -f 'SailfishOS-5.1.0.11.*(rpmbuild|cargo)' 2>/dev/null || true
+find "$WORKSPACE" -name '.cargo-lock' -delete 2>/dev/null || true
+find "$WORKSPACE" -name '.package-cache' -delete 2>/dev/null || true
+
 echo "=== Building via sfdk build ==="
 cd "$WORKSPACE"
 sfdk -c target="$TARGET" build

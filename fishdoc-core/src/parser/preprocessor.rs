@@ -123,8 +123,8 @@ pub fn preprocess_asciidoc(text: &str, drop_comments: bool) -> Vec<String> {
             let continuing = has_cont;
             while continuing && j < raw_lines.len() {
                 let next_l = raw_lines[j].trim();
-                if next_l.ends_with('\\') {
-                    let piece = next_l[..next_l.len() - 1].trim();
+                if let Some(piece) = next_l.strip_suffix('\\') {
+                    let piece = piece.trim();
                     if !val.is_empty() {
                         val.push(' ');
                     }

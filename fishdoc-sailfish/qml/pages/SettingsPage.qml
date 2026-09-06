@@ -337,8 +337,8 @@ Page {
                                 onClicked: {
                                     app.setAiProvider("ollama")
                                     if (endpointField.text === "https://api.mimocode.com") {
-                                        endpointField.text = "http://192.168.1.1:11434"
-                                        app.setAiEndpoint("http://192.168.1.1:11434")
+                                        endpointField.text = app.defaultAiEndpoint
+                                        app.setAiEndpoint(app.defaultAiEndpoint)
                                     }
                                 }
                             }
@@ -346,7 +346,7 @@ Page {
                                 text: "Xiaomi MiMoCode / OpenAI API"
                                 onClicked: {
                                     app.setAiProvider("mimocode")
-                                    if (endpointField.text === "http://192.168.1.1:11434") {
+                                    if (endpointField.text === app.defaultAiEndpoint) {
                                         endpointField.text = "https://api.mimocode.com"
                                         app.setAiEndpoint("https://api.mimocode.com")
                                     }
@@ -359,7 +359,8 @@ Page {
                         id: endpointField
                         width: parent.width
                         label: "Endpoint URL"
-                        placeholderText: app.aiProvider === "ollama" ? "http://192.168.1.1:11434" : "https://api.mimocode.com"
+                        labelVisible: true
+                        placeholderText: app.aiProvider === "ollama" ? app.defaultAiEndpoint : "https://api.mimocode.com"
                         text: app.aiEndpoint
                         onTextChanged: {
                             if (typeof app !== "undefined" && app && app.setAiEndpoint) {
@@ -368,10 +369,23 @@ Page {
                         }
                     }
 
+                    TextSwitch {
+                        width: parent.width
+                        text: "Accept Self-Signed Certificates"
+                        description: "Allow connecting to Ollama endpoints or proxies using self-signed or internal SSL certificates"
+                        checked: (typeof app !== "undefined" && app && app.aiAllowSelfSigned !== undefined) ? app.aiAllowSelfSigned : false
+                        onCheckedChanged: {
+                            if (typeof app !== "undefined" && app && app.setAiAllowSelfSigned) {
+                                app.setAiAllowSelfSigned(checked)
+                            }
+                        }
+                    }
+
                     TextField {
                         id: modelField
                         width: parent.width
                         label: "Model Name"
+                        labelVisible: true
                         placeholderText: "e.g. llama3.2, qwen2.5, mistral"
                         text: app.aiModel
                         onTextChanged: {
@@ -385,7 +399,8 @@ Page {
                         id: apiKeyField
                         width: parent.width
                         label: "API Key (Bearer Token)"
-                        placeholderText: app.aiProvider === "ollama" ? "Optional for local Ollama" : "Required for MiMoCode / Cloud APIs"
+                        labelVisible: true
+                        placeholderText: app.aiProvider === "ollama" ? "API Key (optional for local Ollama)" : "API Key (required for MiMoCode / Cloud APIs)"
                         text: app.aiApiKey
                         onTextChanged: {
                             if (typeof app !== "undefined" && app && app.setAiApiKey) {
@@ -496,6 +511,240 @@ Page {
                     visible: bridge.web_server_running
                     onClicked: {
                         bridge.open_in_browser("")
+                    }
+                }
+
+                SectionHeader {
+                    text: "Web Server Authentication"
+                }
+
+                TextSwitch {
+                    width: parent.width
+                    text: "Require Authentication"
+                    description: "Protect the web portal with password or OpenID Connect SSO"
+                    checked: (typeof app !== "undefined" && app && app.webAuthEnabled !== undefined) ? app.webAuthEnabled : false
+                    onCheckedChanged: {
+                        if (typeof app !== "undefined" && app && app.setWebAuthEnabled) {
+                            app.setWebAuthEnabled(checked)
+                        }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Theme.paddingMedium
+                    visible: (typeof app !== "undefined" && app && app.webAuthEnabled)
+
+                    SectionHeader {
+                        text: "HTTP Basic Authentication"
+                    }
+
+                    TextSwitch {
+                        width: parent.width
+                        text: "Enable Basic Auth"
+                        description: "Standard local username and password"
+                        checked: (typeof app !== "undefined" && app && app.webAuthBasicEnabled !== undefined) ? app.webAuthBasicEnabled : true
+                        onCheckedChanged: {
+                            if (typeof app !== "undefined" && app && app.setWebAuthBasicEnabled) {
+                                app.setWebAuthBasicEnabled(checked)
+                            }
+                        }
+                    }
+
+                    TextField {
+                        id: webUserField
+                        width: parent.width
+                        label: "Username"
+                        labelVisible: true
+                        placeholderText: "admin"
+                        text: (typeof app !== "undefined" && app && app.webAuthUsername) ? app.webAuthUsername : "admin"
+                        onTextChanged: {
+                            if (typeof app !== "undefined" && app && app.setWebAuthUsername) {
+                                app.setWebAuthUsername(text)
+                            }
+                        }
+                    }
+
+                    PasswordField {
+                        id: webPassField
+                        width: parent.width
+                        label: "Password"
+                        labelVisible: true
+                        placeholderText: "Set new password"
+                        text: (typeof app !== "undefined" && app && app.webAuthPassword) ? app.webAuthPassword : ""
+                        onTextChanged: {
+                            if (typeof app !== "undefined" && app && app.setWebAuthPassword) {
+                                app.setWebAuthPassword(text)
+                            }
+                        }
+                    }
+
+                    SectionHeader {
+                        text: "OpenID Connect / SSO (OAuth 2.0)"
+                    }
+
+                    TextSwitch {
+                        width: parent.width
+                        text: "Enable OpenID Connect SSO"
+                        description: "Single sign-on via Authentik, Keycloak, Google, etc."
+                        checked: (typeof app !== "undefined" && app && app.webAuthOauthEnabled !== undefined) ? app.webAuthOauthEnabled : false
+                        onCheckedChanged: {
+                            if (typeof app !== "undefined" && app && app.setWebAuthOauthEnabled) {
+                                app.setWebAuthOauthEnabled(checked)
+                            }
+                        }
+                    }
+
+                    Column {
+                        width: parent.width
+                        spacing: Theme.paddingMedium
+                        visible: (typeof app !== "undefined" && app && app.webAuthOauthEnabled)
+
+                        TextField {
+                            id: oauthProviderField
+                            width: parent.width
+                            label: "Provider Display Name"
+                            labelVisible: true
+                            placeholderText: "Authentik / Keycloak / Google"
+                            text: (typeof app !== "undefined" && app && app.webAuthOauthProviderName) ? app.webAuthOauthProviderName : "Authentik"
+                            onTextChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthProviderName) {
+                                    app.setWebAuthOauthProviderName(text)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: oauthIssuerField
+                            width: parent.width
+                            label: "Issuer / Discovery URL"
+                            labelVisible: true
+                            placeholderText: "https://auth.example.com/application/o/fishdoc/"
+                            text: (typeof app !== "undefined" && app && app.webAuthOauthIssuerUrl) ? app.webAuthOauthIssuerUrl : ""
+                            onTextChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthIssuerUrl) {
+                                    app.setWebAuthOauthIssuerUrl(text)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: oauthClientIdField
+                            width: parent.width
+                            label: "Client ID"
+                            labelVisible: true
+                            placeholderText: "fishdoc-app"
+                            text: (typeof app !== "undefined" && app && app.webAuthOauthClientId) ? app.webAuthOauthClientId : ""
+                            onTextChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthClientId) {
+                                    app.setWebAuthOauthClientId(text)
+                                }
+                            }
+                        }
+
+                        PasswordField {
+                            id: oauthClientSecretField
+                            width: parent.width
+                            label: "Client Secret (optional for PKCE)"
+                            labelVisible: true
+                            placeholderText: "Leave blank for public PKCE client"
+                            text: (typeof app !== "undefined" && app && app.webAuthOauthClientSecret) ? app.webAuthOauthClientSecret : ""
+                            onTextChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthClientSecret) {
+                                    app.setWebAuthOauthClientSecret(text)
+                                }
+                            }
+                        }
+
+                        TextField {
+                            id: oauthEmailsField
+                            width: parent.width
+                            label: "Allowed Emails / Users (comma-separated)"
+                            labelVisible: true
+                            placeholderText: "user@example.com, *@mycompany.com"
+                            text: (typeof app !== "undefined" && app && app.webAuthOauthAllowedEmails) ? app.webAuthOauthAllowedEmails : ""
+                            onTextChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthAllowedEmails) {
+                                    app.setWebAuthOauthAllowedEmails(text)
+                                }
+                            }
+                        }
+
+                        TextSwitch {
+                            width: parent.width
+                            text: "Accept Self-Signed IdP Certificates"
+                            description: "Allow connecting to self-hosted IdPs with self-signed SSL"
+                            checked: (typeof app !== "undefined" && app && app.webAuthOauthAllowSelfSigned !== undefined) ? app.webAuthOauthAllowSelfSigned : false
+                            onCheckedChanged: {
+                                if (typeof app !== "undefined" && app && app.setWebAuthOauthAllowSelfSigned) {
+                                    app.setWebAuthOauthAllowSelfSigned(checked)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SectionHeader {
+                    text: "SSL / TLS Certificate"
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    width: parent.width - Theme.horizontalPageMargin * 2
+                    text: bridge.is_custom_tls_certificate()
+                        ? "Custom SSL certificate installed and active"
+                        : "Self-signed SSL certificate active"
+                    color: bridge.is_custom_tls_certificate() ? Theme.highlightColor : Theme.secondaryColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.Wrap
+                }
+
+                TextField {
+                    id: certInput
+                    width: parent.width
+                    label: "Certificate (Path or PEM text)"
+                    labelVisible: true
+                    placeholderText: "e.g. /home/defaultuser/cert.pem"
+                }
+
+                TextField {
+                    id: keyInput
+                    width: parent.width
+                    label: "Private Key (Path or PEM text)"
+                    labelVisible: true
+                    placeholderText: "e.g. /home/defaultuser/key.pem"
+                }
+
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: Theme.paddingMedium
+
+                    Button {
+                        text: "Install Certificate"
+                        enabled: certInput.text.trim().length > 0 && keyInput.text.trim().length > 0
+                        onClicked: {
+                            var err = bridge.install_tls_certificate(certInput.text.trim(), keyInput.text.trim())
+                            if (err) {
+                                remorsePopup.execute("Error: " + err, function() {})
+                            } else {
+                                remorsePopup.execute("Installed SSL certificate", function() {})
+                                certInput.text = ""
+                                keyInput.text = ""
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: "Reset Self-Signed"
+                        visible: bridge.is_custom_tls_certificate()
+                        onClicked: {
+                            var err = bridge.reset_tls_certificate()
+                            if (err) {
+                                remorsePopup.execute("Error: " + err, function() {})
+                            } else {
+                                remorsePopup.execute("Reset to self-signed certificate", function() {})
+                            }
+                        }
                     }
                 }
 

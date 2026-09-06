@@ -9,6 +9,9 @@ ApplicationWindow {
     id: app
     _defaultPageOrientations: Orientation.All
 
+    // Single source of truth for default AI endpoint — referenced everywhere
+    readonly property string defaultAiEndpoint: "http://localhost:11434"
+
     ConfigurationValue {
         id: fontSizeScaleConf
         key: "/apps/harbour-fishdoc/font_size_scale"
@@ -78,7 +81,7 @@ ApplicationWindow {
     ConfigurationValue {
         id: aiEndpointConf
         key: "/apps/harbour-fishdoc/ai_endpoint"
-        defaultValue: "http://192.168.1.1:11434"
+        defaultValue: app.defaultAiEndpoint
     }
 
     ConfigurationValue {
@@ -117,6 +120,78 @@ ApplicationWindow {
         defaultValue: true
     }
 
+    ConfigurationValue {
+        id: aiAllowSelfSignedConf
+        key: "/apps/harbour-fishdoc/ai_allow_self_signed"
+        defaultValue: false
+    }
+
+    ConfigurationValue {
+        id: webAuthEnabledConf
+        key: "/apps/harbour-fishdoc/web_auth_enabled"
+        defaultValue: false
+    }
+
+    ConfigurationValue {
+        id: webAuthBasicEnabledConf
+        key: "/apps/harbour-fishdoc/web_auth_basic_enabled"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
+        id: webAuthUsernameConf
+        key: "/apps/harbour-fishdoc/web_auth_username"
+        defaultValue: "admin"
+    }
+
+    ConfigurationValue {
+        id: webAuthPasswordConf
+        key: "/apps/harbour-fishdoc/web_auth_password"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthEnabledConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_enabled"
+        defaultValue: false
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthProviderNameConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_provider_name"
+        defaultValue: "Authentik"
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthIssuerUrlConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_issuer_url"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthClientIdConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_client_id"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthClientSecretConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_client_secret"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthAllowedEmailsConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_allowed_emails"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
+        id: webAuthOauthAllowSelfSignedConf
+        key: "/apps/harbour-fishdoc/web_auth_oauth_allow_self_signed"
+        defaultValue: false
+    }
+
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
@@ -129,13 +204,26 @@ ApplicationWindow {
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
 
     property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
-    property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : "http://192.168.1.1:11434"
+    property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : app.defaultAiEndpoint
     property string aiModel: aiModelConf.value !== undefined ? aiModelConf.value : "llama3.2"
     property string aiApiKey: aiApiKeyConf.value !== undefined ? aiApiKeyConf.value : ""
     property int aiTimeout: aiTimeoutConf.value !== undefined ? aiTimeoutConf.value : 90
     property bool aiAutoAllowRead: aiAutoAllowReadConf.value !== undefined ? aiAutoAllowReadConf.value : true
     property bool aiAutoAllowCreate: aiAutoAllowCreateConf.value !== undefined ? aiAutoAllowCreateConf.value : true
     property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
+    property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
+
+    property bool webAuthEnabled: webAuthEnabledConf.value !== undefined ? webAuthEnabledConf.value : false
+    property bool webAuthBasicEnabled: webAuthBasicEnabledConf.value !== undefined ? webAuthBasicEnabledConf.value : true
+    property string webAuthUsername: webAuthUsernameConf.value !== undefined ? webAuthUsernameConf.value : "admin"
+    property string webAuthPassword: webAuthPasswordConf.value !== undefined ? webAuthPasswordConf.value : ""
+    property bool webAuthOauthEnabled: webAuthOauthEnabledConf.value !== undefined ? webAuthOauthEnabledConf.value : false
+    property string webAuthOauthProviderName: webAuthOauthProviderNameConf.value !== undefined ? webAuthOauthProviderNameConf.value : "Authentik"
+    property string webAuthOauthIssuerUrl: webAuthOauthIssuerUrlConf.value !== undefined ? webAuthOauthIssuerUrlConf.value : ""
+    property string webAuthOauthClientId: webAuthOauthClientIdConf.value !== undefined ? webAuthOauthClientIdConf.value : ""
+    property string webAuthOauthClientSecret: webAuthOauthClientSecretConf.value !== undefined ? webAuthOauthClientSecretConf.value : ""
+    property string webAuthOauthAllowedEmails: webAuthOauthAllowedEmailsConf.value !== undefined ? webAuthOauthAllowedEmailsConf.value : ""
+    property bool webAuthOauthAllowSelfSigned: webAuthOauthAllowSelfSignedConf.value !== undefined ? webAuthOauthAllowSelfSignedConf.value : false
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -182,13 +270,14 @@ ApplicationWindow {
         if (typeof bridge !== "undefined" && bridge && typeof bridge.configure_ai === "function") {
             bridge.configure_ai(
                 app.aiProvider || "ollama",
-                app.aiEndpoint || "http://192.168.1.1:11434",
+                app.aiEndpoint || app.defaultAiEndpoint,
                 app.aiModel || "llama3.2",
                 app.aiApiKey || "",
                 app.aiTimeout || 90,
                 app.aiAutoAllowRead !== undefined ? app.aiAutoAllowRead : true,
                 app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
-                app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true
+                app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true,
+                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false
             )
         }
     }
@@ -233,6 +322,84 @@ ApplicationWindow {
         syncAiConfig()
     }
 
+    function setAiAllowSelfSigned(val) {
+        aiAllowSelfSignedConf.value = val
+        syncAiConfig()
+    }
+
+    function syncWebAuthConfig() {
+        if (typeof bridge !== "undefined" && bridge && typeof bridge.configure_auth === "function") {
+            bridge.configure_auth(
+                app.webAuthEnabled || false,
+                app.webAuthBasicEnabled !== undefined ? app.webAuthBasicEnabled : true,
+                app.webAuthUsername || "admin",
+                app.webAuthPassword || "",
+                app.webAuthOauthEnabled || false,
+                app.webAuthOauthProviderName || "Authentik",
+                app.webAuthOauthIssuerUrl || "",
+                app.webAuthOauthClientId || "",
+                app.webAuthOauthClientSecret || "",
+                app.webAuthOauthAllowedEmails || "",
+                app.webAuthOauthAllowSelfSigned || false
+            )
+        }
+    }
+
+    function setWebAuthEnabled(val) {
+        webAuthEnabledConf.value = val
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthBasicEnabled(val) {
+        webAuthBasicEnabledConf.value = val
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthUsername(user) {
+        webAuthUsernameConf.value = user
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthPassword(pass) {
+        webAuthPasswordConf.value = pass
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthEnabled(val) {
+        webAuthOauthEnabledConf.value = val
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthProviderName(name) {
+        webAuthOauthProviderNameConf.value = name
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthIssuerUrl(url) {
+        webAuthOauthIssuerUrlConf.value = url
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthClientId(id) {
+        webAuthOauthClientIdConf.value = id
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthClientSecret(secret) {
+        webAuthOauthClientSecretConf.value = secret
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthAllowedEmails(emails) {
+        webAuthOauthAllowedEmailsConf.value = emails
+        syncWebAuthConfig()
+    }
+
+    function setWebAuthOauthAllowSelfSigned(val) {
+        webAuthOauthAllowSelfSignedConf.value = val
+        syncWebAuthConfig()
+    }
+
     function openAssistant(contextFilename, contextContent) {
         pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), {
             contextFilename: contextFilename || "",
@@ -260,14 +427,21 @@ ApplicationWindow {
 
     Timer {
         id: startupTimer
-        interval: 10
+        interval: 50
         running: false
-        repeat: false
-        onTriggered: bridge.load_main_page_data()
+        repeat: true
+        onTriggered: {
+            if (!bridge.initialized) {
+                bridge.load_main_page_data()
+            } else {
+                startupTimer.stop()
+            }
+        }
     }
 
     Component.onCompleted: {
         syncAiConfig()
+        syncWebAuthConfig()
         bridge.set_drop_comments(app.dropComments)
         if (app.autostartWebServer) {
             bridge.start_web_server()

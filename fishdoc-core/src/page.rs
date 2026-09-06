@@ -164,7 +164,7 @@ pub fn get_page_preview_values_with_options(notes_dir: &Path, filename: &str, li
                     continue;
                 }
                 if let Some((level, rest)) = crate::parser::blocks::headings::parse_heading(line) {
-                    if level >= 1 && level <= 5 {
+                    if (1..=5).contains(&level) {
                         let spans = crate::inline::parse_inline(rest.trim());
                         let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
                         let mut h_map = serde_json::Map::new();
@@ -444,7 +444,7 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
     for entry in std::fs::read_dir(notes_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "adoc") {
+        if path.extension().is_some_and(|ext| ext == "adoc") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             let is_journal = filename == "journal.adoc";
             let title = if is_journal {

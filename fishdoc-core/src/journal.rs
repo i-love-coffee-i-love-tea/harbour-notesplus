@@ -16,8 +16,7 @@ pub fn is_date_heading_for_day(line: &str, day_str: &str) -> bool {
     if rest == day_str {
         return true;
     }
-    if rest.starts_with(day_str) {
-        let remainder = &rest[day_str.len()..];
+    if let Some(remainder) = rest.strip_prefix(day_str) {
         if remainder.starts_with(' ')
             || remainder.starts_with(':')
             || remainder.starts_with('-')
@@ -229,12 +228,11 @@ pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), Strin
         let mut next_heading_idx = lines.len();
         for (j, &l) in lines.iter().enumerate().skip(t_idx + 1) {
             let trimmed = l.trim();
-            if trimmed.starts_with('=') || trimmed.starts_with('#') {
-                if get_date_from_heading(trimmed).is_some() && !is_date_heading_for_day(trimmed, &today) {
+            if (trimmed.starts_with('=') || trimmed.starts_with('#'))
+                && get_date_from_heading(trimmed).is_some() && !is_date_heading_for_day(trimmed, &today) {
                     next_heading_idx = j;
                     break;
                 }
-            }
         }
         let mut target = next_heading_idx;
         while target > t_idx + 1 && lines[target - 1].trim().is_empty() {

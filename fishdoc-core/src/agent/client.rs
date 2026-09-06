@@ -1,22 +1,26 @@
 //! LLM API Client supporting Ollama native (/api/chat) and OpenAI / Xiaomi MiMoCode (/v1/chat/completions).
 
 use std::io::{BufRead, BufReader};
+use std::sync::Arc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use crate::agent::tools::{get_available_tools, ToolCall, ToolDefinition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum LlmProvider {
+    #[default]
     Ollama,
     OpenAiCompatible,
 }
 
-impl Default for LlmProvider {
-    fn default() -> Self {
-        LlmProvider::Ollama
-    }
-}
+
+/// Default endpoint URL for a local Ollama instance.
+pub const DEFAULT_OLLAMA_ENDPOINT: &str = "http://localhost:11434";
+
+/// Default model name when no specific model is configured.
+pub const DEFAULT_MODEL: &str = "llama3.2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
@@ -25,16 +29,19 @@ pub struct LlmConfig {
     pub model: String,
     pub api_key: Option<String>,
     pub timeout_secs: u64,
+    #[serde(default)]
+    pub allow_self_signed: bool,
 }
 
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
             provider: LlmProvider::Ollama,
-            endpoint_url: "http://192.168.1.1:11434".to_string(),
-            model: "llama3.2".to_string(),
+            endpoint_url: DEFAULT_OLLAMA_ENDPOINT.to_string(),
+            model: DEFAULT_MODEL.to_string(),
             api_key: None,
             timeout_secs: 60,
+            allow_self_signed: false,
         }
     }
 }
@@ -104,6 +111,13 @@ impl ChatMessage {
     }
 }
 
+/// A model available on the configured LLM server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssistantResponse {
     pub content: Option<String>,
@@ -128,6 +142,66 @@ pub struct LlmClient {
     config: LlmConfig,
 }
 
+#[derive(Debug)]
+struct NoCertificateVerification(Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.0.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.0.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+/// Builds a rustls `ClientConfig` that accepts any (including self-signed or invalid) server certificate.
+pub fn build_insecure_tls_client_config() -> rustls::ClientConfig {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+    rustls::ClientConfig::builder_with_provider(crypto_provider.clone())
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoCertificateVerification(crypto_provider)))
+        .with_no_client_auth()
+}
+
 impl LlmClient {
     pub fn new(config: LlmConfig) -> Self {
         Self { config }
@@ -135,6 +209,23 @@ impl LlmClient {
 
     pub fn config(&self) -> &LlmConfig {
         &self.config
+    }
+
+    /// Builds a configured ureq Agent honoring timeouts and self-signed certificate settings.
+    pub fn build_agent(&self) -> ureq::Agent {
+        let timeout = Duration::from_secs(self.config.timeout_secs);
+        let connect_timeout = Duration::from_secs(self.config.timeout_secs.clamp(10, 30));
+        let mut builder = ureq::AgentBuilder::new()
+            .timeout_connect(connect_timeout)
+            .timeout_read(timeout)
+            .timeout_write(Duration::from_secs(30))
+            .timeout(timeout);
+
+        if self.config.allow_self_signed {
+            builder = builder.tls_config(Arc::new(build_insecure_tls_client_config()));
+        }
+
+        builder.build()
     }
 
     /// Resolves the actual chat endpoint URL based on provider type and configured base URL.
@@ -158,6 +249,96 @@ impl LlmClient {
                 } else {
                     format!("{}/v1/chat/completions", base)
                 }
+            }
+        }
+    }
+
+    /// Resolves the models listing endpoint URL based on provider type.
+    pub fn resolve_models_url(&self) -> String {
+        let base = self.config.endpoint_url.trim().trim_end_matches('/');
+        match self.config.provider {
+            LlmProvider::Ollama => {
+                if base.ends_with("/api/tags") {
+                    base.to_string()
+                } else if base.ends_with("/api") {
+                    format!("{}/tags", base)
+                } else {
+                    format!("{}/api/tags", base)
+                }
+            }
+            LlmProvider::OpenAiCompatible => {
+                if base.ends_with("/v1/models") {
+                    base.to_string()
+                } else if base.ends_with("/v1") {
+                    format!("{}/models", base)
+                } else {
+                    format!("{}/v1/models", base)
+                }
+            }
+        }
+    }
+
+    /// Fetches the list of available models from the configured LLM server.
+    pub fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
+        let url = self.resolve_models_url();
+        let agent = self.build_agent();
+
+        let mut req = agent.get(&url)
+            .set("Content-Type", "application/json");
+
+        if let Some(ref key) = self.config.api_key {
+            if !key.trim().is_empty() {
+                req = req.set("Authorization", &format!("Bearer {}", key.trim()));
+            }
+        }
+
+        let resp = match req.call() {
+            Ok(r) => r,
+            Err(ureq::Error::Status(code, resp)) => {
+                let err_text = resp.into_string().unwrap_or_default();
+                return Err(LlmError::Http { status: code, body: err_text });
+            }
+            Err(ureq::Error::Transport(t)) => {
+                return Err(LlmError::Network(format!("Failed to fetch models from {}: {}", url, t)));
+            }
+        };
+
+        let body: Value = resp.into_json()
+            .map_err(|e| LlmError::Json(format!("Failed to parse models response: {}", e)))?;
+
+        match self.config.provider {
+            LlmProvider::Ollama => {
+                // Ollama: { "models": [{ "name": "llama3.2:latest", ... }] }
+                let models = body.get("models")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| LlmError::InvalidResponse("Missing 'models' array in Ollama response".to_string()))?;
+
+                let mut result = Vec::new();
+                for m in models {
+                    let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let display_name = name.split(':').next().unwrap_or(name).to_string();
+                    result.push(ModelInfo {
+                        id: name.to_string(),
+                        name: display_name,
+                    });
+                }
+                Ok(result)
+            }
+            LlmProvider::OpenAiCompatible => {
+                // OpenAI: { "data": [{ "id": "gpt-4", ... }] }
+                let data = body.get("data")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| LlmError::InvalidResponse("Missing 'data' array in OpenAI response".to_string()))?;
+
+                let mut result = Vec::new();
+                for m in data {
+                    let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    result.push(ModelInfo {
+                        id: id.to_string(),
+                        name: id.to_string(),
+                    });
+                }
+                Ok(result)
             }
         }
     }
@@ -217,41 +398,45 @@ impl LlmClient {
                     let mut obj = serde_json::Map::new();
                     obj.insert("role".to_string(), json!(msg.role));
 
-                    if msg.role == "assistant" && msg.tool_calls.is_some() {
-                        if let Some(ref c) = msg.content {
-                            obj.insert("content".to_string(), json!(c));
-                        } else {
-                            obj.insert("content".to_string(), Value::Null);
-                        }
+                    if msg.role == "assistant" {
+                        if let Some(ref tool_calls) = msg.tool_calls {
+                            if let Some(ref c) = msg.content {
+                                obj.insert("content".to_string(), json!(c));
+                            } else {
+                                obj.insert("content".to_string(), Value::Null);
+                            }
 
-                        let tc_vals: Vec<Value> = msg
-                            .tool_calls
-                            .as_ref()
-                            .unwrap()
-                            .iter()
-                            .enumerate()
-                            .map(|(tc_idx, tc)| {
-                                let call_id = tc
-                                    .id
-                                    .clone()
-                                    .unwrap_or_else(|| format!("call_{}_{}", idx, tc_idx));
-                                let args_str = if tc.function.arguments.is_string() {
-                                    tc.function.arguments.as_str().unwrap().to_string()
-                                } else {
-                                    serde_json::to_string(&tc.function.arguments)
-                                        .unwrap_or_else(|_| "{}".to_string())
-                                };
-                                json!({
-                                    "id": call_id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc.function.name,
-                                        "arguments": args_str,
-                                    }
+                            let tc_vals: Vec<Value> = tool_calls
+                                .iter()
+                                .enumerate()
+                                .map(|(tc_idx, tc)| {
+                                    let call_id = tc
+                                        .id
+                                        .clone()
+                                        .unwrap_or_else(|| format!("call_{}_{}", idx, tc_idx));
+                                    let args_str = if tc.function.arguments.is_string() {
+                                        tc.function.arguments.as_str().unwrap().to_string()
+                                    } else {
+                                        serde_json::to_string(&tc.function.arguments)
+                                            .unwrap_or_else(|_| "{}".to_string())
+                                    };
+                                    json!({
+                                        "id": call_id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": args_str,
+                                        }
+                                    })
                                 })
-                            })
-                            .collect();
-                        obj.insert("tool_calls".to_string(), json!(tc_vals));
+                                .collect();
+                            obj.insert("tool_calls".to_string(), json!(tc_vals));
+                        } else {
+                            obj.insert(
+                                "content".to_string(),
+                                json!(msg.content.as_deref().unwrap_or("")),
+                            );
+                        }
                     } else if msg.role == "tool" {
                         let call_id = msg
                             .tool_call_id
@@ -389,14 +574,7 @@ impl LlmClient {
         let body = self.build_request_body_with_stream(messages, &tools, true);
         let url = self.resolve_chat_url();
 
-        let timeout = Duration::from_secs(self.config.timeout_secs);
-        let connect_timeout = Duration::from_secs(self.config.timeout_secs.min(30).max(10));
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(connect_timeout)
-            .timeout_read(timeout)
-            .timeout_write(Duration::from_secs(30))
-            .timeout(timeout)
-            .build();
+        let agent = self.build_agent();
 
         let mut req = agent.post(&url)
             .set("Content-Type", "application/json");
@@ -587,6 +765,7 @@ mod tests {
             model: "llama3.2".to_string(),
             api_key: None,
             timeout_secs: 30,
+            allow_self_signed: false,
         };
         let client = LlmClient::new(cfg.clone());
         assert_eq!(client.resolve_chat_url(), "http://192.168.1.100:11434/api/chat");
@@ -665,6 +844,7 @@ mod tests {
             model: "llama3.2".to_string(),
             api_key: None,
             timeout_secs: 120,
+            allow_self_signed: false,
         };
         let client = LlmClient::new(cfg);
         assert_eq!(client.config().timeout_secs, 120);
@@ -678,6 +858,7 @@ mod tests {
             model: "llama3.2".to_string(),
             api_key: None,
             timeout_secs: 60,
+            allow_self_signed: false,
         };
         let client = LlmClient::new(cfg);
 
@@ -739,6 +920,7 @@ mod tests {
             model: "mimo-code".to_string(),
             api_key: Some("secret".to_string()),
             timeout_secs: 60,
+            allow_self_signed: false,
         };
         let client = LlmClient::new(cfg);
 
@@ -842,5 +1024,19 @@ data: [DONE]\n";
         assert_eq!(resp.tool_calls[0].id.as_deref(), Some("call_1"));
         assert_eq!(resp.tool_calls[0].function.name, "search_notes");
         assert_eq!(resp.tool_calls[0].function.arguments["query"], "test");
+    }
+
+    #[test]
+    fn test_insecure_tls_client_config() {
+        let mut cfg = LlmConfig::default();
+        cfg.allow_self_signed = true;
+        cfg.endpoint_url = "https://192.168.1.50:11434".to_string();
+
+        let client = LlmClient::new(cfg);
+        assert!(client.config().allow_self_signed);
+        let _agent = client.build_agent();
+
+        let tls_cfg = build_insecure_tls_client_config();
+        assert!(tls_cfg.alpn_protocols.is_empty());
     }
 }

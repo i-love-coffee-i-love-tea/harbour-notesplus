@@ -184,8 +184,12 @@ pub fn decode_html_entities(s: &str) -> String {
 /// Parse inline formatting from a text line.
 pub fn parse_inline(text: &str) -> Vec<InlineSpan> {
     let mut spans = Vec::new();
-    let decoded = decode_html_entities(text);
-    parse_inline_recursive(&decoded, &mut spans);
+    if text.contains('&') {
+        let decoded = decode_html_entities(text);
+        parse_inline_recursive(&decoded, &mut spans);
+    } else {
+        parse_inline_recursive(text, &mut spans);
+    }
     spans
 }
 
@@ -269,8 +273,7 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // menu:File[Quit] or menu:View[Zoom > Reset]
-    if rest.starts_with("menu:") {
-        let after = &rest[5..];
+    if let Some(after) = rest.strip_prefix("menu:") {
         if let Some(open) = after.find('[') {
             if let Some(close) = after[open..].find(']') {
                 let top = &after[..open];
@@ -294,9 +297,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // +++raw_html+++
-    if rest.starts_with("+++") {
-        if let Some(end) = rest[3..].find("+++") {
-            let html = rest[3..3 + end].to_string();
+    if let Some(after) = rest.strip_prefix("+++") {
+        if let Some(end) = after.find("+++") {
+            let html = after[..end].to_string();
             let consumed = 3 + end + 3;
             return Some((InlineSpan::Pass(html), consumed));
         }
@@ -325,8 +328,7 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // icon: icon:name[attrs] or icon:name[]
-    if rest.starts_with("icon:") {
-        let rest_icon = &rest[5..];
+    if let Some(rest_icon) = rest.strip_prefix("icon:") {
         if let Some(open) = rest_icon.find('[') {
             let name = &rest_icon[..open];
             if !name.is_empty() && !name.contains(char::is_whitespace) && !name.contains(':') {
@@ -381,8 +383,7 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // xref: xref:Target.adoc[Display]
-    if rest.starts_with("xref:") {
-        let after_prefix = &rest[5..];
+    if let Some(after_prefix) = rest.strip_prefix("xref:") {
         if let Some(open) = after_prefix.find('[') {
             if let Some(close) = after_prefix[open..].find(']') {
                 let target = after_prefix[..open].to_string();
@@ -434,9 +435,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // Unconstrained bold: **text**
-    if rest.starts_with("**") {
-        if let Some(end) = rest[2..].find("**") {
-            let inner = &rest[2..2 + end];
+    if let Some(after) = rest.strip_prefix("**") {
+        if let Some(end) = after.find("**") {
+            let inner = &after[..end];
             let mut spans = Vec::new();
             parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
@@ -445,9 +446,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // Unconstrained italic: __text__
-    if rest.starts_with("__") {
-        if let Some(end) = rest[2..].find("__") {
-            let inner = &rest[2..2 + end];
+    if let Some(after) = rest.strip_prefix("__") {
+        if let Some(end) = after.find("__") {
+            let inner = &after[..end];
             let mut spans = Vec::new();
             parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
@@ -456,9 +457,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // Unconstrained code: ``text``
-    if rest.starts_with("``") {
-        if let Some(end) = rest[2..].find("``") {
-            let inner = &rest[2..2 + end];
+    if let Some(after) = rest.strip_prefix("``") {
+        if let Some(end) = after.find("``") {
+            let inner = &after[..end];
             let mut spans = Vec::new();
             parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
@@ -473,9 +474,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // Smart double quotes: "`text`"
-    if rest.starts_with("\"`") {
-        if let Some(end) = rest[2..].find("`\"") {
-            let inner = &rest[2..2 + end];
+    if let Some(after) = rest.strip_prefix("\"`") {
+        if let Some(end) = after.find("`\"") {
+            let inner = &after[..end];
             let mut spans = Vec::new();
             parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;
@@ -484,9 +485,9 @@ fn try_match(rest: &str) -> Option<(InlineSpan, usize)> {
     }
 
     // Smart single quotes: '`text`'
-    if rest.starts_with("'`") {
-        if let Some(end) = rest[2..].find("`'") {
-            let inner = &rest[2..2 + end];
+    if let Some(after) = rest.strip_prefix("'`") {
+        if let Some(end) = after.find("`'") {
+            let inner = &after[..end];
             let mut spans = Vec::new();
             parse_inline_recursive(inner, &mut spans);
             let consumed = end + 4;

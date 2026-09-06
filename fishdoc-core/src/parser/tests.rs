@@ -1197,3 +1197,61 @@ use crate::inline::InlineSpan;
             assert!(*reversed);
         }
     }
+
+#[test]
+fn bench_parse_all_examples() {
+    use std::time::Instant;
+
+    let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+    if !examples_dir.exists() {
+        eprintln!("Examples dir not found at {:?}, skipping benchmark", examples_dir);
+        return;
+    }
+
+    let mut files: Vec<_> = std::fs::read_dir(&examples_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "adoc"))
+        .collect();
+    files.sort_by_key(|e| e.file_name());
+
+    let total_start = Instant::now();
+    let mut total_lines = 0usize;
+    let mut total_blocks = 0usize;
+
+    for entry in &files {
+        let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+        let lines_count = content.lines().count();
+        total_lines += lines_count;
+
+        let start = Instant::now();
+        let blocks = parse_blocks(&content);
+        let parse_elapsed = start.elapsed();
+
+        let start_qv = Instant::now();
+        for block in &blocks {
+            let _ = block.to_qvariant_map();
+        }
+        let qv_elapsed = start_qv.elapsed();
+
+        total_blocks += blocks.len();
+        eprintln!(
+            "  {:<30} {:>5} lines {:>4} blocks  parse={:>8.2?}  qvariant={:>8.2?}",
+            entry.file_name().to_string_lossy(),
+            lines_count,
+            blocks.len(),
+            parse_elapsed,
+            qv_elapsed,
+        );
+    }
+
+    let total_elapsed = total_start.elapsed();
+    eprintln!(
+        "\n  TOTAL: {} files, {} lines, {} blocks in {:?}",
+        files.len(),
+        total_lines,
+        total_blocks,
+        total_elapsed,
+    );
+}

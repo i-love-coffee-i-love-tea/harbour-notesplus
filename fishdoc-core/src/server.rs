@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +11,11 @@ use std::thread;
 
 use rusqlite::Connection;
 use serde_json::json;
+
+/// Strip characters that could inject HTTP headers (quotes, CR, LF).
+fn sanitize_header_value(s: &str) -> String {
+    s.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect()
+}
 
 use crate::agent::{
     build_template_instruction, AgentSession, AgentStepResult, LlmClient, LlmConfig, LlmProvider,
@@ -22,10 +27,12 @@ use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
 use crate::parser;
 
+pub mod auth;
+pub mod tls;
 pub mod web_assets;
 use web_assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 
-/// Server configuration holding paths, networking, and AI client parameters.
+/// Server configuration holding paths, networking, security, and AI client parameters.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub notes_dir: PathBuf,
@@ -34,6 +41,10 @@ pub struct ServerConfig {
     pub port: u16,
     pub llm_config: LlmConfig,
     pub permission_config: PermissionConfig,
+    pub auth_config: auth::AuthConfig,
+    pub enable_tls: bool,
+    pub tls_cert_path: Option<PathBuf>,
+    pub tls_key_path: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -50,6 +61,10 @@ impl Default for ServerConfig {
             port: 8080,
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
+            auth_config: auth::AuthConfig::default(),
+            enable_tls: false,
+            tls_cert_path: None,
+            tls_key_path: None,
         }
     }
 }
@@ -63,10 +78,19 @@ pub struct ServerContext {
     pub session: Arc<Mutex<AgentSession>>,
     pub llm_config: Arc<Mutex<LlmConfig>>,
     pub perm_config: Arc<Mutex<PermissionConfig>>,
+    pub auth_config: Arc<Mutex<auth::AuthConfig>>,
+    pub session_store: auth::SessionStore,
+    pub oidc_flow_mgr: auth::OidcFlowManager,
+    pub tls_status: Arc<Mutex<Option<tls::TlsStatusInfo>>>,
+    pub is_tls: bool,
 }
 
 impl ServerContext {
     pub fn new(config: ServerConfig) -> Self {
+        Self::new_with_tls(config, false)
+    }
+
+    pub fn new_with_tls(config: ServerConfig, is_tls: bool) -> Self {
         let _ = fs::create_dir_all(&config.notes_dir);
         let _ = fs::create_dir_all(&config.backup_dir);
 
@@ -88,20 +112,37 @@ impl ServerContext {
             session: Arc::new(Mutex::new(session)),
             llm_config: Arc::new(Mutex::new(config.llm_config)),
             perm_config: Arc::new(Mutex::new(config.permission_config)),
+            auth_config: Arc::new(Mutex::new(config.auth_config)),
+            session_store: auth::SessionStore::new(),
+            oidc_flow_mgr: auth::OidcFlowManager::new(),
+            tls_status: Arc::new(Mutex::new(None)),
+            is_tls,
         }
     }
 
     /// Updates the active LLM client and permission configurations.
     pub fn update_llm_config(&self, config: LlmConfig, perm_config: Option<PermissionConfig>) {
-        let mut cfg_guard = self.llm_config.lock().unwrap();
+        let mut cfg_guard = self.llm_config.lock().unwrap_or_else(|e| e.into_inner());
         *cfg_guard = config.clone();
         if let Some(p) = perm_config {
-            let mut perm_guard = self.perm_config.lock().unwrap();
+            let mut perm_guard = self.perm_config.lock().unwrap_or_else(|e| e.into_inner());
             *perm_guard = p;
         }
         let new_client = LlmClient::new(config);
-        let perm_mgr = PermissionManager::new(self.perm_config.lock().unwrap().clone());
-        self.session.lock().unwrap().update_config(perm_mgr, new_client);
+        let perm_mgr = PermissionManager::new(self.perm_config.lock().unwrap_or_else(|e| e.into_inner()).clone());
+        self.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
+    }
+
+    /// Updates the active authentication configuration.
+    pub fn update_auth_config(&self, config: auth::AuthConfig) {
+        let mut cfg_guard = self.auth_config.lock().unwrap_or_else(|e| e.into_inner());
+        *cfg_guard = config;
+    }
+
+    /// Updates TLS status information.
+    pub fn update_tls_status(&self, status: Option<tls::TlsStatusInfo>) {
+        let mut s_guard = self.tls_status.lock().unwrap_or_else(|e| e.into_inner());
+        *s_guard = status;
     }
 }
 
@@ -130,7 +171,14 @@ impl HttpServerHandle {
         self.local_urls
             .first()
             .cloned()
-            .unwrap_or_else(|| format!("http://127.0.0.1:{}", self.port))
+            .unwrap_or_else(|| {
+                let scheme = if self.context.is_tls { "https" } else { "http" };
+                format!("{}://127.0.0.1:{}", scheme, self.port)
+            })
+    }
+
+    pub fn is_tls(&self) -> bool {
+        self.context.is_tls
     }
 
     pub fn context(&self) -> &ServerContext {
@@ -145,11 +193,15 @@ impl HttpServerHandle {
 
 /// Start the embedded documentation HTTP server with default configuration.
 pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServerHandle, String> {
-    let mut config = ServerConfig::default();
-    config.notes_dir = notes_path.clone();
-    config.db_path = notes_path.parent().unwrap_or(&notes_path).join("fishdoc.db");
-    config.backup_dir = notes_path.parent().unwrap_or(&notes_path).join("backups");
-    config.port = requested_port;
+    let db_path = notes_path.parent().unwrap_or(&notes_path).join("fishdoc.db");
+    let backup_dir = notes_path.parent().unwrap_or(&notes_path).join("backups");
+    let config = ServerConfig {
+        notes_dir: notes_path,
+        db_path,
+        backup_dir,
+        port: requested_port,
+        ..Default::default()
+    };
     start_server_with_config(config)
 }
 
@@ -169,6 +221,10 @@ pub fn start_server_full(
         port: requested_port,
         llm_config: llm_config.unwrap_or_default(),
         permission_config: permission_config.unwrap_or_default(),
+        auth_config: auth::AuthConfig::default(),
+        enable_tls: false,
+        tls_cert_path: None,
+        tls_key_path: None,
     };
     start_server_with_config(config)
 }
@@ -190,18 +246,51 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         None => return Err(format!("Failed to bind to port {} or nearby ports", port)),
     };
 
+    let scheme = if config.enable_tls { "https" } else { "http" };
     let local_ips = get_local_ip_addresses();
     let mut local_urls = Vec::new();
     for ip in &local_ips {
-        local_urls.push(format!("http://{}:{}", ip, actual_port));
+        local_urls.push(format!("{}://{}:{}", scheme, ip, actual_port));
     }
     if local_urls.is_empty() {
-        local_urls.push(format!("http://127.0.0.1:{}", actual_port));
+        local_urls.push(format!("{}://127.0.0.1:{}", scheme, actual_port));
     }
+
+    let rustls_config = if config.enable_tls {
+        let parent_dir = config.notes_dir.parent().unwrap_or(&config.notes_dir);
+        let cert_dir = parent_dir.join("tls");
+        let cert_path = config
+            .tls_cert_path
+            .clone()
+            .unwrap_or_else(|| cert_dir.join("server.crt"));
+        let key_path = config
+            .tls_key_path
+            .clone()
+            .unwrap_or_else(|| cert_dir.join("server.key"));
+
+        let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, None)?;
+        let r_cfg = tls::create_rustls_server_config(&cert)?;
+        Some((r_cfg, cert_path, key_path))
+    } else {
+        None
+    };
 
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
-    let context = ServerContext::new(config);
+    let is_tls = rustls_config.is_some();
+    let r_cfg_arc = rustls_config.as_ref().map(|(c, _, _)| c.clone());
+
+    let context = ServerContext::new_with_tls(config, is_tls);
+    if let Some((_, cert_p, key_p)) = rustls_config {
+        context.update_tls_status(Some(tls::TlsStatusInfo {
+            is_tls: true,
+            is_custom: tls::is_custom_cert_installed(&cert_p),
+            cert_path: cert_p.to_string_lossy().to_string(),
+            key_path: key_p.to_string_lossy().to_string(),
+            subject: "Fishdoc Web Server".to_string(),
+        }));
+    }
+
     let context_clone = context.clone();
 
     thread::spawn(move || {
@@ -214,9 +303,18 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
                         break;
                     }
                     let ctx = context_clone.clone();
-                    thread::spawn(move || {
-                        handle_http_client(stream, ctx);
-                    });
+                    if let Some(ref r_cfg) = r_cfg_arc {
+                        if let Ok(conn) = rustls::ServerConnection::new(r_cfg.clone()) {
+                            let tls_stream = Box::new(rustls::StreamOwned::new(conn, stream));
+                            thread::spawn(move || {
+                                handle_http_client(StreamWrapper::Tls(tls_stream), ctx);
+                            });
+                        }
+                    } else {
+                        thread::spawn(move || {
+                            handle_http_client(StreamWrapper::Plain(stream), ctx);
+                        });
+                    }
                 }
                 Err(_) => {
                     thread::sleep(std::time::Duration::from_millis(50));
@@ -233,6 +331,53 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     })
 }
 
+/// Unified stream wrapper for plain TCP or TLS encrypted connections.
+pub enum StreamWrapper {
+    Plain(TcpStream),
+    Tls(Box<rustls::StreamOwned<rustls::ServerConnection, TcpStream>>),
+}
+
+impl Read for StreamWrapper {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            StreamWrapper::Plain(s) => s.read(buf),
+            StreamWrapper::Tls(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for StreamWrapper {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            StreamWrapper::Plain(s) => s.write(buf),
+            StreamWrapper::Tls(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            StreamWrapper::Plain(s) => s.flush(),
+            StreamWrapper::Tls(s) => s.flush(),
+        }
+    }
+}
+
+impl StreamWrapper {
+    pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+        match self {
+            StreamWrapper::Plain(s) => s.set_read_timeout(timeout),
+            StreamWrapper::Tls(s) => s.sock.set_read_timeout(timeout),
+        }
+    }
+
+    pub fn set_write_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
+        match self {
+            StreamWrapper::Plain(s) => s.set_write_timeout(timeout),
+            StreamWrapper::Tls(s) => s.sock.set_write_timeout(timeout),
+        }
+    }
+}
+
 struct ParsedHttpRequest {
     method: String,
     path: String,
@@ -241,10 +386,27 @@ struct ParsedHttpRequest {
     body: Vec<u8>,
 }
 
-fn parse_http_request(stream: &mut TcpStream) -> Result<ParsedHttpRequest, String> {
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line).map_err(|e| e.to_string())?;
+fn parse_http_request(stream: &mut StreamWrapper) -> Result<ParsedHttpRequest, String> {
+    let mut header_bytes = Vec::new();
+    let mut one_byte = [0u8; 1];
+
+    loop {
+        let n = stream.read(&mut one_byte).map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err("Unexpected EOF while reading request headers".to_string());
+        }
+        header_bytes.push(one_byte[0]);
+        if header_bytes.ends_with(b"\r\n\r\n") || header_bytes.ends_with(b"\n\n") {
+            break;
+        }
+        if header_bytes.len() > 65536 {
+            return Err("Request headers too large".to_string());
+        }
+    }
+
+    let header_str = String::from_utf8_lossy(&header_bytes);
+    let mut lines = header_str.lines();
+    let request_line = lines.next().ok_or_else(|| "Empty request".to_string())?;
 
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
@@ -259,13 +421,12 @@ fn parse_http_request(stream: &mut TcpStream) -> Result<ParsedHttpRequest, Strin
     };
 
     let mut headers = HashMap::new();
-    loop {
-        let mut line = String::new();
-        let bytes = reader.read_line(&mut line).map_err(|e| e.to_string())?;
-        if bytes == 0 || line == "\r\n" || line == "\n" {
-            break;
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
         }
-        if let Some((k, v)) = line.split_once(':') {
+        if let Some((k, v)) = trimmed.split_once(':') {
             headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
         }
     }
@@ -275,9 +436,17 @@ fn parse_http_request(stream: &mut TcpStream) -> Result<ParsedHttpRequest, Strin
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+    if content_length > MAX_BODY_SIZE {
+        return Err(format!(
+            "Request body too large: {} bytes (max {})",
+            content_length, MAX_BODY_SIZE
+        ));
+    }
+
     let mut body = vec![0u8; content_length];
     if content_length > 0 {
-        reader.read_exact(&mut body).map_err(|e| e.to_string())?;
+        stream.read_exact(&mut body).map_err(|e| e.to_string())?;
     }
 
     Ok(ParsedHttpRequest {
@@ -289,21 +458,151 @@ fn parse_http_request(stream: &mut TcpStream) -> Result<ParsedHttpRequest, Strin
     })
 }
 
-fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
+
+/// Validate CORS origin against localhost variants and known LAN IPs.
+/// Returns the origin string if allowed, empty string otherwise.
+fn validate_cors_origin(origin: Option<&str>, allowed_ips: &[String]) -> String {
+    let origin = match origin {
+        Some(o) => o,
+        None => return String::new(),
+    };
+
+    // Extract host from origin URL (e.g., "http://localhost:3000" -> "localhost")
+    let host = origin
+        .split("://")
+        .nth(1)
+        .unwrap_or(origin)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Allow localhost variants
+    if host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1" {
+        return origin.to_string();
+    }
+
+    // Allow IPs from the local interface list
+    if allowed_ips.contains(&host) {
+        return origin.to_string();
+    }
+
+    // Allow private LAN ranges
+    if host.starts_with("192.168.") || host.starts_with("10.") {
+        return origin.to_string();
+    }
+    // 172.16.0.0/12
+    if host.starts_with("172.") {
+        let parts: Vec<&str> = host.split('.').collect();
+        if parts.len() >= 2 {
+            if let Ok(second) = parts[1].parse::<u8>() {
+                if (16..=31).contains(&second) {
+                    return origin.to_string();
+                }
+            }
+        }
+    }
+
+    String::new()
+}
+
+/// Build CORS header lines when origin is non-empty, empty string otherwise.
+fn build_cors_headers(origin: &str) -> String {
+    if origin.is_empty() {
+        return String::new();
+    }
+    format!(
+        "Access-Control-Allow-Origin: {}\r\n\
+         Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n\
+         Access-Control-Allow-Headers: Content-Type, Authorization, Cookie\r\n",
+        origin
+    )
+}
+
+fn make_session_cookie(session_id: &str, is_tls: bool, max_age: Option<u64>) -> String {
+    let mut cookie = format!("fishdoc_session={}; Path=/; HttpOnly; SameSite=Lax", session_id);
+    if let Some(age) = max_age {
+        cookie.push_str(&format!("; Max-Age={}", age));
+    }
+    if is_tls {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+fn extract_cookie_value(cookie_header: &str, key: &str) -> Option<String> {
+    for part in cookie_header.split(';') {
+        let part = part.trim();
+        if let Some((k, v)) = part.split_once('=') {
+            if k.trim() == key {
+                return Some(v.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+fn authenticate_request(
+    req: &ParsedHttpRequest,
+    auth_config: &auth::AuthConfig,
+    session_store: &auth::SessionStore,
+) -> Option<auth::Session> {
+    if !auth_config.enabled {
+        return Some(auth::Session {
+            id: "anonymous".to_string(),
+            user: "anonymous".to_string(),
+            auth_method: "none".to_string(),
+            created_at: 0,
+            expires_at: u64::MAX,
+        });
+    }
+
+    // 1. Check Session Cookie
+    if let Some(cookie_hdr) = req._headers.get("cookie") {
+        if let Some(session_id) = extract_cookie_value(cookie_hdr, "fishdoc_session") {
+            if let Some(session) = session_store.validate_session(&session_id) {
+                return Some(session);
+            }
+        }
+    }
+
+    // 2. Check HTTP Basic Authorization header
+    if let Some(auth_hdr) = req._headers.get("authorization") {
+        if let Some(user) = auth_config.verify_basic_auth_header(auth_hdr) {
+            return Some(auth::Session {
+                id: "basic".to_string(),
+                user,
+                auth_method: "basic".to_string(),
+                created_at: 0,
+                expires_at: u64::MAX,
+            });
+        }
+    }
+
+    None
+}
+
+fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(120)));
 
     let req = match parse_http_request(&mut stream) {
         Ok(r) => r,
         Err(_) => {
-            send_response(&mut stream, 400, "Bad Request", "text/plain", b"Bad Request");
+            send_response(&mut stream, 400, "Bad Request", "text/plain", b"Bad Request", "");
             return;
         }
     };
 
+    let local_ips = get_local_ip_addresses();
+    let cors_origin = validate_cors_origin(req._headers.get("origin").map(|s| s.as_str()), &local_ips);
+
     // Handle CORS preflight requests
     if req.method == "OPTIONS" {
-        send_response(&mut stream, 200, "OK", "text/plain", b"");
+        send_response(&mut stream, 200, "OK", "text/plain", b"", &cors_origin);
         return;
     }
 
@@ -311,23 +610,247 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
 
     // Reject path traversal attempts
     if clean_path.contains("..") {
-        send_response(&mut stream, 403, "Forbidden", "text/plain", b"Forbidden");
+        send_response(&mut stream, 403, "Forbidden", "text/plain", b"Forbidden", &cors_origin);
         return;
+    }
+
+    let auth_config = ctx.auth_config.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let session_store = ctx.session_store.clone();
+    let oidc_flow_mgr = ctx.oidc_flow_mgr.clone();
+
+    // Health check & Ping
+    if clean_path == "api/ping" {
+        let resp = json!({
+            "ok": true,
+            "is_tls": ctx.is_tls,
+            "auth_enabled": auth_config.enabled,
+        });
+        send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+        return;
+    }
+
+    // Public / Auth endpoints
+    if clean_path == "api/auth/config" {
+        match req.method.as_str() {
+            "GET" => {
+                let session = authenticate_request(&req, &auth_config, &session_store);
+                let resp = json!({
+                    "auth_required": auth_config.enabled,
+                    "basic_enabled": auth_config.basic_enabled,
+                    "basic_username": auth_config.basic_username,
+                    "has_password": !auth_config.basic_password_hash.is_empty(),
+                    "oauth_enabled": auth_config.oauth_enabled,
+                    "oauth_provider_name": auth_config.oauth_provider_name,
+                    "oauth_issuer_url": auth_config.oauth_issuer_url,
+                    "oauth_client_id": auth_config.oauth_client_id,
+                    "oauth_allowed_emails": auth_config.oauth_allowed_emails,
+                    "allow_self_signed_oidc": auth_config.allow_self_signed_oidc,
+                    "authenticated": session.is_some(),
+                    "user": session.as_ref().map(|s| s.user.clone()).unwrap_or_default()
+                });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+                return;
+            }
+            "POST" => {
+                if auth_config.enabled {
+                    let session = authenticate_request(&req, &auth_config, &session_store);
+                    if session.is_none() {
+                        let err = json!({ "ok": false, "error": "Unauthorized" });
+                        send_response(&mut stream, 401, "Unauthorized", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
+                        return;
+                    }
+                }
+                if let Ok(mut new_cfg) = serde_json::from_slice::<auth::AuthConfig>(&req.body) {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                        if let Some(pass) = val.get("password").and_then(|v| v.as_str()) {
+                            if !pass.is_empty() {
+                                let _ = new_cfg.set_password(pass);
+                            }
+                        }
+                    }
+                    ctx.update_auth_config(new_cfg);
+                    let resp = json!({ "ok": true });
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+                    return;
+                }
+                let err = json!({ "ok": false, "error": "Invalid auth config payload" });
+                send_response(&mut stream, 400, "Bad Request", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    if clean_path == "api/auth/login" && req.method == "POST" {
+        let body_str = String::from_utf8_lossy(&req.body);
+        let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+        let username = json_body.get("username").and_then(|v| v.as_str()).unwrap_or("");
+        let password = json_body.get("password").and_then(|v| v.as_str()).unwrap_or("");
+
+        if auth_config.verify_basic_credentials(username, password) {
+            let ttl_secs = 30 * 24 * 3600; // 30 days
+            if let Ok(sess) = session_store.create_session(username, "basic", ttl_secs) {
+                let cookie_str = make_session_cookie(&sess.id, ctx.is_tls, Some(ttl_secs));
+                let resp = json!({
+                    "ok": true,
+                    "session_id": sess.id,
+                    "user": sess.user
+                });
+                send_response_full(
+                    &mut stream,
+                    200,
+                    "OK",
+                    "application/json; charset=utf-8",
+                    resp.to_string().as_bytes(),
+                    &cors_origin,
+                    &[("Set-Cookie", &cookie_str)],
+                );
+                return;
+            }
+        }
+        let resp = json!({ "ok": false, "error": "Invalid username or password" });
+        send_response(&mut stream, 401, "Unauthorized", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+        return;
+    }
+
+    if clean_path == "api/auth/logout" && req.method == "POST" {
+        if let Some(cookie_hdr) = req._headers.get("cookie") {
+            if let Some(session_id) = extract_cookie_value(cookie_hdr, "fishdoc_session") {
+                session_store.remove_session(&session_id);
+            }
+        }
+        let cookie_str = make_session_cookie("", ctx.is_tls, Some(0));
+        let resp = json!({ "ok": true });
+        send_response_full(
+            &mut stream,
+            200,
+            "OK",
+            "application/json; charset=utf-8",
+            resp.to_string().as_bytes(),
+            &cors_origin,
+            &[("Set-Cookie", &cookie_str)],
+        );
+        return;
+    }
+
+    if clean_path == "api/auth/whoami" && req.method == "GET" {
+        let session = authenticate_request(&req, &auth_config, &session_store);
+        let resp = json!({
+            "authenticated": session.is_some(),
+            "user": session.as_ref().map(|s| s.user.clone()),
+            "auth_type": session.as_ref().map(|s| s.auth_method.clone()),
+            "auth_enabled": auth_config.enabled,
+            "basic_enabled": auth_config.basic_enabled,
+            "oauth_enabled": auth_config.oauth_enabled,
+            "oauth_provider_name": auth_config.oauth_provider_name,
+        });
+        send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+        return;
+    }
+
+    // OAuth / OIDC endpoints
+    if (clean_path == "api/auth/oauth/start" || clean_path == "api/auth/oauth/login")
+        && (req.method == "GET" || req.method == "POST")
+    {
+        let host = req._headers.get("host").map(|s| s.as_str()).unwrap_or("127.0.0.1");
+        let scheme = if ctx.is_tls { "https" } else { "http" };
+        let default_redirect = format!("{}://{}/api/auth/oauth/callback", scheme, host);
+
+        match auth::build_oidc_authorization_url(&auth_config, &oidc_flow_mgr, Some(&default_redirect)) {
+            Ok(auth_url) => {
+                if clean_path == "api/auth/oauth/login" {
+                    send_redirect(&mut stream, &auth_url, &cors_origin, &[]);
+                } else {
+                    let resp = json!({ "ok": true, "auth_url": auth_url });
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+                }
+                return;
+            }
+            Err(e) => {
+                let err = json!({ "ok": false, "error": e });
+                send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
+                return;
+            }
+        }
+    }
+
+    if clean_path == "api/auth/oauth/callback" {
+        let host = req._headers.get("host").map(|s| s.as_str()).unwrap_or("127.0.0.1");
+        let scheme = if ctx.is_tls { "https" } else { "http" };
+        let default_redirect = format!("{}://{}/api/auth/oauth/callback", scheme, host);
+
+        let (code, state) = if let Some(ref q) = req.query {
+            let mut c = None;
+            let mut s = None;
+            for pair in q.split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    if k == "code" { c = Some(v.to_string()); }
+                    if k == "state" { s = Some(v.to_string()); }
+                }
+            }
+            (c, s)
+        } else {
+            (None, None)
+        };
+
+        if let (Some(code), Some(state)) = (code, state) {
+            match auth::handle_oidc_callback(&auth_config, &oidc_flow_mgr, &code, &state, Some(&default_redirect)) {
+                Ok(user) => {
+                    let ttl_secs = 30 * 24 * 3600;
+                    if let Ok(sess) = session_store.create_session(&user, "oauth", ttl_secs) {
+                        let cookie_str = make_session_cookie(&sess.id, ctx.is_tls, Some(ttl_secs));
+                        send_redirect(&mut stream, "/", &cors_origin, &[("Set-Cookie", &cookie_str)]);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    let err_html = format!("<h1>OAuth Login Failed</h1><p>{}</p><p><a href=\"/\">Back to login</a></p>", escape_html(&e));
+                    send_response(&mut stream, 403, "Forbidden", "text/html; charset=utf-8", err_html.as_bytes(), &cors_origin);
+                    return;
+                }
+            }
+        }
+        let err_html = "<h1>OAuth Login Failed</h1><p>Missing code or state parameters.</p><p><a href=\"/\">Back to login</a></p>";
+        send_response(&mut stream, 400, "Bad Request", "text/html; charset=utf-8", err_html.as_bytes(), &cors_origin);
+        return;
+    }
+
+    // Route Protection Middleware: Protect all data/AI routes when authentication is enabled
+    let is_public_path = clean_path.is_empty()
+        || clean_path == "index.html"
+        || clean_path == "app.js"
+        || clean_path == "style.css"
+        || clean_path == "favicon.ico"
+        || clean_path.starts_with("assets/")
+        || clean_path.starts_with("api/auth/");
+
+    if auth_config.enabled && !is_public_path {
+        let session = authenticate_request(&req, &auth_config, &session_store);
+        if session.is_none() {
+            if clean_path.starts_with("api/") {
+                let err = json!({ "error": "Unauthorized", "authenticated": false });
+                send_response(&mut stream, 401, "Unauthorized", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
+                return;
+            } else {
+                send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes(), &cors_origin);
+                return;
+            }
+        }
     }
 
     // 1. Static Web Application Root & Assets
     if req.method == "GET" && (clean_path.is_empty() || clean_path == "index.html") {
-        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes(), &cors_origin);
         return;
     }
 
     if req.method == "GET" && clean_path == "app.js" {
-        send_response(&mut stream, 200, "OK", "application/javascript; charset=utf-8", APP_JS.as_bytes());
+        send_response(&mut stream, 200, "OK", "application/javascript; charset=utf-8", APP_JS.as_bytes(), &cors_origin);
         return;
     }
 
     if req.method == "GET" && clean_path == "style.css" {
-        send_response(&mut stream, 200, "OK", "text/css; charset=utf-8", STYLE_CSS.as_bytes());
+        send_response(&mut stream, 200, "OK", "text/css; charset=utf-8", STYLE_CSS.as_bytes(), &cors_origin);
         return;
     }
 
@@ -336,7 +859,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         match req.method.as_str() {
             "GET" => {
                 let list = list_all_notes_json(&ctx.notes_dir, req.query.as_deref());
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", list.as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", list.as_bytes(), &cors_origin);
                 return;
             }
             "POST" => {
@@ -349,7 +872,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                 let file_path = ctx.notes_dir.join(&filename);
                 if let Err(e) = fs::write(&file_path, content) {
                     let err = json!({ "error": format!("Failed to create note: {}", e) });
-                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes());
+                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
                     return;
                 }
 
@@ -366,7 +889,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     "filename": filename,
                     "title": title
                 });
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                 return;
             }
             _ => {}
@@ -386,11 +909,11 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
             "GET" => {
                 if file_path.is_file() {
                     if let Ok(content) = fs::read_to_string(&file_path) {
-                        send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes());
+                        send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes(), &cors_origin);
                         return;
                     }
                 }
-                send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note not found\"}");
+                send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note not found\"}", &cors_origin);
                 return;
             }
             "PUT" => {
@@ -402,7 +925,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
 
                 if let Err(e) = fs::write(&file_path, &content) {
                     let err = json!({ "error": format!("Failed to save note: {}", e) });
-                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes());
+                    send_response(&mut stream, 500, "Internal Server Error", "application/json; charset=utf-8", err.to_string().as_bytes(), &cors_origin);
                     return;
                 }
 
@@ -429,7 +952,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                 }
 
                 let resp = json!({ "ok": true, "filename": filename });
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                 return;
             }
             "DELETE" => {
@@ -440,7 +963,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }
                 }
                 let resp = json!({ "ok": true });
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                 return;
             }
             _ => {}
@@ -511,12 +1034,12 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     let _ = fs::write(&file_path, new_content.as_bytes());
                     let html = adoc_to_html_body(&new_content, Some(&ctx.notes_dir));
                     let resp = json!({ "ok": true, "content": new_content, "html": html });
-                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                     return;
                 }
             }
         }
-        send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note or checklist item not found\"}");
+        send_response(&mut stream, 404, "Not Found", "application/json; charset=utf-8", b"{\"error\":\"Note or checklist item not found\"}", &cors_origin);
         return;
     }
 
@@ -536,7 +1059,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         } else {
             adoc_to_html_body(&content, Some(&ctx.notes_dir))
         };
-        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes());
+        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &cors_origin);
         return;
     }
 
@@ -554,7 +1077,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
             .iter()
             .enumerate()
             .map(|(i, b)| {
-                let html = blocks_to_html_body(&[b.clone()], Some(&ctx.notes_dir));
+                let html = blocks_to_html_body(std::slice::from_ref(b), Some(&ctx.notes_dir));
                 json!({
                     "index": i,
                     "raw": b.raw_text(),
@@ -564,7 +1087,26 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
             .collect();
 
         let resp = json!({ "blocks": block_items });
-        send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+        send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+        return;
+    }
+
+    // 4b. REST API: List available models from configured LLM server
+    if clean_path == "api/ai/models" && req.method == "GET" {
+        let cfg = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
+        let client = LlmClient::new(cfg.clone());
+        drop(cfg);
+
+        match client.list_models() {
+            Ok(models) => {
+                let resp = json!({ "models": models });
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+            }
+            Err(e) => {
+                let resp = json!({ "error": format!("{}", e) });
+                send_response(&mut stream, 502, "Bad Gateway", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
+            }
+        }
         return;
     }
 
@@ -572,9 +1114,9 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
     if clean_path == "api/ai/config" {
         match req.method.as_str() {
             "GET" => {
-                let cfg = ctx.llm_config.lock().unwrap();
-                let is_undo_available = ctx.session.lock().unwrap().can_undo();
-                let has_pending = ctx.session.lock().unwrap().pending_action().is_some();
+                let cfg = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
+                let is_undo_available = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).can_undo();
+                let has_pending = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).pending_action().is_some();
                 let resp = json!({
                     "provider": match cfg.provider {
                         LlmProvider::Ollama => "ollama",
@@ -587,13 +1129,13 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     "can_undo": is_undo_available,
                     "has_pending": has_pending
                 });
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                 return;
             }
             "POST" => {
                 let body_str = String::from_utf8_lossy(&req.body);
                 if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body_str) {
-                    let mut cfg_guard = ctx.llm_config.lock().unwrap();
+                    let mut cfg_guard = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(p) = json_body.get("provider").and_then(|v| v.as_str()) {
                         cfg_guard.provider = match p.to_lowercase().as_str() {
                             "openai" | "mimocode" | "compatible" => LlmProvider::OpenAiCompatible,
@@ -607,18 +1149,21 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                         cfg_guard.model = m.to_string();
                     }
                     if let Some(k) = json_body.get("api_key").and_then(|v| v.as_str()) {
-                        cfg_guard.api_key = Some(k.to_string());
+                        cfg_guard.api_key = if k.is_empty() { None } else { Some(k.to_string()) };
                     }
                     if let Some(t) = json_body.get("timeout").and_then(|v| v.as_u64()) {
                         cfg_guard.timeout_secs = t;
                     }
+                    if let Some(a) = json_body.get("allow_self_signed").and_then(|v| v.as_bool()) {
+                        cfg_guard.allow_self_signed = a;
+                    }
 
                     let new_client = LlmClient::new(cfg_guard.clone());
-                    let perm_mgr = PermissionManager::new(ctx.perm_config.lock().unwrap().clone());
-                    ctx.session.lock().unwrap().update_config(perm_mgr, new_client);
+                    let perm_mgr = PermissionManager::new(ctx.perm_config.lock().unwrap_or_else(|e| e.into_inner()).clone());
+                    ctx.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
 
                     let resp = json!({ "ok": true });
-                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                    send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
                     return;
                 }
             }
@@ -634,9 +1179,9 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).map(|s| s.to_string());
         let context_content = json_body.get("context_content").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-        send_sse_header(&mut stream);
+        send_sse_header(&mut stream, &cors_origin);
 
-        let mut session_guard = ctx.session.lock().unwrap();
+        let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(ref fname) = context_filename {
             let content = context_content.unwrap_or_else(|| {
                 fs::read_to_string(ctx.notes_dir.join(fname)).unwrap_or_default()
@@ -649,7 +1194,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
 
         let step_result = session_guard.send_prompt_streaming(&prompt, move |token| {
             if let Ok(mut s) = stream_for_tokens.lock() {
-                send_sse_event(&mut s, &json!({
+                send_sse_event(&mut *s, &json!({
                     "type": "token",
                     "text": token
                 }));
@@ -659,7 +1204,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         if let Ok(mut s) = stream_mutex.lock() {
             match step_result {
                 AgentStepResult::Finished { content, last_snapshot_id } => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "finished",
                         "content": content,
                         "last_snapshot_id": last_snapshot_id,
@@ -668,7 +1213,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::RequiresConfirmation(pending) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "pending_confirmation",
                         "action": {
                             "tool_name": pending.tool_name,
@@ -682,13 +1227,13 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::Error(err) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "error",
                         "error": err
                     }));
                 }
             }
-            send_sse_done(&mut s);
+            send_sse_done(&mut *s);
         }
         return;
     }
@@ -703,8 +1248,8 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
 
         let instruction = build_template_instruction(template_id, "", Some(context_filename), Some(content));
 
-        send_sse_header(&mut stream);
-        let mut session_guard = ctx.session.lock().unwrap();
+        send_sse_header(&mut stream, &cors_origin);
+        let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
         session_guard.reset_session(Some((context_filename, content)), None);
 
         let stream_mutex = Arc::new(Mutex::new(stream));
@@ -712,7 +1257,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
 
         let step_result = session_guard.send_prompt_streaming(&instruction, move |token| {
             if let Ok(mut s) = stream_for_tokens.lock() {
-                send_sse_event(&mut s, &json!({
+                send_sse_event(&mut *s, &json!({
                     "type": "token",
                     "text": token
                 }));
@@ -722,7 +1267,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         if let Ok(mut s) = stream_mutex.lock() {
             match step_result {
                 AgentStepResult::Finished { content, last_snapshot_id } => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "finished",
                         "content": content,
                         "last_snapshot_id": last_snapshot_id,
@@ -730,7 +1275,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::RequiresConfirmation(pending) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "pending_confirmation",
                         "action": {
                             "tool_name": pending.tool_name,
@@ -744,13 +1289,13 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::Error(err) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "error",
                         "error": err
                     }));
                 }
             }
-            send_sse_done(&mut s);
+            send_sse_done(&mut *s);
         }
         return;
     }
@@ -761,15 +1306,15 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
         let approved = json_body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        send_sse_header(&mut stream);
-        let mut session_guard = ctx.session.lock().unwrap();
+        send_sse_header(&mut stream, &cors_origin);
+        let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
 
         let stream_mutex = Arc::new(Mutex::new(stream));
         let stream_for_tokens = stream_mutex.clone();
 
         let step_result = session_guard.confirm_pending_action_streaming(approved, move |token| {
             if let Ok(mut s) = stream_for_tokens.lock() {
-                send_sse_event(&mut s, &json!({
+                send_sse_event(&mut *s, &json!({
                     "type": "token",
                     "text": token
                 }));
@@ -779,7 +1324,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         if let Ok(mut s) = stream_mutex.lock() {
             match step_result {
                 AgentStepResult::Finished { content, last_snapshot_id } => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "finished",
                         "content": content,
                         "last_snapshot_id": last_snapshot_id,
@@ -787,7 +1332,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::RequiresConfirmation(pending) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "pending_confirmation",
                         "action": {
                             "tool_name": pending.tool_name,
@@ -801,28 +1346,28 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     }));
                 }
                 AgentStepResult::Error(err) => {
-                    send_sse_event(&mut s, &json!({
+                    send_sse_event(&mut *s, &json!({
                         "type": "error",
                         "error": err
                     }));
                 }
             }
-            send_sse_done(&mut s);
+            send_sse_done(&mut *s);
         }
         return;
     }
 
     // POST /api/ai/undo -> Revert last AI snapshot
     if clean_path == "api/ai/undo" && req.method == "POST" {
-        let mut session_guard = ctx.session.lock().unwrap();
+        let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
         match session_guard.undo_last_action() {
             Ok(msg) => {
                 let resp = json!({ "ok": true, "message": msg, "can_undo": session_guard.can_undo() });
-                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 200, "OK", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
             }
             Err(err) => {
                 let resp = json!({ "ok": false, "error": err, "can_undo": session_guard.can_undo() });
-                send_response(&mut stream, 400, "Bad Request", "application/json; charset=utf-8", resp.to_string().as_bytes());
+                send_response(&mut stream, 400, "Bad Request", "application/json; charset=utf-8", resp.to_string().as_bytes(), &cors_origin);
             }
         }
         return;
@@ -850,7 +1395,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     if let Ok(content) = fs::read_to_string(&file_path) {
                         let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
                         let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
-                        send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title));
+                        send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title), &cors_origin);
                         return;
                     }
                 }
@@ -860,7 +1405,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                     if let Ok(content) = fs::read_to_string(&file_path) {
                         let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
                         let html = render_web_page_html(&content, title, &ctx.notes_dir, &filename);
-                        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes());
+                        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &cors_origin);
                         return;
                     }
                 }
@@ -868,7 +1413,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         }
 
         // Default: serve the Vue 3 interactive editor app (app router loads the note)
-        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes());
+        send_response(&mut stream, 200, "OK", "text/html; charset=utf-8", INDEX_HTML.as_bytes(), &cors_origin);
         return;
     }
 
@@ -884,7 +1429,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
         let file_path = ctx.notes_dir.join(&filename);
         if file_path.is_file() {
             if let Ok(content) = fs::read_to_string(&file_path) {
-                send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes());
+                send_response(&mut stream, 200, "OK", "text/plain; charset=utf-8", content.as_bytes(), &cors_origin);
                 return;
             }
         }
@@ -906,7 +1451,7 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
                 let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
-                send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title));
+                send_attachment_response(&mut stream, 200, "OK", "text/html; charset=utf-8", html.as_bytes(), &format!("{}.html", title), &cors_origin);
                 return;
             }
         }
@@ -933,54 +1478,112 @@ fn handle_http_client(mut stream: TcpStream, ctx: ServerContext) {
                 "json" => "application/json; charset=utf-8",
                 _ => "application/octet-stream",
             };
-            send_response(&mut stream, 200, "OK", mime, &bytes);
+            send_response(&mut stream, 200, "OK", mime, &bytes, &cors_origin);
             return;
         }
     }
 
-    send_response(&mut stream, 404, "Not Found", "text/html; charset=utf-8", b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Fishdoc Editor</a></p>");
+    send_response(&mut stream, 404, "Not Found", "text/html; charset=utf-8", b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Fishdoc Editor</a></p>", &cors_origin);
 }
 
-fn send_response(stream: &mut TcpStream, status_code: u16, status_text: &str, content_type: &str, body: &[u8]) {
+fn send_response_full<W: Write>(
+    stream: &mut W,
+    status_code: u16,
+    status_text: &str,
+    content_type: &str,
+    body: &[u8],
+    cors_origin: &str,
+    extra_headers: &[(&str, &str)],
+) {
+    let cors = build_cors_headers(cors_origin);
+    let mut extra = String::new();
+    for (k, v) in extra_headers {
+        let sanitized = sanitize_header_value(v);
+        extra.push_str(&format!("{}: {}\r\n", k, sanitized));
+    }
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n",
-        status_code,
-        status_text,
-        content_type,
-        body.len()
-    );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(body);
-    let _ = stream.flush();
-}
-
-fn send_attachment_response(stream: &mut TcpStream, status_code: u16, status_text: &str, content_type: &str, body: &[u8], filename: &str) {
-    let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nContent-Disposition: attachment; filename=\"{}\"\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n{}{}\r\n",
         status_code,
         status_text,
         content_type,
         body.len(),
-        filename
+        cors,
+        extra
     );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.write_all(body);
     let _ = stream.flush();
 }
 
-fn send_sse_header(stream: &mut TcpStream) {
-    let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization\r\n\r\n";
+fn send_response<W: Write>(
+    stream: &mut W,
+    status_code: u16,
+    status_text: &str,
+    content_type: &str,
+    body: &[u8],
+    cors_origin: &str,
+) {
+    send_response_full(stream, status_code, status_text, content_type, body, cors_origin, &[]);
+}
+
+fn send_redirect<W: Write>(
+    stream: &mut W,
+    location: &str,
+    cors_origin: &str,
+    extra_headers: &[(&str, &str)],
+) {
+    let mut headers = vec![("Location", location)];
+    headers.extend_from_slice(extra_headers);
+    send_response_full(
+        stream,
+        302,
+        "Found",
+        "text/plain; charset=utf-8",
+        b"Redirecting...",
+        cors_origin,
+        &headers,
+    );
+}
+
+fn send_attachment_response<W: Write>(
+    stream: &mut W,
+    status_code: u16,
+    status_text: &str,
+    content_type: &str,
+    body: &[u8],
+    filename: &str,
+    cors_origin: &str,
+) {
+    let safe_filename = sanitize_header_value(filename);
+    let disposition = format!("attachment; filename=\"{}\"", safe_filename);
+    send_response_full(
+        stream,
+        status_code,
+        status_text,
+        content_type,
+        body,
+        cors_origin,
+        &[("Content-Disposition", &disposition)],
+    );
+}
+
+fn send_sse_header<W: Write>(stream: &mut W, cors_origin: &str) {
+    let cors = build_cors_headers(cors_origin);
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: close\r\n{}\r\n",
+        cors
+    );
     let _ = stream.write_all(header.as_bytes());
     let _ = stream.flush();
 }
 
-fn send_sse_event(stream: &mut TcpStream, data: &serde_json::Value) {
+fn send_sse_event<W: Write>(stream: &mut W, data: &serde_json::Value) {
     let payload = format!("data: {}\n\n", data);
     let _ = stream.write_all(payload.as_bytes());
     let _ = stream.flush();
 }
 
-fn send_sse_done(stream: &mut TcpStream) {
+fn send_sse_done<W: Write>(stream: &mut W) {
     let _ = stream.write_all(b"data: [DONE]\n\n");
     let _ = stream.flush();
 }
@@ -1319,6 +1922,146 @@ mod tests {
         assert!(!notes_dir.join("new-doc.adoc").exists());
 
         // Stop server
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_server_basic_auth_and_session_lifecycle() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+        fs::write(notes_dir.join("secret_doc.adoc"), "= Secret\nConfidential information.").unwrap();
+
+        let mut auth_cfg = auth::AuthConfig::default();
+        auth_cfg.enabled = true;
+        auth_cfg.basic_enabled = true;
+        auth_cfg.basic_username = "admin".to_string();
+        auth_cfg.set_password("MySecretPass!").unwrap();
+
+        let config = ServerConfig {
+            notes_dir: notes_dir.clone(),
+            db_path,
+            backup_dir,
+            port: 18940,
+            llm_config: LlmConfig::default(),
+            permission_config: PermissionConfig::default(),
+            auth_config: auth_cfg,
+            enable_tls: false,
+            tls_cert_path: None,
+            tls_key_path: None,
+        };
+
+        let server_handle = start_server_with_config(config).expect("Server should start");
+        let port = server_handle.port();
+
+        // 1. Unauthenticated request to protected API should fail with 401
+        let unauth_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
+        assert!(unauth_res.is_err());
+        if let Err(ureq::Error::Status(code, _)) = unauth_res {
+            assert_eq!(code, 401);
+        } else {
+            panic!("Expected 401 Unauthorized");
+        }
+
+        // 2. Unauthenticated request to public endpoint /api/ping should succeed
+        let ping_res = ureq::get(&format!("http://127.0.0.1:{}/api/ping", port)).call().unwrap();
+        assert_eq!(ping_res.status(), 200);
+        let ping_json: serde_json::Value = ping_res.into_json().unwrap();
+        assert_eq!(ping_json.get("auth_enabled").unwrap(), true);
+
+        // 3. Login with invalid password should fail
+        let bad_login = ureq::post(&format!("http://127.0.0.1:{}/api/auth/login", port))
+            .send_json(json!({
+                "username": "admin",
+                "password": "wrongpassword"
+            }));
+        assert!(bad_login.is_err());
+
+        // 4. Login with valid credentials
+        let login_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/login", port))
+            .send_json(json!({
+                "username": "admin",
+                "password": "MySecretPass!"
+            }))
+            .unwrap();
+        assert_eq!(login_res.status(), 200);
+        let cookie_header = login_res.header("Set-Cookie").expect("Should return Set-Cookie header");
+        assert!(cookie_header.contains("fishdoc_session="));
+
+        let cookie_val = cookie_header.split(';').next().unwrap().to_string();
+
+        // 5. Authenticated request with session cookie
+        let auth_notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &cookie_val)
+            .call()
+            .unwrap();
+        assert_eq!(auth_notes_res.status(), 200);
+
+        // 6. Test /api/auth/whoami with cookie
+        let whoami_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/whoami", port))
+            .set("Cookie", &cookie_val)
+            .call()
+            .unwrap();
+        let whoami_json: serde_json::Value = whoami_res.into_json().unwrap();
+        assert_eq!(whoami_json.get("authenticated").unwrap(), true);
+        assert_eq!(whoami_json.get("user").unwrap(), "admin");
+
+        // 7. Test Basic Auth header directly (admin:MySecretPass! in base64 is YWRtaW46TXlTZWNyZXRQYXNzIQ==)
+        let basic_hdr_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Authorization", "Basic YWRtaW46TXlTZWNyZXRQYXNzIQ==")
+            .call()
+            .unwrap();
+        assert_eq!(basic_hdr_res.status(), 200);
+
+        // 8. Logout
+        let logout_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/logout", port))
+            .set("Cookie", &cookie_val)
+            .call()
+            .unwrap();
+        assert_eq!(logout_res.status(), 200);
+
+        // 9. After logout, session is invalid
+        let post_logout = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &cookie_val)
+            .call();
+        assert!(post_logout.is_err());
+
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_server_tls_initialization() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test.db");
+        let backup_dir = tmp.path().join("backups");
+        let tls_dir = tmp.path().join("tls");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let cert_path = tls_dir.join("server.crt");
+        let key_path = tls_dir.join("server.key");
+
+        let config = ServerConfig {
+            notes_dir,
+            db_path,
+            backup_dir,
+            port: 18960,
+            llm_config: LlmConfig::default(),
+            permission_config: PermissionConfig::default(),
+            auth_config: auth::AuthConfig::default(),
+            enable_tls: true,
+            tls_cert_path: Some(cert_path.clone()),
+            tls_key_path: Some(key_path.clone()),
+        };
+
+        let server_handle = start_server_with_config(config).expect("TLS server should start");
+        assert!(server_handle.is_tls());
+        assert!(server_handle.primary_url().starts_with("https://"));
+        assert!(cert_path.exists());
+        assert!(key_path.exists());
+
         server_handle.stop();
     }
 }

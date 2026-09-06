@@ -46,6 +46,132 @@ createApp({
     const saveStatusClass = ref('saved');
     const showExportMenu = ref(false);
 
+    // Authentication State
+    const authRequired = ref(false);
+    const isAuthenticated = ref(true);
+    const authBasicEnabled = ref(true);
+    const authOauthEnabled = ref(false);
+    const authOauthProviderName = ref('Authentik');
+    const authUser = ref('');
+    const loginUsername = ref('admin');
+    const loginPassword = ref('');
+    const loginError = ref('');
+    const isLoggingIn = ref(false);
+
+    async function fetchAuthConfig() {
+      try {
+        const res = await fetch('/api/auth/config', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          authRequired.value = !!data.auth_required;
+          authBasicEnabled.value = data.basic_enabled !== false;
+          authOauthEnabled.value = !!data.oauth_enabled;
+          authOauthProviderName.value = data.oauth_provider_name || 'OpenID Connect';
+          isAuthenticated.value = !!data.authenticated;
+          authUser.value = data.user || '';
+          return data.authenticated;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch auth config:', err);
+      }
+      return true;
+    }
+
+    async function submitLogin() {
+      if (isLoggingIn.value) return;
+      isLoggingIn.value = true;
+      loginError.value = '';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: loginUsername.value,
+            password: loginPassword.value
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          isAuthenticated.value = true;
+          authUser.value = data.user || loginUsername.value;
+          loginPassword.value = '';
+          loginError.value = '';
+          await fetchNotesList();
+          await fetchAiConfig();
+        } else {
+          loginError.value = data.error || 'Invalid username or password';
+        }
+      } catch (err) {
+        loginError.value = 'Login request failed: ' + err.message;
+      } finally {
+        isLoggingIn.value = false;
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (_) {}
+      isAuthenticated.value = false;
+      authUser.value = '';
+      loginPassword.value = '';
+      await fetchAuthConfig();
+    }
+
+    // Connection & Health Check State
+    const isPhoneReachable = ref(true);
+    const isCheckingConnection = ref(false);
+    const connectionError = ref('');
+    let heartbeatTimer = null;
+
+    function markPhoneReachable() {
+      if (!isPhoneReachable.value) {
+        isPhoneReachable.value = true;
+        connectionError.value = '';
+        fetchNotesList();
+        updateRenderedHtml(rawContent.value);
+      } else {
+        isPhoneReachable.value = true;
+        connectionError.value = '';
+      }
+    }
+
+    function markPhoneUnreachable(err) {
+      isPhoneReachable.value = false;
+      if (err) {
+        connectionError.value = typeof err === 'string' ? err : (err.message || 'Phone unreachable');
+      }
+    }
+
+    async function checkConnection() {
+      if (isCheckingConnection.value) return;
+      isCheckingConnection.value = true;
+      try {
+        let signal = undefined;
+        let timer = null;
+        if (typeof AbortController !== 'undefined') {
+          const ctrl = new AbortController();
+          timer = setTimeout(() => ctrl.abort(), 3000);
+          signal = ctrl.signal;
+        }
+        const res = await fetch('/api/ping', {
+          method: 'GET',
+          signal: signal,
+          cache: 'no-store'
+        });
+        if (timer) clearTimeout(timer);
+        if (res.ok) {
+          markPhoneReachable();
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
+      } catch (err) {
+        markPhoneUnreachable(err);
+      } finally {
+        isCheckingConnection.value = false;
+      }
+    }
+
     // In-Place Block Editing State
     const inPlaceBlocks = ref([]);
     const editingBlockIndex = ref(-1);
@@ -73,7 +199,8 @@ createApp({
       endpoint: '',
       model: 'llama3.2',
       apiKey: '',
-      timeout: 90
+      timeout: 90,
+      allow_self_signed: false
     });
 
     // Refs
@@ -93,13 +220,17 @@ createApp({
           body: JSON.stringify({ content: text, full: false })
         });
         if (res.ok) {
+          markPhoneReachable();
           renderedHtml.value = await res.text();
           nextTick(() => {
             setupInteractiveFeatures();
           });
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (e) {
         console.error('Render error:', e);
+        markPhoneUnreachable(e);
       }
     }
 
@@ -128,15 +259,19 @@ createApp({
           body: JSON.stringify({ content: text !== undefined ? text : rawContent.value })
         });
         if (res.ok) {
+          markPhoneReachable();
           const data = await res.json();
           inPlaceBlocks.value = data.blocks || [];
           nextTick(() => {
             setupInteractiveFeatures();
           });
           return;
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (e) {
         console.error('Failed to parse blocks from server:', e);
+        markPhoneUnreachable(e);
       }
       // Fallback
       const raw = parseBlocksFromText(text !== undefined ? text : rawContent.value);
@@ -301,6 +436,7 @@ createApp({
           body: JSON.stringify({ item_index: itemIdx, checked: targetChecked })
         });
         if (res.ok) {
+          markPhoneReachable();
           const data = await res.json();
           if (data.content) {
             rawContent.value = data.content;
@@ -309,9 +445,12 @@ createApp({
               await loadInPlaceBlocks(data.content);
             }
           }
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (e) {
         console.error('Failed to toggle checklist item:', e);
+        markPhoneUnreachable(e);
       }
     }
 
@@ -320,14 +459,18 @@ createApp({
       try {
         const res = await fetch('/api/notes');
         if (res.ok) {
+          markPhoneReachable();
           const list = await res.json();
           notesList.value = list;
           if (list.length > 0 && !list.find(n => n.filename === currentFilename.value)) {
             loadNote(list[0].filename);
           }
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (err) {
         console.error('Failed to fetch notes list:', err);
+        markPhoneUnreachable(err);
       }
     }
 
@@ -338,6 +481,7 @@ createApp({
       try {
         const res = await fetch(`/api/notes/${filename}`);
         if (res.ok) {
+          markPhoneReachable();
           rawContent.value = await res.text();
           saveStatusText.value = 'Saved';
           saveStatusClass.value = 'saved';
@@ -345,9 +489,12 @@ createApp({
             inPlaceBlocks.value = parseBlocksFromText(rawContent.value);
             editingBlockIndex.value = -1;
           }
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (err) {
         console.error(`Failed to load note ${filename}:`, err);
+        markPhoneUnreachable(err);
       }
     }
 
@@ -369,6 +516,7 @@ createApp({
           body: rawContent.value
         });
         if (res.ok) {
+          markPhoneReachable();
           saveStatusText.value = 'Saved';
           saveStatusClass.value = 'saved';
           // Refresh list snippets
@@ -376,11 +524,13 @@ createApp({
         } else {
           saveStatusText.value = 'Error saving';
           saveStatusClass.value = 'unsaved';
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (err) {
         saveStatusText.value = 'Save failed';
         saveStatusClass.value = 'unsaved';
         console.error('Save error:', err);
+        markPhoneUnreachable(err);
       } finally {
         isSaving.value = false;
       }
@@ -416,14 +566,18 @@ createApp({
         });
 
         if (res.ok) {
+          markPhoneReachable();
           const data = await res.json();
           openNewNoteModal.value = false;
           newNoteTitle.value = '';
           await fetchNotesList();
           loadNote(data.filename);
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (err) {
         alert('Failed to create note: ' + err.message);
+        markPhoneUnreachable(err);
       }
     }
 
@@ -432,21 +586,26 @@ createApp({
       try {
         const res = await fetch('/api/ai/config');
         if (res.ok) {
+          markPhoneReachable();
           const data = await res.json();
           aiConfig.value.provider = data.provider || 'ollama';
-          aiConfig.value.endpoint = data.endpoint || (data.provider === 'openai' ? 'https://api.mimocode.com' : 'http://192.168.1.1:11434');
+          aiConfig.value.endpoint = data.endpoint || '';
           aiConfig.value.model = data.model || 'llama3.2';
           aiConfig.value.timeout = data.timeout || 90;
+          aiConfig.value.allow_self_signed = !!data.allow_self_signed;
           canUndo.value = !!data.can_undo;
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
       } catch (err) {
         console.warn('Could not load AI config:', err);
+        markPhoneUnreachable(err);
       }
     }
 
     async function saveAiSettings() {
       try {
-        await fetch('/api/ai/config', {
+        const res = await fetch('/api/ai/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -454,12 +613,19 @@ createApp({
             endpoint: aiConfig.value.endpoint,
             model: aiConfig.value.model,
             api_key: aiConfig.value.apiKey,
-            timeout: Number(aiConfig.value.timeout) || 90
+            timeout: Number(aiConfig.value.timeout) || 90,
+            allow_self_signed: !!aiConfig.value.allow_self_signed
           })
         });
-        showAiSettings.value = false;
+        if (res.ok) {
+          markPhoneReachable();
+          showAiSettings.value = false;
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
       } catch (err) {
         alert('Failed to save AI config: ' + err.message);
+        markPhoneUnreachable(err);
       }
     }
 
@@ -495,8 +661,10 @@ createApp({
         });
 
         if (!response.ok) {
+          markPhoneUnreachable(new Error(`HTTP ${response.status}`));
           throw new Error(`HTTP ${response.status}: ${await response.text()}`);
         }
+        markPhoneReachable();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -580,6 +748,12 @@ createApp({
           body: JSON.stringify({ approved })
         });
 
+        if (!response.ok) {
+          markPhoneUnreachable(new Error(`HTTP ${response.status}`));
+          throw new Error(`HTTP ${response.status}`);
+        }
+        markPhoneReachable();
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let fullAnswer = '';
@@ -628,16 +802,19 @@ createApp({
     async function undoLastAiAction() {
       try {
         const res = await fetch('/api/ai/undo', { method: 'POST' });
-        const data = await res.json();
-        if (data.ok) {
+        if (res.ok) {
+          markPhoneReachable();
+          const data = await res.json();
           canUndo.value = !!data.can_undo;
           await loadNote(currentFilename.value);
           messages.value.push({ role: 'assistant', content: `↩ ${data.message}` });
         } else {
-          alert('Undo failed: ' + (data.error || 'Unknown error'));
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+          alert('Undo failed: Server error');
         }
       } catch (err) {
         alert('Undo error: ' + err.message);
+        markPhoneUnreachable(err);
       }
     }
 
@@ -727,20 +904,43 @@ createApp({
 
     onMounted(async () => {
       window.addEventListener('keydown', handleGlobalKeyDown);
-      await fetchNotesList();
-      await fetchAiConfig();
+      const authed = await fetchAuthConfig();
+      if (authed) {
+        await fetchNotesList();
+        await fetchAiConfig();
+      }
 
       // Check if URL has note parameter
       const pathParts = window.location.pathname.split('/');
       if (pathParts[1] === 'page' || pathParts[1] === 'notes' || pathParts[1] === 'edit') {
         const targetNote = pathParts[2];
-        if (targetNote) {
+        if (targetNote && authed) {
           loadNote(targetNote.endsWith('.adoc') ? targetNote : targetNote + '.adoc');
         }
       }
+
+      // Start periodic health check heartbeat (every 4 seconds)
+      heartbeatTimer = setInterval(checkConnection, 4000);
     });
 
     return {
+      authRequired,
+      isAuthenticated,
+      authBasicEnabled,
+      authOauthEnabled,
+      authOauthProviderName,
+      authUser,
+      loginUsername,
+      loginPassword,
+      loginError,
+      isLoggingIn,
+      fetchAuthConfig,
+      submitLogin,
+      logout,
+      isPhoneReachable,
+      isCheckingConnection,
+      connectionError,
+      checkConnection,
       currentFilename,
       notesList,
       rawContent,
@@ -841,7 +1041,16 @@ pub const STYLE_CSS: &str = r#"
     --accent-light: #1e3a8a;
     --success-bg: #064e3b;
     --danger-bg: #7f1d1d;
-    --warning-bg: #78350f;
+    --warning-bg: #3d2800;
+    --note-bg: #0c2d48;
+    --note-border: #38bdf8;
+    --tip-bg: #064e3b;
+    --tip-border: #34d399;
+    --warning-border: #fbbf24;
+    --caution-bg: #3b0a15;
+    --caution-border: #fb7185;
+    --important-bg: #3b0764;
+    --important-border: #c084fc;
   }
 }
 
@@ -903,10 +1112,12 @@ html, body {
 .brand .logo { font-size: 1.3rem; }
 .brand .badge {
   font-size: 0.72rem;
-  background-color: var(--primary);
-  color: #fff;
+  background-color: var(--bg-main);
+  color: var(--text-muted);
   padding: 2px 6px;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  font-weight: 500;
 }
 
 .note-selector {
@@ -932,57 +1143,66 @@ button {
   border: 1px solid var(--border-color);
   background-color: var(--bg-card);
   color: var(--text-main);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 500;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  transition: all 0.15s ease;
+  gap: 5px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 button:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--text-muted);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn-new {
-  background-color: var(--accent-light);
-  color: var(--primary);
-  border-color: transparent;
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+.btn-new:hover:not(:disabled) {
+  background-color: var(--bg-main);
+  border-color: var(--text-muted);
 }
 
 .btn-primary, .btn-small-primary {
-  background-color: var(--primary);
-  color: #ffffff;
-  border-color: var(--primary);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border-color);
 }
 .btn-primary:hover:not(:disabled), .btn-small-primary:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  color: #ffffff;
+  background-color: var(--bg-main);
+  border-color: var(--text-muted);
 }
 
 .btn-save {
-  background-color: var(--primary);
-  color: #ffffff;
-  border-color: var(--primary);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border-color);
 }
 .btn-save:hover:not(:disabled) {
-  background-color: var(--primary-hover);
+  background-color: var(--bg-main);
+  border-color: var(--text-muted);
 }
 
 .save-indicator {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  color: var(--text-muted);
 }
-.save-indicator.saved { color: var(--success); }
-.save-indicator.saving { color: var(--warning); }
+.save-indicator.saved { color: var(--success); border-color: var(--success); background-color: var(--success-bg); }
+.save-indicator.saving { color: var(--warning); border-color: var(--warning); background-color: var(--warning-bg); }
 .save-indicator.unsaved { color: var(--text-muted); }
 
 .view-mode-tabs {
@@ -1009,18 +1229,18 @@ button:disabled {
 }
 
 .btn-ai {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  color: #ffffff;
-  border: none;
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
   position: relative;
 }
-.btn-ai:hover { opacity: 0.95; color: #ffffff; }
+.btn-ai:hover { background-color: var(--bg-main); border-color: var(--text-muted); color: var(--text-main); }
 .btn-ai .sparkle { font-size: 1rem; }
 .pulse-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background-color: #ef4444;
+  background-color: var(--danger);
   position: absolute;
   top: 4px;
   right: 4px;
@@ -1531,15 +1751,16 @@ button:disabled {
   border-radius: 8px;
   border-left: 5px solid;
   box-shadow: var(--shadow-sm);
+  color: var(--text-main);
 }
 .admonitionblock.note { background-color: var(--note-bg, #e0f2fe); border-color: var(--note-border, #0284c7); }
 .admonitionblock.tip { background-color: var(--tip-bg, #f0fdf4); border-color: var(--tip-border, #16a34a); }
 .admonitionblock.warning { background-color: var(--warning-bg, #fffbeb); border-color: var(--warning-border, #d97706); }
 .admonitionblock.caution { background-color: var(--caution-bg, #fff1f2); border-color: var(--caution-border, #e11d48); }
 .admonitionblock.important { background-color: #faf5ff; border-color: #9333ea; }
-.admonition-header { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 8px; }
-.admonition-icon { display: flex; align-items: center; }
-.admonition-icon-svg { display: inline-block; vertical-align: middle; }
+.admonition-header { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 8px; color: var(--text-main); }
+.admonition-icon { display: flex; align-items: center; color: var(--text-main); }
+.admonition-icon-svg { display: inline-block; vertical-align: middle; color: var(--text-main); }
 
 /* Table Frames & Grids */
 table.table { width: 100%; border-collapse: collapse; margin: 1.5em 0; font-size: 0.95rem; }
@@ -1602,7 +1823,326 @@ table.grid-none th, table.grid-none td { border: none; }
   font-weight: 500;
 }
 .menuseq { font-weight: 500; }
-.checklist-checkbox { margin-right: 8px; cursor: pointer; }
+
+/* Lists & Checklists */
+ul, ol {
+  margin: 0.8em 0;
+  padding-left: 28px;
+}
+li {
+  margin: 0.35em 0;
+}
+li > p {
+  margin: 0;
+  display: inline;
+}
+.checklist-item {
+  list-style-type: none;
+  margin-left: -20px;
+  display: flex;
+  align-items: flex-start;
+}
+.checklist-item p {
+  margin: 0;
+  display: inline;
+}
+.checklist-checkbox {
+  margin: 3px 8px 0 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  transform: scale(1.15);
+}
+.callout-item {
+  margin: 0.35em 0;
+}
+.callout-item p {
+  margin: 0;
+  display: inline;
+}
+
+/* Phone Reachability & Offline UI */
+.phone-offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background-color: #ef4444;
+  color: #ffffff;
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 1000;
+  animation: slideDown 0.25s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.offline-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.offline-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.offline-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.offline-text strong {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.offline-text span {
+  opacity: 0.95;
+  font-size: 0.82rem;
+}
+
+.btn-reconnect {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-reconnect:hover:not(:disabled) {
+  background-color: var(--bg-main);
+  border-color: var(--text-muted);
+}
+
+.btn-reconnect:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Connection Status Badge in Navbar */
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.connection-status.online {
+  color: var(--success);
+  border-color: var(--success);
+  background-color: var(--success-bg);
+}
+
+.connection-status.offline {
+  color: var(--danger);
+  border-color: var(--danger);
+  background-color: var(--danger-bg);
+  animation: pulseOffline 2s infinite;
+}
+
+@keyframes pulseOffline {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.connection-status.online .status-dot {
+  background-color: var(--success);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.connection-status.offline .status-dot {
+  background-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+/* Authentication & Login Screen */
+.login-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: var(--bg-main);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.08);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.login-header {
+  text-align: center;
+}
+.login-logo {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 8px;
+}
+.login-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.login-subtitle {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.login-error-banner {
+  background-color: var(--danger-bg, #fef2f2);
+  color: var(--danger, #dc2626);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.login-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.login-form label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.login-form input {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.login-form input:focus {
+  border-color: var(--primary);
+}
+.btn-login-submit {
+  padding: 11px;
+  background-color: var(--primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-top: 4px;
+}
+.btn-login-submit:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+.btn-login-submit:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.login-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin: 4px 0;
+}
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border-color);
+}
+.login-divider span {
+  padding: 0 10px;
+}
+.btn-oauth-login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: all 0.2s;
+}
+.btn-oauth-login:hover {
+  border-color: var(--primary);
+  background-color: var(--bg-card);
+}
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-main);
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color);
+}
+.btn-logout {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0 0 0 4px;
+}
+.btn-logout:hover {
+  color: var(--danger, #dc2626);
+  text-decoration: underline;
+}
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
@@ -1631,6 +2171,73 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
 </head>
 <body>
   <div id="app" v-cloak>
+    <!-- Login Screen Overlay when Authentication is Required -->
+    <div v-if="authRequired && !isAuthenticated" class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <span class="login-logo">🐟</span>
+          <h2>Fishdoc Web</h2>
+          <p class="login-subtitle">Please authenticate to access your documentation</p>
+        </div>
+
+        <div v-if="loginError" class="login-error-banner">
+          ⚠️ {{ loginError }}
+        </div>
+
+        <form v-if="authBasicEnabled" @submit.prevent="submitLogin" class="login-form">
+          <div class="form-group">
+            <label for="login-user">Username</label>
+            <input 
+              id="login-user" 
+              type="text" 
+              v-model="loginUsername" 
+              placeholder="Username" 
+              required 
+              autocomplete="username"
+            />
+          </div>
+          <div class="form-group">
+            <label for="login-pass">Password</label>
+            <input 
+              id="login-pass" 
+              type="password" 
+              v-model="loginPassword" 
+              placeholder="Password" 
+              required 
+              autocomplete="current-password"
+            />
+          </div>
+          <button type="submit" class="btn-login-submit" :disabled="isLoggingIn">
+            {{ isLoggingIn ? 'Authenticating...' : 'Sign In' }}
+          </button>
+        </form>
+
+        <div v-if="authBasicEnabled && authOauthEnabled" class="login-divider">
+          <span>or</span>
+        </div>
+
+        <div v-if="authOauthEnabled" class="oauth-section">
+          <a href="/api/auth/oauth/login" class="btn-oauth-login">
+            🔐 Log in with {{ authOauthProviderName }}
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Offline Warning Banner when phone is not reachable -->
+    <div v-if="!isPhoneReachable" class="phone-offline-banner">
+      <div class="offline-content">
+        <span class="offline-icon">⚠️</span>
+        <div class="offline-text">
+          <strong>Phone Not Reachable</strong>
+          <span>Cannot connect to Fishdoc on your Sailfish OS device. Changes cannot be saved until connection is restored.</span>
+        </div>
+      </div>
+      <button class="btn-reconnect" @click="checkConnection" :disabled="isCheckingConnection">
+        {{ isCheckingConnection ? 'Checking...' : '🔄 Reconnect' }}
+      </button>
+    </div>
+
     <!-- Top Navigation Bar -->
     <header class="navbar">
       <div class="nav-left">
@@ -1663,10 +2270,18 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
       </div>
 
       <div class="nav-right">
+        <div v-if="authRequired && isAuthenticated && authUser" class="user-badge" :title="'Logged in as ' + authUser">
+          <span>👤 {{ authUser }}</span>
+          <button @click="logout" class="btn-logout" title="Sign out">Log Out</button>
+        </div>
+        <div class="connection-status" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }" :title="isPhoneReachable ? 'Connected to Fishdoc on phone' : 'Phone is not reachable'">
+          <span class="status-dot"></span>
+          <span class="status-label">{{ isPhoneReachable ? 'Connected' : 'Offline' }}</span>
+        </div>
         <span class="save-indicator" :class="saveStatusClass">
           {{ saveStatusText }}
         </span>
-        <button @click="saveCurrentNote" class="btn-save" :disabled="isSaving" title="Save document (Ctrl+S)">
+        <button @click="saveCurrentNote" class="btn-save" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : 'Save document (Ctrl+S)'">
           {{ isSaving ? 'Saving...' : '💾 Save' }}
         </button>
         <div class="export-dropdown">
@@ -1827,6 +2442,9 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
         </label>
         <label>Endpoint URL:
           <input v-model="aiConfig.endpoint" placeholder="http://localhost:11434">
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; margin-top: 4px; margin-bottom: 8px;">
+          <input type="checkbox" v-model="aiConfig.allow_self_signed"> Accept Self-Signed Certificates
         </label>
         <label>Model Name:
           <input v-model="aiConfig.model" placeholder="llama3.2">

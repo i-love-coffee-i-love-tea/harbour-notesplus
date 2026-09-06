@@ -318,7 +318,7 @@ pub fn parse_table_row(line: &str) -> Vec<Vec<Block>> {
         })
         .collect();
     // Remove trailing empty cell from trailing pipe
-    while cells.last().map_or(false, |c| c.is_empty()) {
+    while cells.last().is_some_and(|c| c.is_empty()) {
         cells.pop();
     }
     cells

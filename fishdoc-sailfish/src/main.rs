@@ -5,20 +5,6 @@ use std::path::PathBuf;
 mod bridge;
 
 fn main() {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let data_dir = PathBuf::from(&home).join(".local").join("share").join("harbour-fishdoc");
-    let notes_dir = data_dir.join("notes");
-    let db_path = data_dir.join("fishdoc.db");
-    let examples_dir = PathBuf::from("/usr/share/harbour-fishdoc/examples");
-
-    if examples_dir.exists() {
-        let _ = std::fs::create_dir_all(&notes_dir);
-        if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-            let _ = fishdoc_core::db::init_schema(&conn);
-            let _ = fishdoc_core::page::copy_examples(&conn, &notes_dir, &examples_dir);
-        }
-    }
-
     let mut app = sailors::sailfishapp::QmlApp::application("harbour-fishdoc".into());
     app.set_quit_on_last_window_closed(false);
     app.promote_gui_app_to_qml_context("RootApp".into());

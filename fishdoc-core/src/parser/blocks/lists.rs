@@ -352,10 +352,8 @@ pub fn parse_unordered_list_item(line: &str) -> Option<(String, u8, &str)> {
     let indent = line.len() - trimmed.len();
     let space_level = (indent / 2) as u8;
 
-    if trimmed.starts_with('-') {
-        if trimmed.starts_with("- ") {
-            return Some(("-".to_string(), space_level, &trimmed[2..]));
-        }
+    if let Some(rest) = trimmed.strip_prefix("- ") {
+        return Some(("-".to_string(), space_level, rest));
     } else if trimmed.starts_with('*') {
         let star_count = trimmed.chars().take_while(|&c| c == '*').count();
         if star_count <= 5 && trimmed.as_bytes().get(star_count) == Some(&b' ') {
@@ -840,7 +838,7 @@ pub fn toggle_checkbox(
 }
 
 pub fn toggle_nested_continuation_lines(
-    lines: &mut Vec<String>,
+    lines: &mut [String],
     line_idx: usize,
     consumed: usize,
     sub_path: &str,
