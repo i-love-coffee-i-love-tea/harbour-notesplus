@@ -172,11 +172,11 @@ impl QmlApp {
         unsafe {
             cpp!([self as "QmlApplicationHolder*", src as "QUrl"] {
                 self->view->setSource(src);
-                qWarning() << "[FISHDOC] QQuickView status after setSource:" << self->view->status();
+                qWarning() << "[NOTESPLUSPLUS] QQuickView status after setSource:" << self->view->status();
                 if (self->view->status() == QQuickView::Error) {
-                    qWarning() << "[FISHDOC] QQuickView::Error loading QML source:" << src;
+                    qWarning() << "[NOTESPLUSPLUS] QQuickView::Error loading QML source:" << src;
                     for (const auto &err : self->view->errors()) {
-                        qWarning() << "[FISHDOC] QML Error:" << err.toString();
+                        qWarning() << "[NOTESPLUSPLUS] QML Error:" << err.toString();
                     }
                 }
             })

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate the harbour-fishdoc app icon: ><(((º> on teal background.
+"""Generate the harbour-notesplusplus app icon: Notes++ on teal background.
 
 Run from the project root:
     python3 scripts/generate-icon.py
 
 Requires: Pillow (pip install Pillow)
-Output:   rpm/harbour-fishdoc.png (86x86)
+Output:   rpm/harbour-notesplusplus.png (86x86)
 """
 
 import os
@@ -17,7 +17,7 @@ except ImportError:
     sys.exit("Pillow not found. Install with: pip install Pillow")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_PATH = os.path.join(PROJECT_ROOT, "rpm", "harbour-fishdoc.png")
+OUT_PATH = os.path.join(PROJECT_ROOT, "rpm", "harbour-notesplusplus.png")
 
 SIZE = 86
 img = Image.new("RGB", (SIZE, SIZE), (0, 150, 136))

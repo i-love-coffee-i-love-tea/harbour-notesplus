@@ -1,5 +1,7 @@
 target/
 rpms/
+RPMS/
+.sfdk/
 *.rpm
 .mimocode/
 .junie/

@@ -1,0 +1,339 @@
+= Advanced Formatting Demo
+:toc:
+
+== Nested Lists
+
+=== Deep Nesting
+
+1. Application
+  * Backend
+    * Parser
+      * Block parser
+        * Heading parser
+        * Table parser
+          * Cell-per-line format
+          * Pipe-delimited format
+        * List parser
+      * Inline parser
+        * Bold/italic
+        * Code spans
+        * Xref links
+    * Storage
+      * SQLite schema
+      * FTS5 search
+  * Frontend
+    * QML Components
+      * BlockDelegate
+      * InlineText
+    * Pages
+      * MainPage
+      * PageView
+
+=== Task Checklist
+
+- [x] Parser supports `|===` table delimiters
+- [x] Inline formatting in table cells
+- [x] Admonition blocks (`NOTE`, `TIP`, `WARNING`)
+- [x] Document attributes (`:toc:`, `:source-highlighter:`)
+- [x] `[source,lang]` code block annotations
+- [ ] PDF export via printpdf
+- [ ] Tap-to-edit blocks
+- [ ] Page rename support
+
+=== Nested Checkboxes
+
+- [x] Release v0.1
+  - [x] Parser stable
+  - [x] QML rendering
+  - [ ] PDF export
+- [ ] Release v0.2
+  - [ ] Tap-to-edit blocks
+  - [ ] Page rename
+  - [ ] Dark mode
+    - [ ] Theme colors
+    - [ ] Code block styles
+    - [ ] Link colors
+
+=== Project Structure
+
+Notes++ uses a multi-crate Cargo workspace:
+
+1. `notesplusplus-core`
+  * Parser (AsciiDoc to blocks)
+  * Inline formatting (bold, italic, code, links)
+  * SQLite storage with FTS5 search
+  * Page CRUD operations
+2. `notesplusplus-sailfish`
+  * QML/Silica user interface
+  * Rust-to-QML bridge via `qmetaobject`
+  * Async page loading with poll timer
+3. `vendor/sailors`
+  * SailfishApp FFI bootstrap
+  * Application lifecycle management
+
+=== Build Steps
+
+1. Install the Sailfish SDK
+2. Clone the repository
+3. Configure the build target:
+  a. Open `build-sailfish.sh`
+  b. Set `TARGET` to your SDK version
+  c. Set `SAILFISH_WORKSPACE` path
+4. Run `bash build-sailfish.sh`
+5. Deploy the RPM:
+  * `scp rpms/*.rpm user@phone:/tmp/`
+  * `devel-su rpm -Uvh /tmp/harbour-notesplusplus-*.rpm`
+
+=== List in a Table
+
+[cols="1,2a"]
+|===
+| Step | Details
+
+| 1. Prepare
+| - Check dependencies
+- Verify Rust version
+- Set environment vars
+
+| 2. Build
+| - Run `cargo build`
+- Check for warnings
+- Run `cargo test`
+
+| 3. Deploy
+| - Copy RPM to device
+- Install with `rpm -Uvh`
+- Launch app
+|===
+
+=== Nested List in a Table
+
+[cols="1,2a"]
+|===
+| Area | Tasks
+
+| Backend
+| 1. Parser
+  - Block parser
+    - Table parser
+      - Cell-per-line format
+      - Pipe-delimited format
+    - List parser
+  - Inline parser
+    - Bold/italic
+    - Code spans
+2. Storage
+  - SQLite schema
+  - FTS5 indexing
+
+| Frontend
+| 1. QML Components
+  - BlockDelegate
+  - InlineText
+2. Pages
+  - MainPage
+  - PageView
+|===
+
+=== Code in a Table
+
+[cols="1,1,2"]
+|===
+| Language | Function | Example
+
+| Rust
+| `parse_inline`
+a| ----
+fn parse_inline(text: &str) -> Vec<InlineSpan> {
+    let mut spans = Vec::new();
+    // ...
+    spans
+}
+----
+
+| QML
+| `renderSpan`
+a| ----
+function renderSpan(span) {
+    switch (span.type) {
+        case "bold":
+            return "<b>" + text + "</b>"
+    }
+}
+----
+
+| SQL
+| `search_pages`
+a| ----
+SELECT p.title, snippet(pages_fts)
+FROM pages_fts
+JOIN pages p ON p.id = pages_fts.rowid
+WHERE pages_fts MATCH ?1
+----
+|===
+
+== Tables with Formatting
+
+=== Supported Block Types
+
+[cols="1,1,2"]
+|===
+| Type | Span Support | Description
+
+| Heading
+| Yes
+| Levels 1-6, supports *bold* and _italic_
+
+| Paragraph
+| Yes
+| Full inline formatting with `code` and xref links
+
+| CodeBlock
+| No
+| Delimited with `----`, supports language annotation
+
+| Table
+| Yes
+| Cells support inline formatting
+
+| Admonition
+| Yes
+| `NOTE`, `TIP`, `WARNING`
+|===
+
+=== Keyboard Shortcuts
+
+[cols="1,2"]
+|===
+| Shortcut | Action
+
+| Pull down
+| Access menu (Journal, New Page, Delete)
+
+| Tap block
+| Edit raw AsciiDoc
+
+| Swipe right
+| Go back to main page
+|===
+
+== Code Examples
+
+=== Inline Formatting
+
+In AsciiDoc, use:
+
+* `*bold*` for *bold text*
+* `_italic_` for _italic text_
+* `` `code` `` for `inline code`
+* `xref:page.adoc[Display]` for page links
+
+=== Links
+
+External links work with full URLs or the `link:` macro:
+
+* Visit https://sailfishos.org[Sailfish OS] for more info
+* link:https://doc.qt.io/qt-5/qml-types.html[Qt QML Types] documentation
+* Bare URL: https://github.com/niclas-niclas/harbour-notesplusplus
+
+Internal page links use the `xref:` macro:
+
+* Back to xref:readme.adoc[Readme]
+
+=== Rust Parser
+
+The inline parser handles nested formatting:
+
+[source,rust]
+----
+fn parse_inline(text: &str) -> Vec<InlineSpan> {
+    let mut spans = Vec::new();
+    let mut pos = 0;
+    while pos < text.len() {
+        if let Some((span, consumed)) = try_match(&text[pos..]) {
+            spans.push(span);
+            pos += consumed;
+        } else {
+            pos += 1;
+        }
+    }
+    spans
+}
+----
+
+=== QML Rendering
+
+Inline spans are rendered as RichText HTML:
+
+[source,javascript]
+----
+function renderSpan(span) {
+    switch (span.type) {
+        case "bold": return "<b>" + renderSpans(span.spans) + "</b>"
+        case "italic": return "<i>" + renderSpans(span.spans) + "</i>"
+        case "code": return "<code>" + escapeHtml(span.value) + "</code>"
+        case "xref": return "<a href='xref:" + span.target + "'>" + span.display + "</a>"
+    }
+}
+----
+
+== Important Notes
+
+[NOTE]
+====
+The `qmetaobject` crate uses unsafe interior mutability. Never perform file I/O directly inside a `qt_method!` — always use a background thread with `Arc<Mutex<Option<Result>>>`.
+====
+
+[TIP]
+====
+Use `cargo test -p notesplusplus-core` to run all parser and storage tests without needing the Sailfish SDK.
+====
+
+[WARNING]
+====
+Always convert `Cargo.lock` from v4 to v3 before building with the Sailfish SDK. Rust 1.75 cannot parse lockfile v4.
+====
+
+== Extended Blocks & Features
+
+=== Sidebars and Examples
+
+.Sidebar Information
+****
+Sidebars provide contextual asides, tips, or supplementary reading.
+They can contain paragraphs and lists.
+
+* Feature 1: Compact styled container
+* Feature 2: Distinct ambiance styling
+****
+
+.Example Block
+====
+This demonstrates an example container with styled background and border.
+====
+
+=== Description Lists
+
+CPU:: Central Processing Unit executing instructions
+RAM:: Random Access Memory holding fast volatile working state
+GPU:: Graphics Processing Unit for accelerated rendering
+
+=== Code Callouts
+
+[source,rust]
+----
+fn main() {
+    let app = init_app(); <1>
+    app.run(); <2>
+}
+----
+<1> Initialize application state
+<2> Start event loop
+
+=== Footnotes, Images & Icons
+
+Notes++ includes fast embedded searching footnote:[Powered by SQLite FTS5 with prefix matching] for all your notes.
+
+Image demonstration: image:icon.png[Notes++ Icon, width=32] and image:harbour-notesplusplus.png[Notes++ Logo, width=48]
+
+Icons demonstration: icon:heart[role=love] icon:star[] icon:info[] icon:check[] icon:warning[] icon:search[] icon:gear[]

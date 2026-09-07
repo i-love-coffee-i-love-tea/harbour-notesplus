@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notes++ - AsciiDoc Editor & AI</title>
+  <link rel="icon" type="image/png" href="/icon.png">
+  <link rel="stylesheet" href="/style.css">
+  
+  <!-- Vue 3 ES Module Import Map (Vendored locally) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "vue": "/vue.esm-browser.prod.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <!-- Login Screen Overlay when Authentication is Required -->
+    <div v-if="authRequired && !isAuthenticated" class="login-overlay">
+      <div class="login-card">
+        <div class="login-header">
+          <img src="/icon.png" class="login-logo-img" alt="Notes++">
+          <h2>Notes++</h2>
+          <p class="login-subtitle">Please authenticate to access your documentation</p>
+        </div>
+
+        <div v-if="loginError" class="login-error-banner">
+          ⚠️ {{ loginError }}
+        </div>
+
+        <form v-if="authBasicEnabled" @submit.prevent="submitLogin" class="login-form">
+          <div class="form-group">
+            <label for="login-user">Username</label>
+            <input 
+              id="login-user" 
+              ref="loginUserInput"
+              type="text" 
+              v-model="loginUsername" 
+              placeholder="Username" 
+              required 
+              autocomplete="username"
+            />
+          </div>
+          <div class="form-group">
+            <label for="login-pass">Password</label>
+            <input 
+              id="login-pass" 
+              ref="loginPassInput"
+              type="password" 
+              v-model="loginPassword" 
+              placeholder="Password" 
+              required 
+              autocomplete="current-password"
+            />
+          </div>
+          <button type="submit" class="btn-login-submit" :disabled="isLoggingIn">
+            {{ isLoggingIn ? 'Authenticating...' : 'Sign In' }}
+          </button>
+        </form>
+
+        <div v-if="authBasicEnabled && authOauthEnabled" class="login-divider">
+          <span>or</span>
+        </div>
+
+        <div v-if="authOauthEnabled" class="oauth-section">
+          <a href="/api/auth/oauth/login" class="btn-oauth-login">
+            🔐 Log in with {{ authOauthProviderName }}
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Offline Warning Banner when phone is not reachable -->
+    <div v-if="!isPhoneReachable" class="phone-offline-banner">
+      <div class="offline-content">
+        <span class="offline-icon">⚠️</span>
+        <div class="offline-text">
+          <strong>Phone Not Reachable</strong>
+          <span>Cannot connect to Notes++ on your Sailfish OS device. Changes cannot be saved until connection is restored.</span>
+        </div>
+      </div>
+      <button type="button" class="btn-reconnect" @click="checkConnection" :disabled="isCheckingConnection">
+        {{ isCheckingConnection ? 'Checking...' : '🔄 Reconnect' }}
+      </button>
+    </div>
+
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-left">
+        <a href="/" class="brand" title="Notes++">
+          <img src="/icon.png" class="brand-icon" alt="Notes++">
+          <span class="brand-name">Notes++</span>
+        </a>
+        
+        <div class="nav-group doc-group">
+          <select v-model="currentFilename" @change="onNoteSelect" class="doc-select" title="Select document">
+            <option v-for="n in notesList" :key="n.filename" :value="n.filename">
+              {{ n.title }} ({{ n.filename }})
+            </option>
+          </select>
+          <button type="button" @click="openNewNoteModal = true" class="btn-group-action btn-new" title="Create New Note">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>New</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-center">
+        <div class="nav-group view-mode-tabs">
+          <button type="button" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'" title="Side-by-side Editor & Preview">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <path d="M12 3v18"></path>
+            </svg>
+            <span>Split</span>
+          </button>
+          <button type="button" :class="{ active: viewMode === 'inplace' }" @click="switchToInPlaceMode" title="Block-by-Block In-Place Editing">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            <span>Blocks</span>
+          </button>
+          <button type="button" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'" title="Full Rendered Document Preview">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            <span>Preview</span>
+          </button>
+          <button type="button" :class="{ active: viewMode === 'present' }" @click="enterPresentationMode" title="Start Presentation Mode (Slides)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            <span>Present</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="nav-right">
+        <div class="nav-group nav-right-group">
+          <!-- Connection Status -->
+          <div class="nav-group-item status-chip connection-chip" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }" :title="isPhoneReachable ? 'Connected to Notes++ on phone' : 'Phone is not reachable'">
+            <span class="status-dot"></span>
+            <span class="status-label">{{ isPhoneReachable ? 'Connected' : 'Offline' }}</span>
+          </div>
+
+          <!-- Save Status -->
+          <div class="nav-group-item status-chip save-chip" :class="saveStatusClass" :title="'Save status: ' + saveStatusText">
+            <span class="status-dot"></span>
+            <span class="status-label">{{ saveStatusText }}</span>
+          </div>
+
+          <!-- User Profile (when authenticated) -->
+          <div v-if="authRequired && isAuthenticated && authUser" class="nav-group-item status-chip user-chip" :title="'Logged in as ' + authUser">
+            <svg class="chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <span class="user-name">{{ authUser }}</span>
+            <button type="button" @click="logout" class="btn-logout" title="Sign out">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                <polyline points="16 17 21 12 16 7"></polyline>
+                <line x1="21" y1="12" x2="9" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Save Document Action -->
+          <button type="button" @click="saveCurrentNote" class="nav-group-item btn-group-action btn-save" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : 'Save document (Ctrl+S)'">
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            <span>{{ isSaving ? 'Saving...' : 'Save' }}</span>
+          </button>
+
+          <!-- Export Dropdown -->
+          <div class="nav-group-item export-dropdown">
+            <button type="button" class="btn-group-action btn-export" @click="showExportMenu = !showExportMenu" title="Export document">
+              <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Export</span>
+              <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div v-if="showExportMenu" class="dropdown-menu">
+              <a :href="'/export/' + currentFilename" target="_blank" @click="showExportMenu = false">Download HTML5</a>
+              <a :href="'/raw/' + currentFilename" target="_blank" @click="showExportMenu = false">View Raw AsciiDoc</a>
+            </div>
+          </div>
+
+          <!-- AI Assistant Drawer Toggle -->
+          <button type="button" @click="toggleAiDrawer" class="nav-group-item btn-group-action btn-ai" :class="{ 'has-pending': pendingAction, 'is-open': openAiDrawer }" title="Toggle AI Assistant">
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+            </svg>
+            <span>Assistant</span>
+            <span v-if="pendingAction" class="pulse-dot"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace" :class="[viewMode, { 'drawer-open': openAiDrawer }]">
+      
+      <!-- MODE 1: Split View (Source on Left, Preview on Right) -->
+      <template v-if="viewMode === 'split'">
+        <section class="editor-pane">
+          <div class="editor-toolbar">
+            <div class="toolbar-group">
+              <button @click="insertPrefix('= ')" title="Heading 1">H1</button>
+              <button @click="insertPrefix('== ')" title="Heading 2">H2</button>
+              <button @click="insertPrefix('=== ')" title="Heading 3">H3</button>
+              <button @click="insertPrefix('==== ')" title="Heading 4">H4</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="toolbar-group">
+              <button @click="insertPrefix('* ')" title="Bullet list item">• List</button>
+              <button @click="insertPrefix('. ')" title="Numbered list item">1. Num</button>
+              <button @click="insertPrefix('* [ ] ')" title="Checklist task item">☑ Task</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="toolbar-group">
+              <button @click="wrapSelection('*', '*')" title="Bold text"><strong>B</strong></button>
+              <button @click="wrapSelection('_', '_')" title="Italic text"><em>I</em></button>
+              <button @click="wrapSelection('`', '`')" title="Monospace code"><code>C</code></button>
+              <button @click="wrapSelection('[NOTE]\n====\n', '\n====\n')" title="Note Admonition">Note</button>
+              <button @click="wrapSelection('[source,rust]\n----\n', '\n----\n')" title="Source Code block">Code</button>
+              <button @click="insertTableTemplate" title="Insert AsciiDoc Table">Table</button>
+              <button @click="insertLink" title="Insert Link / Cross reference">Link</button>
+            </div>
+          </div>
+          <textarea 
+            ref="editorTextarea" 
+            v-model="rawContent" 
+            @input="onContentChange"
+            @keydown.tab.prevent="insertTab"
+            placeholder="Write AsciiDoc content here..."
+            spellcheck="false"
+          ></textarea>
+        </section>
+
+        <section class="preview-pane" @click="handlePreviewClick">
+          <article class="notes-body" v-html="renderedHtml"></article>
+        </section>
+      </template>
+
+      <!-- MODE 2: In-Place Block Editor (Notes++ style) -->
+      <template v-else-if="viewMode === 'inplace'">
+        <section class="inplace-container" @click="handlePreviewClick">
+          <div class="inplace-header">
+            <h3>Block Editor: <code>{{ currentFilename }}</code></h3>
+            <p class="subtitle">Click any block to edit in place. Changes sync directly with the AsciiDoc source.</p>
+          </div>
+
+          <div class="blocks-list">
+            <div 
+              v-for="(block, idx) in inPlaceBlocks" 
+              :key="idx" 
+              class="inplace-block-wrapper"
+              :class="{ 'is-editing': editingBlockIndex === idx }"
+            >
+              <!-- Block Rendered Mode -->
+              <div v-if="editingBlockIndex !== idx" class="inplace-rendered-card" @dblclick="editBlock(idx)">
+                <div class="block-actions">
+                  <button @click="editBlock(idx)" class="btn-block-edit" title="Edit this block">✏️ Edit</button>
+                  <button @click="insertBlockAfter(idx)" class="btn-block-add" title="Insert block below">➕</button>
+                  <button @click="deleteBlock(idx)" class="btn-block-del" title="Delete block">🗑️</button>
+                </div>
+                <div class="block-html notes-body" v-html="typeof block === 'object' ? block.html : block"></div>
+              </div>
+
+              <!-- Block Active Edit Mode -->
+              <div v-else class="inplace-editor-card">
+                <div class="inplace-toolbar">
+                  <div class="inplace-toolbar-left">
+                    <button @click="insertInPlacePrefix('= ')" title="Heading 1">H1</button>
+                    <button @click="insertInPlacePrefix('== ')" title="Heading 2">H2</button>
+                    <button @click="insertInPlacePrefix('=== ')" title="Heading 3">H3</button>
+                    <button @click="insertInPlacePrefix('* ')" title="Bullet">•</button>
+                    <button @click="insertInPlacePrefix('. ')" title="Numbered">1.</button>
+                    <button @click="insertInPlacePrefix('* [ ] ')" title="Task Checkbox">☑</button>
+                    <button @click="wrapInPlaceSelection('[NOTE]\n====\n', '\n====')" title="Admonition">Note</button>
+                    <button @click="wrapInPlaceSelection('[source,rust]\n----\n', '\n----')" title="Code">Code</button>
+                  </div>
+                  <div class="inplace-toolbar-right">
+                    <button @click="saveBlockEdit(idx)" class="btn-block-save" title="Save block">✔ Done</button>
+                    <button @click="cancelBlockEdit" class="btn-block-cancel" title="Cancel edit">✖ Cancel</button>
+                  </div>
+                </div>
+                <textarea 
+                  :ref="'blockEditor_' + idx"
+                  v-model="activeBlockText" 
+                  @keydown.esc="cancelBlockEdit"
+                  @keydown.ctrl.enter="saveBlockEdit(idx)"
+                  placeholder="Block content..."
+                  rows="6"
+                ></textarea>
+              </div>
+            </div>
+
+            <!-- Add Block at Bottom -->
+            <div class="add-bottom-block">
+              <button @click="addBlockAtEnd" class="btn-add-block-large">➕ Add New Block</button>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <!-- MODE 3: Full Document Preview -->
+      <template v-else-if="viewMode === 'preview'">
+        <section class="full-preview-pane" @click="handlePreviewClick">
+          <div class="preview-container">
+            <article class="notes-body" v-html="renderedHtml"></article>
+          </div>
+        </section>
+      </template>
+
+      <!-- MODE 4: Presentation Mode (Slides) -->
+      <template v-else-if="viewMode === 'present'">
+        <section class="presentation-stage" :class="{ 'is-fullscreen': isPresentationFullscreen }" ref="presentationStageRef">
+          <!-- Presentation Top Floating Controls Bar -->
+          <div class="presentation-topbar">
+            <div class="pres-topbar-left">
+              <button type="button" class="btn-pres-icon" @click="exitPresentationMode" title="Exit Presentation Mode (Esc)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                <span>Exit</span>
+              </button>
+              <span class="pres-doc-title">{{ currentFilename }}</span>
+            </div>
+            
+            <div class="pres-topbar-center">
+              <button type="button" class="btn-pres-icon" @click="showSlideOverview = !showSlideOverview" :class="{ active: showSlideOverview }" title="Toggle Slide Overview (O)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                <span>Slide {{ currentSlideIndex + 1 }} / {{ slides.length || 1 }}</span>
+              </button>
+            </div>
+
+            <div class="pres-topbar-right">
+              <button type="button" class="btn-pres-icon" @click="prevSlide" :disabled="currentSlideIndex <= 0" title="Previous Slide (Left Arrow / PageUp)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>Prev</span>
+              </button>
+              <button type="button" class="btn-pres-icon" @click="nextSlide" :disabled="currentSlideIndex >= slides.length - 1" title="Next Slide (Right Arrow / Space / PageDown)">
+                <span>Next</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
+              <button type="button" class="btn-pres-icon" @click="togglePresentationFullscreen" title="Toggle Fullscreen (F / F11)">
+                <svg v-if="!isPresentationFullscreen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                </svg>
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Slide Overview Grid Modal -->
+          <div v-if="showSlideOverview" class="slide-overview-modal" @click.self="showSlideOverview = false">
+            <div class="slide-overview-header">
+              <h3>Slide Overview</h3>
+              <button type="button" class="btn-icon" @click="showSlideOverview = false">&times;</button>
+            </div>
+            <div class="slide-overview-grid">
+              <div 
+                v-for="(slide, idx) in slides" 
+                :key="idx" 
+                class="slide-thumbnail-card"
+                :class="{ active: currentSlideIndex === idx }"
+                @click="goToSlide(idx)"
+              >
+                <div class="slide-thumb-header">
+                  <span class="slide-num">#{{ idx + 1 }}</span>
+                  <span class="slide-thumb-title">{{ slide.title }}</span>
+                </div>
+                <div class="slide-thumb-preview notes-body" v-html="slide.html || '<em>Loading...</em>'"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Slide Display Stage -->
+          <div 
+            class="presentation-viewport" 
+            @click="handlePreviewClick"
+            @touchstart="handleTouchStart"
+            @touchend="handleTouchEnd"
+          >
+            <!-- Left/Right Click Nav Zones -->
+            <div class="pres-nav-zone left-zone" @click.stop="prevSlide" :class="{ disabled: currentSlideIndex <= 0 }" title="Previous slide">
+              <div class="zone-hint">&#8249;</div>
+            </div>
+            
+            <div class="presentation-slide-card" :key="currentSlideIndex">
+              <article class="notes-body presentation-slide-body" v-html="currentSlideHtml || renderedHtml"></article>
+            </div>
+
+            <div class="pres-nav-zone right-zone" @click.stop="nextSlide" :class="{ disabled: currentSlideIndex >= slides.length - 1 }" title="Next slide">
+              <div class="zone-hint">&#8250;</div>
+            </div>
+          </div>
+
+          <!-- Bottom Presentation Progress Bar -->
+          <div class="presentation-progress-track">
+            <div class="presentation-progress-bar" :style="{ width: ((currentSlideIndex + 1) / (slides.length || 1) * 100) + '%' }"></div>
+          </div>
+        </section>
+      </template>
+
+    </main>
+
+    <!-- AI Assistant Drawer -->
+    <aside class="ai-drawer" :class="{ 'is-open': openAiDrawer }">
+      <div class="ai-drawer-header">
+        <div class="ai-title">
+          <span class="sparkle">✨</span> <strong>Notes++ AI</strong>
+          <span class="ai-backend-badge">{{ aiConfig.provider }}: {{ aiConfig.model }}</span>
+        </div>
+        <div class="ai-header-actions">
+          <button @click="showAiSettings = !showAiSettings" class="btn-icon" title="AI Settings">⚙️</button>
+          <button @click="openAiDrawer = false" class="btn-icon" title="Close Drawer">&times;</button>
+        </div>
+      </div>
+
+      <!-- Collapsible AI Settings -->
+      <div v-if="showAiSettings" class="ai-settings-panel">
+        <h4>AI Configuration (Backend Brokered)</h4>
+        <label>Provider:
+          <select v-model="aiConfig.provider">
+            <option value="ollama">Ollama (Local / LAN)</option>
+            <option value="openai">OpenAI / Compatible</option>
+          </select>
+        </label>
+        <label>Endpoint URL:
+          <input v-model="aiConfig.endpoint" placeholder="http://localhost:11434">
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; margin-top: 4px; margin-bottom: 8px;">
+          <input type="checkbox" v-model="aiConfig.allow_self_signed"> Accept Self-Signed Certificates
+        </label>
+        <label>Model Name:
+          <input v-model="aiConfig.model" placeholder="llama3.2">
+        </label>
+        <label>API Key (Optional):
+          <input v-model="aiConfig.apiKey" type="password" placeholder="Leave empty for local Ollama">
+        </label>
+        <div class="settings-actions">
+          <button type="button" @click="saveAiSettings" class="btn-small-primary">Save Settings</button>
+          <button type="button" @click="showAiSettings = false" class="btn-small">Close</button>
+        </div>
+      </div>
+
+      <!-- Quick Template Action Chips -->
+      <div class="ai-quick-templates">
+        <button type="button" @click="triggerTemplate('summarize')" :disabled="isAiBusy" title="Summarize active document">
+          📝 Summarize
+        </button>
+        <button type="button" @click="triggerTemplate('fix_grammar')" :disabled="isAiBusy" title="Fix grammar and polish AsciiDoc">
+          ✨ Polish
+        </button>
+        <button type="button" @click="triggerTemplate('add_admonition')" :disabled="isAiBusy" title="Add helpful notes and warnings">
+          💡 Add Tips
+        </button>
+        <button type="button" @click="triggerTemplate('format_table')" :disabled="isAiBusy" title="Convert unstructured data to table">
+          📊 Table
+        </button>
+        <button type="button" @click="triggerTemplate('continue_writing')" :disabled="isAiBusy" title="Continue writing next section">
+          ✍️ Continue
+        </button>
+      </div>
+
+      <!-- Undo Banner if Snapshot available -->
+      <div v-if="canUndo" class="ai-undo-banner">
+        <span>AI modified document.</span>
+        <button type="button" @click="undoLastAiAction" class="btn-undo-link">↩ Undo Last Change</button>
+      </div>
+
+      <!-- Pending Action Confirmation Card -->
+      <div v-if="pendingAction" class="diff-confirmation-card">
+        <div class="diff-card-header">
+          <strong>⚠️ Approval Required</strong>
+          <span class="diff-action-type">{{ pendingAction.tool_name }}</span>
+        </div>
+        <p class="diff-reason">{{ pendingAction.reason || ('Modify ' + pendingAction.filename) }}</p>
+
+        <div v-if="pendingAction.diff && pendingAction.diff.length" class="diff-view-box">
+          <div 
+            v-for="(line, idx) in pendingAction.diff" 
+            :key="idx" 
+            :class="['diff-line', 'diff-' + line.diff_type]"
+          >
+            <span class="diff-prefix">{{ line.diff_type === 'added' ? '+' : line.diff_type === 'removed' ? '-' : ' ' }}</span>
+            <span class="diff-text">{{ line.text }}</span>
+          </div>
+        </div>
+
+        <div class="diff-card-actions">
+          <button type="button" @click="confirmAction(true)" class="btn-diff-approve" :disabled="isAiBusy">✔ Approve & Apply</button>
+          <button type="button" @click="confirmAction(false)" class="btn-diff-deny" :disabled="isAiBusy">✖ Deny</button>
+        </div>
+      </div>
+
+      <!-- Chat History Stream -->
+      <div class="ai-chat-messages" ref="chatMessagesContainer">
+        <div v-if="messages.length === 0" class="chat-welcome">
+          <p><strong>👋 Welcome to Notes++ Assistant!</strong></p>
+          <p>I can edit notes, answer questions, format tables, search your library, and summarize documentation directly via your configured Ollama backend.</p>
+        </div>
+
+        <div 
+          v-for="(msg, idx) in messages" 
+          :key="idx" 
+          :class="['chat-bubble', msg.role]"
+        >
+          <div class="chat-bubble-header">
+            <strong>{{ msg.role === 'user' ? 'You' : 'Notes++ AI' }}</strong>
+          </div>
+          <div class="chat-bubble-body" v-html="formatMessageContent(msg.content)"></div>
+        </div>
+
+        <!-- Live Streaming Output -->
+        <div v-if="isAiStreaming" class="chat-bubble assistant streaming">
+          <div class="chat-bubble-header"><strong>Notes++ AI</strong> <span class="typing-indicator">typing...</span></div>
+          <div class="chat-bubble-body" v-html="formatMessageContent(streamingText)"></div>
+        </div>
+
+        <div v-if="aiError" class="chat-error-alert">
+          {{ aiError }}
+        </div>
+      </div>
+
+      <!-- Chat Input Area -->
+      <div class="ai-input-container">
+        <textarea 
+          v-model="aiPromptInput" 
+          @keydown.enter.exact.prevent="sendUserPrompt()"
+          placeholder="Ask AI to modify note or answer questions... (Enter to send)"
+          :disabled="isAiBusy"
+          rows="2"
+        ></textarea>
+        <button type="button" @click.prevent="sendUserPrompt()" :disabled="isAiBusy || !aiPromptInput.trim()" class="btn-send-ai">
+          {{ isAiBusy ? '⏳' : '➤' }}
+        </button>
+      </div>
+    </aside>
+
+    <!-- Create New Note Modal -->
+    <div v-if="openNewNoteModal" class="modal-overlay" @click.self="openNewNoteModal = false">
+      <div class="modal-card">
+        <h3>Create New AsciiDoc Note</h3>
+        <label>Note Title:
+          <input v-model="newNoteTitle" placeholder="e.g. Project Roadmap" autofocus>
+        </label>
+        <label>Filename Preview:
+          <code>{{ computedNewFilename }}</code>
+        </label>
+        <label>Template:
+          <select v-model="newNoteTemplate">
+            <option value="blank">Blank Note</option>
+            <option value="technical">Technical Documentation</option>
+            <option value="meeting">Meeting Notes</option>
+            <option value="journal">Journal Entry</option>
+            <option value="presentation">Slide Deck (Presentation)</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button @click="createNote" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>
+          <button @click="openNewNoteModal = false" class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

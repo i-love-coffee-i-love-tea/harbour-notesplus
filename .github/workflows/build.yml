@@ -1,0 +1,61 @@
+name: Build RPM
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - 'README.md'
+      - 'DEVELOPMENT.md'
+      - 'LICENSE'
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run cargo test
+        run: cargo test -p notesplusplus-core
+
+  build-rpm:
+    name: Build RPM (${{ matrix.arch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, armv7hl, i486]
+        include:
+          - arch: aarch64
+            release: '4.5.0.18'
+          - arch: armv7hl
+            release: '4.5.0.18'
+          - arch: i486
+            release: '4.5.0.18'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build RPM package
+        uses: R1tschY/sailfish-build-rpm@v1
+        with:
+          arch: ${{ matrix.arch }}
+          release: ${{ matrix.release }}
+          output-dir: ./RPMS
+
+      - name: Upload RPM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: harbour-notesplusplus-${{ matrix.arch }}-rpm
+          path: ./RPMS/*.rpm
+          if-no-files-found: error

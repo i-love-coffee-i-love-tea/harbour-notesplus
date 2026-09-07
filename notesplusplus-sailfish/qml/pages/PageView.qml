@@ -1,0 +1,442 @@
+import QtQuick 2.6
+import Sailfish.Silica 1.0
+import "../components"
+
+Page {
+    id: pageView
+    allowedOrientations: Orientation.All
+
+    property string pageName: bridge.current_page_name
+    property string searchTerm: ""
+    property int targetBlockIndex: -1
+    property bool hasScrolledToSearchTerm: false
+    property int editingBlockIndex: -1
+    property string editingRawText: ""
+    property string editingCurrentText: ""
+    property bool isAddingNewBlock: false
+    property string newBlockText: ""
+
+    property var collapsedTocBlocks: ({})
+
+    function isTocCollapsed(idx, entryCount) {
+        if (collapsedTocBlocks[idx] !== undefined) {
+            return !!collapsedTocBlocks[idx]
+        }
+        var threshold = (typeof app !== "undefined" && app && app.tocCollapseThreshold !== undefined) ? app.tocCollapseThreshold : 5
+        if (threshold === 0) return true
+        if (threshold >= 20) return false
+        var count = entryCount !== undefined ? entryCount : 0
+        if (count === 0 && parsedBlocks && parsedBlocks[idx] && parsedBlocks[idx].headings) {
+            count = parsedBlocks[idx].headings.length
+        }
+        return count > threshold
+    }
+
+    function toggleToc(idx, entryCount) {
+        var copy = {}
+        for (var k in collapsedTocBlocks) {
+            copy[k] = collapsedTocBlocks[k]
+        }
+        var current = isTocCollapsed(idx, entryCount)
+        copy[idx] = !current
+        collapsedTocBlocks = copy
+    }
+
+    function findBlockIndexForSearch(query) {
+        if (!query || query.length === 0 || !parsedBlocks || parsedBlocks.length === 0) return -1
+        var q = query.toLowerCase().trim()
+        var terms = q.split(/\s+/).filter(function(t) { return t.length > 0 })
+        if (terms.length === 0) return -1
+
+        for (var i = 0; i < parsedBlocks.length; i++) {
+            var b = parsedBlocks[i]
+            var textToSearch = ""
+            if (b.raw_text) textToSearch += " " + b.raw_text
+            if (b.raw) textToSearch += " " + b.raw
+            if (b.lines) textToSearch += " " + b.lines.join(" ")
+            if (b.term) textToSearch += " " + b.term
+            if (b.title) textToSearch += " " + b.title
+            var lower = textToSearch.toLowerCase()
+
+            for (var t = 0; t < terms.length; t++) {
+                if (lower.indexOf(terms[t]) !== -1) {
+                    return i
+                }
+            }
+        }
+        return -1
+    }
+
+    function scrollToSearchTarget() {
+        if (hasScrolledToSearchTerm) return
+        var targetIdx = targetBlockIndex
+        if (targetIdx < 0 && searchTerm.length > 0) {
+            targetIdx = findBlockIndexForSearch(searchTerm)
+        }
+        if (targetIdx >= 0 && targetIdx < (parsedBlocks ? parsedBlocks.length : 0)) {
+            hasScrolledToSearchTerm = true
+            scrollTimer.targetIdx = targetIdx
+            scrollTimer.start()
+        }
+    }
+
+    Timer {
+        id: scrollTimer
+        interval: 100
+        property int targetIdx: -1
+        onTriggered: {
+            if (targetIdx >= 0) {
+                listView.positionViewAtIndex(targetIdx, ListView.Beginning)
+            }
+        }
+    }
+
+    onParsedBlocksChanged: {
+        if (searchTerm.length > 0 && !hasScrolledToSearchTerm) {
+            scrollToSearchTarget()
+        }
+    }
+
+    property var parsedBlocks: {
+        var raw = bridge.blocks_version >= 0 ? bridge.current_blocks : []
+        if (!raw) return []
+        var list = []
+        for (var i = 0; i < raw.length; i++) {
+            try {
+                list.push(JSON.parse(raw[i]))
+            } catch (e) {
+                list.push({})
+            }
+        }
+        return list
+    }
+
+    function toggleParsedBlockCheckbox(idx, itemPath) {
+        if (!parsedBlocks || idx < 0 || idx >= parsedBlocks.length) return
+        var target = parsedBlocks[idx]
+        if (itemPath && itemPath.length > 0) {
+            var parts = itemPath.split(".")
+            for (var p = 0; p < parts.length; p++) {
+                var childIdx = parseInt(parts[p], 10)
+                if (target && target.blocks && target.blocks[childIdx]) {
+                    target = target.blocks[childIdx]
+                } else {
+                    return
+                }
+            }
+        }
+        if (target && target.checked !== undefined && target.checked !== null) {
+            target.checked = !target.checked
+        }
+    }
+
+    SilicaListView {
+        id: listView
+        anchors.fill: parent
+        clip: true
+        model: bridge.blocks_version >= 0 ? bridge.current_blocks : []
+
+        PullDownMenu {
+            MenuItem {
+                text: qsTr("Ask AI Assistant")
+                visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
+                onClicked: {
+                    var content = bridge.get_page_source(pageName)
+                    var fname = pageName.indexOf(".adoc") >= 0 ? pageName : (pageName + ".adoc")
+                    app.openAssistant(fname, content)
+                }
+            }
+            MenuItem {
+                text: qsTr("Edit Source")
+                onClicked: {
+                    var editor = pageStack.push(Qt.resolvedUrl("PageSourceEditor.qml"), {
+                        pageName: pageName
+                    })
+                    editor.accepted.connect(function() {
+                        bridge.load_page(pageName)
+                    })
+                }
+            }
+            MenuItem {
+                text: qsTr("Settings")
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+                }
+            }
+            MenuItem {
+                text: qsTr("Open in Browser")
+                onClicked: {
+                    bridge.open_in_browser(pageName)
+                }
+            }
+            MenuItem {
+                text: qsTr("Export to HTML5")
+                onClicked: {
+                    var path = bridge.export_html(pageName)
+                    if (path) {
+                        remorsePopup.execute(qsTr("Exported to ") + path, function() {})
+                    }
+                }
+            }
+            MenuItem {
+                text: qsTr("Delete Page")
+                visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
+                onClicked: {
+                    remorsePopup.execute(qsTr("Deleting page"), function() {
+                        bridge.delete_page(pageName)
+                        pageStack.pop()
+                    })
+                }
+            }
+        }
+
+        header: PageHeader {
+            title: pageName
+        }
+
+        footer: Item {
+            id: listFooter
+            width: listView.width
+            height: pageView.isAddingNewBlock ? (newBlockEditor.height + Theme.paddingLarge * 2) : Math.max(Theme.itemSizeExtraLarge * 2, listView.height - listView.contentHeight + Theme.itemSizeLarge)
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: !pageView.isAddingNewBlock && pageView.editingBlockIndex < 0
+                onClicked: {
+                    pageView.startAddingNewBlock()
+                }
+            }
+
+            Item {
+                id: newBlockEditor
+                width: parent.width
+                height: pageView.isAddingNewBlock ? (inlineNewTextArea.implicitHeight + Theme.paddingMedium) : 0
+                visible: pageView.isAddingNewBlock
+                anchors.top: parent.top
+                anchors.topMargin: Theme.paddingSmall
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.horizontalPageMargin / 2
+                    anchors.top: parent.top
+                    anchors.topMargin: Theme.paddingSmall
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Theme.paddingSmall
+                    width: 2
+                    color: Theme.highlightColor
+                    opacity: 0.8
+                    radius: 1
+                }
+
+                TextArea {
+                    id: inlineNewTextArea
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: pageView.newBlockText
+                    placeholderText: qsTr("Type text, task (* [ ]), or heading...")
+                    font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    color: Theme.primaryColor
+                    background: null
+                    onTextChanged: {
+                        if (pageView.isAddingNewBlock) {
+                            pageView.newBlockText = text
+                        }
+                    }
+                }
+            }
+        }
+
+        delegate: BlockDelegate {
+            width: listView.width
+            blockData: (pageView.parsedBlocks && pageView.parsedBlocks[index]) ? pageView.parsedBlocks[index] : (modelData ? JSON.parse(modelData) : ({}))
+            allBlocks: pageView.parsedBlocks
+            blockIndex: index
+            searchTerm: pageView.searchTerm
+            isEditing: pageView.editingBlockIndex === index
+            editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""
+            isTocCollapsed: pageView.isTocCollapsed(index, (blockData && blockData.headings) ? blockData.headings.length : 0)
+            onToggleToc: function(idx) {
+                pageView.toggleToc(idx, (blockData && blockData.headings) ? blockData.headings.length : 0)
+            }
+            onJumpToBlock: function(targetIndex) {
+                listView.positionViewAtIndex(targetIndex, ListView.Beginning)
+            }
+            onXrefActivated: function(target) {
+                bridge.navigate_to_page(target)
+            }
+            onCheckboxToggled: function(idx, itemPath) {
+                pageView.toggleParsedBlockCheckbox(idx, itemPath)
+                bridge.toggle_checkbox(idx, itemPath)
+            }
+            onEditRequested: function(idx, raw) {
+                if (pageView.isAddingNewBlock) {
+                    pageView.saveNewBlock()
+                }
+                var actualRaw = raw
+                if ((!actualRaw || actualRaw.length === 0) && pageView.parsedBlocks && pageView.parsedBlocks[idx]) {
+                    var b = pageView.parsedBlocks[idx]
+                    actualRaw = (b.raw !== undefined) ? b.raw : (b.raw_text || "")
+                }
+                pageView.editingRawText = actualRaw
+                pageView.editingCurrentText = actualRaw
+                pageView.editingBlockIndex = idx
+            }
+            onTextModified: function(idx, newText) {
+                if (pageView.editingBlockIndex === idx) {
+                    pageView.editingCurrentText = newText
+                }
+            }
+            onSaveRequested: function(idx, newRaw) {
+                bridge.save_block(idx, newRaw)
+                pageView.editingBlockIndex = -1
+                pageView.editingRawText = ""
+                pageView.editingCurrentText = ""
+            }
+            onCancelEditRequested: function() {
+                pageView.cancelCurrentEditing()
+            }
+        }
+
+        RemorsePopup { id: remorsePopup }
+    }
+
+    // Stationary floating action sidebar for in-place editing (transparent, non-moving)
+    InPlaceEditSidebar {
+        id: inPlaceSidebar
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.paddingMedium
+        anchors.verticalCenter: parent.verticalCenter
+        visible: pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock
+        onAccepted: {
+            if (pageView.isAddingNewBlock) {
+                pageView.saveNewBlock()
+            } else {
+                pageView.saveCurrentEditingBlock()
+            }
+        }
+        onCanceled: {
+            if (pageView.isAddingNewBlock) {
+                pageView.cancelNewBlock()
+            } else {
+                pageView.cancelCurrentEditing()
+            }
+        }
+        onPrefixRequested: function(prefix, multiLine) {
+            if (pageView.isAddingNewBlock) {
+                pageView.applyNewBlockPrefix(prefix, multiLine)
+            } else {
+                pageView.applyBlockPrefix(prefix, multiLine)
+            }
+        }
+        onLinkRequested: {
+            var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+                selectedText: ""
+            })
+            dialog.accepted.connect(function() {
+                var link = dialog.formattedLink
+                if (!link) return
+                if (pageView.isAddingNewBlock) {
+                    pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + " " : "") + link
+                } else if (pageView.editingBlockIndex >= 0) {
+                    var cur = pageView.editingCurrentText || ""
+                    var updated = (cur.length > 0 ? cur + " " : "") + link
+                    pageView.editingRawText = updated
+                    pageView.editingCurrentText = updated
+                }
+            })
+        }
+    }
+
+    function startAddingNewBlock() {
+        if (editingBlockIndex >= 0) {
+            saveCurrentEditingBlock()
+        }
+        newBlockText = ""
+        isAddingNewBlock = true
+        Qt.callLater(function() {
+            listView.positionViewAtEnd()
+        })
+    }
+
+    function saveNewBlock() {
+        if (isAddingNewBlock) {
+            var trimmed = (newBlockText || "").trim()
+            if (trimmed.length > 0) {
+                bridge.append_to_current_page(trimmed, false)
+            }
+            isAddingNewBlock = false
+            newBlockText = ""
+        }
+    }
+
+    function cancelNewBlock() {
+        isAddingNewBlock = false
+        newBlockText = ""
+    }
+
+    function applyNewBlockPrefix(prefix, multiLineList) {
+        var txt = newBlockText || ""
+        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
+        if (multiLineList && txt.indexOf("\n") !== -1) {
+            var lines = txt.split("\n")
+            var resultLines = []
+            for (var i = 0; i < lines.length; i++) {
+                var l = lines[i]
+                if (l.trim().length > 0) {
+                    var lRest = regex.test(l) ? l.replace(regex, "") : l
+                    resultLines.push(prefix + lRest)
+                } else {
+                    resultLines.push(l)
+                }
+            }
+            newBlockText = resultLines.join("\n")
+        } else {
+            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
+            newBlockText = prefix + rest
+        }
+    }
+
+    function applyBlockPrefix(prefix, multiLineList) {
+        var txt = editingCurrentText || ""
+        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
+        if (multiLineList && txt.indexOf("\n") !== -1) {
+            var lines = txt.split("\n")
+            var resultLines = []
+            for (var i = 0; i < lines.length; i++) {
+                var l = lines[i]
+                if (l.trim().length > 0) {
+                    var lRest = regex.test(l) ? l.replace(regex, "") : l
+                    resultLines.push(prefix + lRest)
+                } else {
+                    resultLines.push(l)
+                }
+            }
+            var newText = resultLines.join("\n")
+            editingRawText = newText
+            editingCurrentText = newText
+        } else {
+            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
+            var newText = prefix + rest
+            editingRawText = newText
+            editingCurrentText = newText
+        }
+    }
+
+    function saveCurrentEditingBlock() {
+        if (editingBlockIndex >= 0) {
+            bridge.save_block(editingBlockIndex, editingCurrentText)
+            editingBlockIndex = -1
+            editingRawText = ""
+            editingCurrentText = ""
+        }
+    }
+
+    function cancelCurrentEditing() {
+        editingBlockIndex = -1
+        editingRawText = ""
+        editingCurrentText = ""
+    }
+}

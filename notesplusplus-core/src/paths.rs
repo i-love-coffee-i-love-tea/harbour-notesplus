@@ -1,0 +1,56 @@
+use std::path::{Path, PathBuf};
+use crate::constants::{APP_DIR_NAME, DB_FILENAME, JOURNAL_FILENAME, NOTES_DIR_NAME};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppPaths {
+    pub data_dir: PathBuf,
+    pub notes_dir: PathBuf,
+    pub db_path: PathBuf,
+}
+
+impl AppPaths {
+    pub fn new() -> Self {
+        Self::from_data_dir(Self::default_data_dir())
+    }
+
+    pub fn default_data_dir() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        PathBuf::from(&home).join(".local").join("share").join(APP_DIR_NAME)
+    }
+
+    pub fn from_data_dir(data_dir: impl AsRef<Path>) -> Self {
+        let data_dir = data_dir.as_ref().to_path_buf();
+        let notes_dir = data_dir.join(NOTES_DIR_NAME);
+        let db_path = data_dir.join(DB_FILENAME);
+        Self {
+            data_dir,
+            notes_dir,
+            db_path,
+        }
+    }
+
+    pub fn journal_path(&self) -> PathBuf {
+        self.notes_dir.join(JOURNAL_FILENAME)
+    }
+}
+
+impl Default for AppPaths {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_paths_from_data_dir() {
+        let custom = PathBuf::from("/custom/dir");
+        let paths = AppPaths::from_data_dir(&custom);
+        assert_eq!(paths.data_dir, custom);
+        assert_eq!(paths.notes_dir, custom.join("notes"));
+        assert_eq!(paths.db_path, custom.join("notesplusplus.db"));
+        assert_eq!(paths.journal_path(), custom.join("notes").join("journal.adoc"));
+    }
+}
