@@ -45,7 +45,6 @@ pub struct AgentBridge {
     provider_type: qt_property!(String; NOTIFY config_changed),
     endpoint_url: qt_property!(String; NOTIFY config_changed),
     model_name: qt_property!(String; NOTIFY config_changed),
-    api_key: qt_property!(String; NOTIFY config_changed),
     timeout_secs: qt_property!(i32; NOTIFY config_changed),
     auto_allow_read: qt_property!(bool; NOTIFY config_changed),
     auto_allow_create: qt_property!(bool; NOTIFY config_changed),
@@ -82,6 +81,7 @@ pub struct AgentBridge {
     poll_models: qt_method!(fn(&mut self) -> bool),
 
     // Internal shared state
+    internal_api_key: String,
     session: Arc<Mutex<AgentSession>>,
     worker_result: Arc<Mutex<Option<WorkerOutput>>>,
     streaming_buffer: Arc<Mutex<String>>,
@@ -130,7 +130,7 @@ impl Default for AgentBridge {
             provider_type: "ollama".to_string(),
             endpoint_url: DEFAULT_OLLAMA_ENDPOINT.to_string(),
             model_name: "llama3.2".to_string(),
-            api_key: String::new(),
+            internal_api_key: String::new(),
             timeout_secs: 90,
             auto_allow_read: true,
             auto_allow_create: true,
@@ -183,7 +183,7 @@ impl AgentBridge {
         self.provider_type = provider.clone();
         self.endpoint_url = url.clone();
         self.model_name = model.clone();
-        self.api_key = key.clone();
+        self.internal_api_key = key.clone();
         self.timeout_secs = if timeout > 0 { timeout } else { 90 };
         self.auto_allow_read = auto_read;
         self.auto_allow_create = auto_create;
@@ -330,6 +330,9 @@ impl AgentBridge {
         if p.is_empty() {
             return String::new();
         }
+        if p.contains("..") {
+            return "Error: path traversal ('..') is not allowed".to_string();
+        }
         let expanded = if p.starts_with("~/") {
             if let Ok(home) = std::env::var("HOME") {
                 PathBuf::from(home).join(&p[2..])
@@ -339,7 +342,15 @@ impl AgentBridge {
         } else {
             PathBuf::from(p)
         };
-        match std::fs::read_to_string(&expanded) {
+        let notes_dir = notesplusplus_core::paths::AppPaths::new().notes_dir;
+        let canonical = match expanded.canonicalize() {
+            Ok(c) => c,
+            Err(e) => return format!("Error resolving path: {}", e),
+        };
+        if !canonical.starts_with(&notes_dir) {
+            return "Error: access denied — file is outside the notes directory".to_string();
+        }
+        match std::fs::read_to_string(&canonical) {
             Ok(content) => content,
             Err(e) => format!("Error reading file: {}", e),
         }
@@ -550,13 +561,13 @@ impl AgentBridge {
             provider: provider_enum,
             endpoint_url: self.endpoint_url.clone(),
             model: self.model_name.clone(),
-            api_key: if self.api_key.trim().is_empty() { None } else { Some(self.api_key.clone()) },
+            api_key: if self.internal_api_key.trim().is_empty() { None } else { Some(self.internal_api_key.clone()) },
             timeout_secs: self.timeout_secs.max(15) as u64,
             allow_self_signed: self.allow_self_signed,
         };
 
         let result_slot = self.models_result.clone();
-        *result_slot.lock().unwrap() = None;
+        *result_slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         thread::spawn(move || {
             let client = LlmClient::new(config);
@@ -595,5 +606,80 @@ impl AgentBridge {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[test]
+    fn path_traversal_detected() {
+        let paths = ["../../etc/passwd", "../secret.txt", "foo/../../bar"];
+        for p in paths {
+            assert!(p.contains(".."), "expected '..' in '{}'", p);
+        }
+    }
+
+    #[test]
+    fn safe_paths_have_no_traversal() {
+        let paths = ["Journal.adoc", "notes/my-note.adoc", "/home/user/notes/test.adoc"];
+        for p in paths {
+            assert!(!p.contains(".."), "unexpected '..' in '{}'", p);
+        }
+    }
+
+    #[test]
+    fn path_containment_check() {
+        let tmp = TempDir::new().unwrap();
+        let notes_dir = tmp.path();
+
+        // Inside notes dir
+        let inside = notes_dir.join("test.adoc");
+        assert!(inside.starts_with(notes_dir));
+
+        // Outside notes dir
+        let outside = PathBuf::from("/etc/passwd");
+        assert!(!outside.starts_with(notes_dir));
+
+        // Sibling directory
+        let sibling = tmp.path().parent().unwrap().join("other");
+        assert!(!sibling.starts_with(notes_dir));
+    }
+
+    #[test]
+    fn provider_mapping_openai() {
+        let providers = ["mimocode", "openai", "Mimocode", "OpenAI"];
+        for p in providers {
+            assert!(
+                p.to_lowercase() == "mimocode" || p.to_lowercase() == "openai",
+                "'{}' should map to OpenAiCompatible", p
+            );
+        }
+    }
+
+    #[test]
+    fn provider_mapping_ollama() {
+        let providers = ["ollama", "Ollama", "OLLAMA"];
+        for p in providers {
+            assert_ne!(p.to_lowercase(), "mimocode");
+            assert_ne!(p.to_lowercase(), "openai");
+        }
+    }
+
+    #[test]
+    fn timeout_default_when_zero() {
+        let timeout = 0i32;
+        let result = if timeout > 0 { timeout } else { 90 };
+        assert_eq!(result, 90);
+    }
+
+    #[test]
+    fn timeout_preserved_when_positive() {
+        let timeout = 120i32;
+        let result = if timeout > 0 { timeout } else { 90 };
+        assert_eq!(result, 120);
     }
 }

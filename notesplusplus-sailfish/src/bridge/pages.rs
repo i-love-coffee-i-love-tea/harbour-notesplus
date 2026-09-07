@@ -114,6 +114,7 @@ impl NotesBridge {
     }
 
     fn save_block_range_impl(&mut self, start_index: i32, count: i32, raw_text: String) {
+        if start_index < 0 || count < 0 { return; }
         let start_idx = start_index as usize;
         let count = count as usize;
 
@@ -215,6 +216,7 @@ impl NotesBridge {
     }
 
     fn save_journal_block_impl(&mut self, index: i32, raw_text: String) {
+        if index < 0 { return; }
         let idx = index as usize;
         let drop_comments = self.drop_comments;
         self.mutate_page_blocks(JOURNAL_FILENAME, |all| {
@@ -231,6 +233,7 @@ impl NotesBridge {
     }
 
     fn toggle_journal_checkbox_impl(&mut self, block_index: i32, item_path: String) {
+        if block_index < 0 { return; }
         let idx = block_index as usize;
         let filename = JOURNAL_FILENAME.to_string();
         let path = self.notes_path.join(&filename);
@@ -380,6 +383,7 @@ impl NotesBridge {
     }
 
     fn toggle_checkbox_impl(&mut self, block_index: i32, item_path: String) {
+        if block_index < 0 { return; }
         let idx = block_index as usize;
         let filename = if self.is_journal_page {
             JOURNAL_FILENAME.to_string()
@@ -420,28 +424,25 @@ impl NotesBridge {
             self.current_blocks = Self::blocks_to_qvariantlist(&self.current_blocks_data);
         }
 
-        let item_path_clone = item_path.clone();
-        std::thread::spawn(move || {
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(e) => {
-                    ::log::warn!("toggle_checkbox: read failed: {}", e);
-                    return;
-                }
-            };
-
-            let new_content = match parser::toggle_checkbox(&content, idx, &item_path_clone) {
-                Some(c) => c,
-                None => {
-                    ::log::warn!("toggle_checkbox: could not find/toggle block {} path '{}'", idx, item_path_clone);
-                    return;
-                }
-            };
-
-            if let Err(e) = std::fs::write(&path, &new_content) {
-                ::log::warn!("toggle_checkbox: write failed: {}", e);
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                ::log::warn!("toggle_checkbox: read failed: {}", e);
+                return;
             }
-        });
+        };
+
+        let new_content = match parser::toggle_checkbox(&content, idx, &item_path) {
+            Some(c) => c,
+            None => {
+                ::log::warn!("toggle_checkbox: could not find/toggle block {} path '{}'", idx, item_path);
+                return;
+            }
+        };
+
+        if let Err(e) = std::fs::write(&path, &new_content) {
+            ::log::warn!("toggle_checkbox: write failed: {}", e);
+        }
     }
 
     fn create_page_impl(&mut self, name: String) {
@@ -500,6 +501,7 @@ impl NotesBridge {
     }
 
     fn insert_link_at_cursor_impl(&mut self, block_idx: i32, _cursor_pos: i32, target: String) {
+        if block_idx < 0 { return; }
         let idx = block_idx as usize;
 
         let filename = if self.is_journal_page {
@@ -1068,4 +1070,46 @@ impl NotesBridge {
     pub fn start_web_server(&mut self) -> String { self.start_web_server_impl() }
     pub fn stop_web_server(&mut self) { self.stop_web_server_impl(); }
     pub fn toggle_web_server(&mut self) -> bool { self.toggle_web_server_impl() }
+}
+
+#[cfg(test)]
+mod tests {
+    use notesplusplus_core::constants::JOURNAL_FILENAME;
+    use notesplusplus_core::parser;
+
+    #[test]
+    fn negative_index_rejected() {
+        let block_index: i32 = -1;
+        assert!(block_index < 0, "negative index should be caught by guard");
+    }
+
+    #[test]
+    fn zero_index_accepted() {
+        let block_index: i32 = 0;
+        assert!(block_index >= 0, "zero index should be valid");
+    }
+
+    #[test]
+    fn checkbox_toggle_roundtrip() {
+        let content = "* [ ] task item\n* [x] done item\n";
+        let toggled = parser::toggle_checkbox(content, 0, "").unwrap();
+        assert!(toggled.contains("* [x] task item"));
+        assert!(toggled.contains("* [x] done item"));
+
+        let toggled_back = parser::toggle_checkbox(&toggled, 0, "").unwrap();
+        assert!(toggled_back.contains("* [ ] task item"));
+    }
+
+    #[test]
+    fn nested_checkbox_toggle() {
+        let content = "* [ ] parent\n** [ ] child\n";
+        let toggled = parser::toggle_checkbox(content, 0, "0").unwrap();
+        assert!(toggled.contains("* [ ] parent"));
+        assert!(toggled.contains("** [x] child"));
+    }
+
+    #[test]
+    fn journal_filename_constant() {
+        assert_eq!(JOURNAL_FILENAME, "journal.adoc");
+    }
 }

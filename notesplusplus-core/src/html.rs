@@ -669,10 +669,7 @@ impl<'a> HtmlRenderContext<'a> {
                 format!(r#"<span class="menuseq">{}</span>"#, items_html)
             }
             InlineSpan::Mark(inner) => format!("<mark>{}</mark>", self.render_spans(inner)),
-            InlineSpan::Pass(val) => {
-                val.replace("<script", "&lt;script")
-                    .replace("</script>", "&lt;/script&gt;")
-            }
+            InlineSpan::Pass(val) => escape_html(val),
         }
     }
 
@@ -1103,5 +1100,21 @@ Conclusion.
         assert!(html.contains("Sub-section A"));
         assert!(html.contains("href=\"#chapter-two\""));
         assert!(html.contains("Chapter Two"));
+    }
+
+    #[test]
+    fn escape_html_escapes_angle_brackets() {
+        assert_eq!(escape_html("<script>alert(1)</script>"),
+                   "&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+
+    #[test]
+    fn escape_html_escapes_quotes() {
+        assert_eq!(escape_html(r#"a"b'c"#), "a&quot;b&#39;c");
+    }
+
+    #[test]
+    fn escape_html_escapes_ampersand() {
+        assert_eq!(escape_html("a&b"), "a&amp;b");
     }
 }

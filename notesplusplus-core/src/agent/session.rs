@@ -8,7 +8,7 @@ use crate::agent::backup::BackupManager;
 use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
 use crate::agent::prompt::build_system_prompt;
-use crate::agent::tools::ToolCall;
+use crate::agent::tools::{is_blocked_host, ToolCall};
 use crate::db;
 use crate::page;
 use crate::search;
@@ -327,8 +327,7 @@ impl AgentSession {
             }
             "fetch_url" => {
                 let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                let blocked = ["localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "::1"];
-                if blocked.iter().any(|h| url.contains(h)) {
+                if is_blocked_host(url) {
                     format!("URL '{}' blocked: fetching localhost/private addresses is not allowed", url)
                 } else {
                     match ureq::get(url).timeout(std::time::Duration::from_secs(15)).call() {

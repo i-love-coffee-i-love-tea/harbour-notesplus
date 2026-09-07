@@ -150,6 +150,19 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     ]
 }
 
+/// Returns true if the URL targets a blocked (localhost/private) host.
+pub fn is_blocked_host(url: &str) -> bool {
+    let blocked = [
+        "localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
+        "::1", "0:0:0:0:0:0:0:1",
+        "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
+        "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
+        "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
+        "192.168.",
+    ];
+    blocked.iter().any(|h| url.contains(h))
+}
+
 /// Helper to download web text from an HTTP/HTTPS URL.
 pub fn fetch_url(url: &str) -> Result<String, String> {
     let trimmed = url.trim();
@@ -161,15 +174,7 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
     } else {
         trimmed.to_string()
     };
-    let blocked = [
-        "localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254",
-        "::1", "0:0:0:0:0:0:0:1",
-        "10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.20.",
-        "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
-        "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
-        "192.168.",
-    ];
-    if blocked.iter().any(|h| target.contains(h)) {
+    if is_blocked_host(&target) {
         return Err(format!("URL '{}' blocked: fetching localhost/private addresses is not allowed", target));
     }
     match ureq::get(&target).timeout(std::time::Duration::from_secs(15)).call() {
@@ -229,5 +234,36 @@ mod tests {
         let tool_call: ToolCall = serde_json::from_value(json_data).unwrap();
         assert_eq!(tool_call.function.name, "edit_note");
         assert_eq!(tool_call.function.arguments["filename"], "meeting.adoc");
+    }
+
+    #[test]
+    fn blocked_host_localhost() {
+        assert!(is_blocked_host("http://localhost:8080/api"));
+    }
+
+    #[test]
+    fn blocked_host_private_10() {
+        assert!(is_blocked_host("http://10.0.0.1/internal"));
+    }
+
+    #[test]
+    fn blocked_host_private_192() {
+        assert!(is_blocked_host("http://192.168.1.100/data"));
+    }
+
+    #[test]
+    fn blocked_host_link_local() {
+        assert!(is_blocked_host("http://169.254.169.254/metadata"));
+    }
+
+    #[test]
+    fn blocked_host_ipv6_loopback() {
+        assert!(is_blocked_host("http://[::1]:3000/"));
+    }
+
+    #[test]
+    fn allowed_public_host() {
+        assert!(!is_blocked_host("https://example.com/api"));
+        assert!(!is_blocked_host("https://api.openai.com/v1/chat"));
     }
 }

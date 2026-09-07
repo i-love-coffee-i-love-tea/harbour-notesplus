@@ -268,7 +268,7 @@ impl SessionStore {
 
     /// Validates session token and returns session if active.
     pub fn validate_session(&self, token: &str) -> Option<Session> {
-        let mut map = self.sessions.lock().unwrap();
+        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(session) = map.get(token) {
             if session.is_expired() {
                 map.remove(token);
@@ -284,7 +284,7 @@ impl SessionStore {
 
     /// Invalidate/remove session on logout.
     pub fn remove_session(&self, token: &str) {
-        let mut map = self.sessions.lock().unwrap();
+        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(token);
         self.persist(&map);
     }
@@ -316,7 +316,7 @@ impl OidcFlowManager {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let mut map = self.states.lock().unwrap();
+        let mut map = self.states.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(
             state,
             OidcPendingState {
@@ -328,7 +328,7 @@ impl OidcFlowManager {
     }
 
     pub fn take_state(&self, state: &str) -> Option<OidcPendingState> {
-        let mut map = self.states.lock().unwrap();
+        let mut map = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let pending = map.remove(state)?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

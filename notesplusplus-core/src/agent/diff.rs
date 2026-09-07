@@ -48,6 +48,21 @@ pub fn compute_line_diff(old_text: &str, new_text: &str) -> DiffSummary {
     let n = old_lines.len();
     let m = new_lines.len();
 
+    // Guard against excessive memory allocation for very large inputs
+    if n > 0 && m > 0 && n.saturating_mul(m) > 5_000_000 {
+        return DiffSummary {
+            additions: 0,
+            deletions: 0,
+            unchanged: 0,
+            lines: vec![DiffLine {
+                line_type: DiffLineType::Same,
+                content: format!("[Diff too large: {}x{} lines exceeds limit]", n, m),
+                old_line_no: None,
+                new_line_no: None,
+            }],
+        };
+    }
+
     // LCS dynamic programming table
     let mut dp = vec![vec![0usize; m + 1]; n + 1];
     for i in 0..n {
@@ -162,5 +177,14 @@ mod tests {
         let diff = compute_line_diff("", "= New Document\nHello");
         assert_eq!(diff.additions, 2);
         assert_eq!(diff.deletions, 0);
+    }
+
+    #[test]
+    fn test_rejects_excessively_large_input() {
+        let old: String = (0..3000).map(|i| format!("line {}", i)).collect::<Vec<_>>().join("\n");
+        let new: String = (0..3000).map(|i| format!("changed {}", i)).collect::<Vec<_>>().join("\n");
+        let result = compute_line_diff(&old, &new);
+        assert_eq!(result.lines.len(), 1);
+        assert!(result.lines[0].content.contains("Diff too large"));
     }
 }

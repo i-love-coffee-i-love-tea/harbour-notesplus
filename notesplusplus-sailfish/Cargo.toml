@@ -12,3 +12,6 @@ chrono = "0.4"
 log = "0.4"
 sailors = { path = "../vendor/sailors" }
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3.10"
