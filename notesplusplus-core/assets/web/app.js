@@ -192,6 +192,79 @@ createApp({
     const authCanRetry = ref(false);
     const authPollTimer = ref(null);
 
+    // Session Expiry & Timer State
+    const sessionExpiresAt = ref(0);
+    const sessionRemainingText = ref('');
+    const sessionRemainingFullText = ref('');
+    const sessionCountdownTimer = ref(null);
+
+    function formatSessionRemaining(seconds) {
+      if (seconds <= 0) return 'Expired';
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+
+      if (days >= 1) {
+        return `${days}d ${hours}h`;
+      } else if (hours >= 1) {
+        return `${hours}h ${minutes}m`;
+      } else if (minutes >= 1) {
+        return `${minutes}m ${secs}s`;
+      } else {
+        return `${secs}s`;
+      }
+    }
+
+    function formatSessionRemainingFull(seconds) {
+      if (seconds <= 0) return 'Expired';
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+      const parts = [];
+      if (days > 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
+      if (hours > 0) parts.push(`${hours} hr${hours > 1 ? 's' : ''}`);
+      if (minutes > 0) parts.push(`${minutes} min`);
+      if (secs > 0 || parts.length === 0) parts.push(`${secs} sec`);
+      return parts.join(' ');
+    }
+
+    function updateSessionCountdown() {
+      if (!isAuthenticated.value || !sessionExpiresAt.value) {
+        sessionRemainingText.value = '';
+        sessionRemainingFullText.value = '';
+        return;
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const diff = sessionExpiresAt.value - now;
+      if (diff <= 0) {
+        sessionRemainingText.value = 'Expired';
+        sessionRemainingFullText.value = 'Session expired';
+        stopSessionCountdown();
+        logout();
+      } else {
+        sessionRemainingText.value = formatSessionRemaining(diff);
+        sessionRemainingFullText.value = formatSessionRemainingFull(diff);
+      }
+    }
+
+    function startSessionCountdown(expiresAt) {
+      stopSessionCountdown();
+      if (expiresAt) {
+        sessionExpiresAt.value = expiresAt;
+      }
+      updateSessionCountdown();
+      sessionCountdownTimer.value = setInterval(updateSessionCountdown, 1000);
+    }
+
+    function stopSessionCountdown() {
+      if (sessionCountdownTimer.value) {
+        clearInterval(sessionCountdownTimer.value);
+        sessionCountdownTimer.value = null;
+      }
+    }
+
     async function fetchAuthConfig() {
       try {
         const res = await fetch('/api/auth/config', { cache: 'no-store' });
@@ -199,6 +272,13 @@ createApp({
           const data = await res.json();
           isAuthenticated.value = !!data.authenticated;
           authUser.value = data.user || '';
+          if (isAuthenticated.value && data.expires_at) {
+            startSessionCountdown(data.expires_at);
+          } else {
+            stopSessionCountdown();
+            sessionRemainingText.value = '';
+            sessionRemainingFullText.value = '';
+          }
           if (!isAuthenticated.value) {
             startPhoneAuth();
           }
@@ -217,6 +297,10 @@ createApp({
       isAuthenticated.value = false;
       authUser.value = '';
       stopAuthPolling();
+      stopSessionCountdown();
+      sessionRemainingText.value = '';
+      sessionRemainingFullText.value = '';
+      sessionExpiresAt.value = 0;
       authChallengeId.value = '';
       authVerificationCode.value = '';
       await fetchAuthConfig();
@@ -267,6 +351,9 @@ createApp({
             authStatus.value = '';
             authError.value = '';
             authCanRetry.value = false;
+            if (data.expires_at) {
+              startSessionCountdown(data.expires_at);
+            }
             await fetchNotesList();
             await fetchAiConfig();
           } else if (data.status === 'denied') {
@@ -1665,6 +1752,8 @@ createApp({
       authVerificationCode,
       authChallengeId,
       authCanRetry,
+      sessionRemainingText,
+      sessionRemainingFullText,
       fetchAuthConfig,
       logout,
       startPhoneAuth,

@@ -39,6 +39,13 @@ impl Write for StreamWrapper {
 }
 
 impl StreamWrapper {
+    pub fn peer_addr(&self) -> Option<std::net::SocketAddr> {
+        match self {
+            StreamWrapper::Plain(s) => s.peer_addr().ok(),
+            StreamWrapper::Tls(s) => s.sock.peer_addr().ok(),
+        }
+    }
+
     pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
         match self {
             StreamWrapper::Plain(s) => s.set_read_timeout(timeout),
@@ -61,6 +68,19 @@ pub struct ParsedHttpRequest {
     pub query: Option<String>,
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
+    pub client_ip: Option<String>,
+}
+
+impl ParsedHttpRequest {
+    pub fn client_ip(&self) -> &str {
+        if let Some(ref ip) = self.client_ip {
+            ip.as_str()
+        } else if let Some(hdr) = self.headers.get("x-forwarded-for") {
+            hdr.split(',').next().map(|s| s.trim()).unwrap_or("127.0.0.1")
+        } else {
+            "127.0.0.1"
+        }
+    }
 }
 
 pub fn sanitize_header_value(s: &str) -> String {
@@ -130,12 +150,15 @@ pub fn parse_http_request(stream: &mut StreamWrapper) -> Result<ParsedHttpReques
         stream.read_exact(&mut body).map_err(|e| e.to_string())?;
     }
 
+    let client_ip = stream.peer_addr().map(|a| a.ip().to_string());
+
     Ok(ParsedHttpRequest {
         method,
         path,
         query,
         headers,
         body,
+        client_ip,
     })
 }
 

@@ -67,6 +67,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: sessionExpiryHoursConf
+        key: "/apps/harbour-notesplusplus/session_expiry_hours"
+        defaultValue: 24
+    }
+
+    ConfigurationValue {
         id: journalEnabledConf
         key: "/apps/harbour-notesplusplus/journal_enabled"
         defaultValue: true
@@ -141,6 +147,7 @@ ApplicationWindow {
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
     property bool rejectPublicNetworks: rejectPublicNetworksConf.value !== undefined ? rejectPublicNetworksConf.value : true
+    property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
     property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
 
@@ -190,6 +197,13 @@ ApplicationWindow {
     function setRejectPublicNetworks(val) {
         rejectPublicNetworksConf.value = val
         bridge.set_reject_public_networks(val)
+    }
+
+    function setSessionExpiryHours(hours) {
+        sessionExpiryHoursConf.value = hours
+        if (typeof bridge !== "undefined" && bridge && typeof bridge.set_session_expiry_hours === "function") {
+            bridge.set_session_expiry_hours(hours)
+        }
     }
 
     function setJournalEnabled(val) {
@@ -317,6 +331,7 @@ ApplicationWindow {
         syncAiConfig()
         bridge.set_drop_comments(app.dropComments)
         bridge.set_reject_public_networks(app.rejectPublicNetworks)
+        bridge.set_session_expiry_hours(app.sessionExpiryHours)
         syncTheme()
         if (app.autostartWebServer) {
             bridge.start_web_server()

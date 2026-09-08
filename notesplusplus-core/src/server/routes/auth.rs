@@ -1,7 +1,8 @@
 use std::io::Write;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 
-use crate::constants::{AUTH_CHALLENGE_TTL_SECS, MIME_JSON, SESSION_COOKIE_NAME, SESSION_EXPIRY_SECS};
+use crate::constants::{AUTH_CHALLENGE_TTL_SECS, MIME_JSON, SESSION_COOKIE_NAME};
 use crate::server::auth::{Session, SessionStore};
 use crate::server::http::{
     extract_cookie_value, make_session_cookie, send_response, send_response_full,
@@ -44,11 +45,17 @@ pub fn handle_auth_config<W: Write>(
 ) {
     let session_store = ctx.session_store.clone();
     let session = authenticate_request(req, &session_store);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
 
     let resp = json!({
         "auth_required": true,
         "authenticated": session.is_some(),
-        "user": session.as_ref().map(|s| s.user.clone()).unwrap_or_default()
+        "user": session.as_ref().map(|s| s.user.clone()).unwrap_or_default(),
+        "expires_at": session.as_ref().map(|s| s.expires_at).unwrap_or(0),
+        "remaining_secs": session.as_ref().map(|s| s.expires_at.saturating_sub(now)).unwrap_or(0)
     });
     send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
 }
@@ -62,6 +69,13 @@ pub fn handle_logout<W: Write>(
     if let Some(cookie_hdr) = req.headers.get("cookie") {
         if let Some(session_id) = extract_cookie_value(cookie_hdr, SESSION_COOKIE_NAME) {
             ctx.session_store.remove_session(&session_id);
+        }
+    }
+    if let Some(auth_hdr) = req.headers.get("authorization") {
+        let auth_hdr = auth_hdr.trim();
+        if let Some(token) = auth_hdr.strip_prefix("Bearer ") {
+            let token = token.trim();
+            ctx.session_store.remove_session(token);
         }
     }
     let cookie_str = make_session_cookie("", ctx.is_tls, Some(0));
@@ -84,10 +98,17 @@ pub fn handle_whoami<W: Write>(
     cors_origin: &str,
 ) {
     let session = authenticate_request(req, &ctx.session_store);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
     let resp = json!({
         "authenticated": session.is_some(),
         "user": session.as_ref().map(|s| s.user.clone()).unwrap_or_default(),
         "auth_method": session.as_ref().map(|s| s.auth_method.clone()).unwrap_or_default(),
+        "expires_at": session.as_ref().map(|s| s.expires_at).unwrap_or(0),
+        "remaining_secs": session.as_ref().map(|s| s.expires_at.saturating_sub(now)).unwrap_or(0)
     });
     send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
 }
@@ -95,9 +116,31 @@ pub fn handle_whoami<W: Write>(
 /// POST /api/auth/code/initiate — Browser requests a verification code authorization challenge.
 pub fn handle_challenge_initiate<W: Write>(
     stream: &mut W,
+    req: &ParsedHttpRequest,
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
+    // Rate limit: max 10 requests per 60 seconds per client IP
+    let client_ip = req.client_ip();
+    if let Err(retry_after) = ctx.rate_limiter.check("auth_initiate", client_ip, 10, Duration::from_secs(60)) {
+        let retry_after_str = retry_after.to_string();
+        let err = json!({
+            "ok": false,
+            "error": format!("Too many authentication requests. Please try again in {} seconds.", retry_after),
+            "retry_after": retry_after
+        });
+        send_response_full(
+            stream,
+            429,
+            "Too Many Requests",
+            MIME_JSON,
+            err.to_string().as_bytes(),
+            cors_origin,
+            &[("Retry-After", &retry_after_str)],
+        );
+        return;
+    }
+
     match ctx.auth_challenges.create_challenge(AUTH_CHALLENGE_TTL_SECS) {
         Ok(challenge) => {
             ctx.signal_auth_challenge(challenge.challenge_id.clone());
@@ -142,16 +185,23 @@ pub fn handle_challenge_status<W: Write>(
         Some(challenge) => {
             if challenge.status == "approved" {
                 // Create a session and return it
-                let ttl = SESSION_EXPIRY_SECS;
+                let ttl = ctx.session_expiry_secs();
                 match ctx.session_store.create_session("web-user", "code", ttl) {
                     Ok(sess) => {
                         // Clean up the challenge
                         ctx.auth_challenges.remove_challenge(&challenge_id);
                         let cookie_str = make_session_cookie(&sess.id, ctx.is_tls, Some(ttl));
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let remaining_secs = sess.expires_at.saturating_sub(now);
                         let resp = json!({
                             "status": "approved",
                             "session_id": sess.id,
-                            "user": sess.user
+                            "user": sess.user,
+                            "expires_at": sess.expires_at,
+                            "remaining_secs": remaining_secs
                         });
                         send_response_full(
                             stream,

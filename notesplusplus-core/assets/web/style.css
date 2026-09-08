@@ -333,7 +333,7 @@ html, body {
 .user-chip {
   color: var(--text-main);
   font-size: 0.8rem;
-  padding: 0 6px 0 10px;
+  padding: 0 10px;
   gap: 6px;
 }
 
@@ -341,21 +341,36 @@ html, body {
   color: var(--text-muted);
 }
 
-.user-chip .btn-logout {
-  background: transparent;
-  border: none;
+/* Session Expiry Chip */
+.session-chip {
   color: var(--text-muted);
-  cursor: pointer;
-  padding: 4px;
-  margin-left: 2px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: color 0.15s, background-color 0.15s;
+  font-size: 0.78rem;
+  padding: 0 8px;
+  gap: 5px;
 }
 
-.user-chip .btn-logout:hover {
+.session-chip .chip-icon {
+  color: var(--text-muted);
+}
+
+.session-chip .session-label {
+  color: var(--text-muted);
+  opacity: 0.8;
+  font-size: 0.72rem;
+}
+
+.session-chip .session-time {
+  color: var(--text-main);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, monospace);
+}
+
+.nav-group .btn-logout {
+  color: var(--text-muted);
+}
+
+.nav-group .btn-logout:hover:not(:disabled) {
   color: var(--danger);
   background-color: var(--danger-bg);
 }

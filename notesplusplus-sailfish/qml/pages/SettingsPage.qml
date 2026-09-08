@@ -530,6 +530,41 @@ Page {
                     text: qsTr("Web Server Authentication")
                 }
 
+                ComboBox {
+                    width: parent.width
+                    label: qsTr("Session Duration")
+                    description: qsTr("Validity period for authorized browser sessions")
+                    currentIndex: {
+                        var h = (typeof app !== "undefined" && app && app.sessionExpiryHours !== undefined) ? app.sessionExpiryHours : 24
+                        if (h <= 1) return 0
+                        if (h <= 4) return 1
+                        if (h <= 8) return 2
+                        if (h <= 24) return 3
+                        if (h <= 168) return 4
+                        return 5
+                    }
+                    menu: ContextMenu {
+                        MenuItem { text: qsTr("1 Hour") }
+                        MenuItem { text: qsTr("4 Hours") }
+                        MenuItem { text: qsTr("8 Hours") }
+                        MenuItem { text: qsTr("24 Hours (1 Day)") }
+                        MenuItem { text: qsTr("7 Days (1 Week)") }
+                        MenuItem { text: qsTr("30 Days (1 Month)") }
+                    }
+                    onCurrentIndexChanged: {
+                        var hours = 24
+                        if (currentIndex === 0) hours = 1
+                        else if (currentIndex === 1) hours = 4
+                        else if (currentIndex === 2) hours = 8
+                        else if (currentIndex === 3) hours = 24
+                        else if (currentIndex === 4) hours = 168
+                        else if (currentIndex === 5) hours = 720
+                        if (typeof app !== "undefined" && app && app.setSessionExpiryHours) {
+                            app.setSessionExpiryHours(hours)
+                        }
+                    }
+                }
+
                 Button {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: qsTr("Test Web Login Prompt")

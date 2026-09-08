@@ -1,16 +1,16 @@
 //! TLS support and self-signed certificate generation for Notes++ embedded web server.
 
 use std::fs;
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use std::io::Write;
 
-use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig as RustlsServerConfig;
 use serde::{Deserialize, Serialize};
+
+pub use super::cert_gen::generate_self_signed_cert;
 
 /// Holds the generated or loaded certificate and private key in PEM and DER formats.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -109,49 +109,6 @@ pub fn pem_to_private_key(pem_str: &str) -> Result<PrivateKeyDer<'static>, Strin
         }
     }
     Err("No valid private key found in PEM (must be PKCS#8, RSA, or EC private key)".to_string())
-}
-
-/// Generates a new self-signed X.509 certificate and private key.
-pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate, String> {
-    let mut params = CertificateParams::default();
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, &options.common_name);
-    dn.push(DnType::OrganizationName, &options.organization);
-    params.distinguished_name = dn;
-
-    let mut subject_alt_names = Vec::new();
-    for name in &options.alt_names {
-        if let Ok(ip) = name.parse::<IpAddr>() {
-            subject_alt_names.push(SanType::IpAddress(ip));
-        } else if let Ok(dns) = name.clone().try_into() {
-            subject_alt_names.push(SanType::DnsName(dns));
-        }
-    }
-    if subject_alt_names.is_empty() {
-        if let Ok(dns) = "localhost".to_string().try_into() {
-            subject_alt_names.push(SanType::DnsName(dns));
-        }
-    }
-    params.subject_alt_names = subject_alt_names;
-
-    let key_pair = KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
-        .map_err(|e| format!("Failed to generate key pair: {}", e))?;
-
-    let cert = params
-        .self_signed(&key_pair)
-        .map_err(|e| format!("Failed to generate self-signed certificate: {}", e))?;
-
-    let cert_pem = cert.pem();
-    let key_pem = key_pair.serialize_pem();
-    let cert_ders = vec![cert.der().to_vec()];
-    let key_der = key_pair.serialize_der();
-
-    Ok(TlsCertificate {
-        cert_pem,
-        key_pem,
-        cert_ders,
-        key_der,
-    })
 }
 
 /// Validates that the provided certificate and key PEM strings form a valid, matching pair.
@@ -330,24 +287,6 @@ pub fn create_rustls_server_config(cert: &TlsCertificate) -> Result<Arc<RustlsSe
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[test]
-    fn test_generate_self_signed_cert() {
-        let options = TlsOptions {
-            common_name: "Notes++ Web Server".to_string(),
-            organization: "Notes++".to_string(),
-            alt_names: vec!["localhost".to_string(), "127.0.0.1".to_string(), "192.168.1.50".to_string()],
-            cert_path: None,
-            key_path: None,
-        };
-
-        let cert = generate_self_signed_cert(&options).expect("Certificate generation should succeed");
-        assert!(cert.cert_pem.contains("BEGIN CERTIFICATE"));
-        assert!(cert.cert_pem.contains("END CERTIFICATE"));
-        assert!(cert.key_pem.contains("BEGIN PRIVATE KEY"));
-        assert!(!cert.cert_ders.is_empty());
-        assert!(!cert.key_der.is_empty());
-    }
 
     #[test]
     fn test_get_or_create_tls_cert_persistence() {

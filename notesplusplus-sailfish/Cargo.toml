@@ -6,7 +6,7 @@ description = "Notes++ — AsciiDoc notes app for Sailfish OS"
 
 [dependencies]
 notesplusplus-core = { path = "../notesplusplus-core" }
-rusqlite = { version = "0.31", features = ["bundled-full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 qmetaobject = "0.2"
 chrono = "0.4"
 log = "0.4"

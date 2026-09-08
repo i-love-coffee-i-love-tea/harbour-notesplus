@@ -780,6 +780,14 @@ impl NotesBridge {
         }
     }
 
+    fn set_session_expiry_hours_impl(&mut self, hours: i32) {
+        let secs = (hours.max(1) as u64) * 3600;
+        self.auth_config.session_expiry_secs = secs;
+        if let Some(ref handle) = self.server_handle {
+            handle.context().set_session_expiry_secs(secs);
+        }
+    }
+
     fn get_linkable_pages_json_impl(&mut self, query: String) -> String {
         self.ensure_init();
         let conn = match self.conn() {
@@ -1026,6 +1034,7 @@ impl NotesBridge {
     pub fn toggle_web_server(&mut self) -> bool { self.toggle_web_server_impl() }
 
     pub fn set_theme(&mut self, colors_json: String) { self.set_theme_impl(colors_json); }
+    pub fn set_session_expiry_hours(&mut self, hours: i32) { self.set_session_expiry_hours_impl(hours); }
 
     /// Polls the server context for a pending authorization challenge. Returns true if one is pending.
     pub fn check_auth_challenge(&mut self) -> bool {

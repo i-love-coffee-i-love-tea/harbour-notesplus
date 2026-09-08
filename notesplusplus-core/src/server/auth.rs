@@ -28,8 +28,18 @@ pub fn generate_verification_code(digit_count: u32) -> String {
 }
 
 /// Authentication configuration stored in server state / persistent settings.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct AuthConfig {}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuthConfig {
+    pub session_expiry_secs: u64,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            session_expiry_secs: crate::constants::SESSION_EXPIRY_SECS,
+        }
+    }
+}
 
 /// Active user session.
 #[derive(Clone, Debug, Serialize, Deserialize)]

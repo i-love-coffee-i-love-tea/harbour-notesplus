@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub mod auth;
+pub mod cert_gen;
 pub mod http;
+pub mod rate_limit;
 pub mod routes;
 pub mod tls;
 pub mod web_assets;
@@ -80,6 +82,7 @@ pub struct ServerContext {
     pub session_store: auth::SessionStore,
     pub auth_challenges: auth::AuthChallengeStore,
     pub pending_auth_challenge: Arc<Mutex<Option<String>>>,
+    pub rate_limiter: rate_limit::RateLimiter,
     pub tls_status: Arc<Mutex<Option<tls::TlsStatusInfo>>>,
     pub reject_public_networks: Arc<AtomicBool>,
     pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
@@ -125,6 +128,7 @@ impl ServerContext {
             session_store: auth::SessionStore::with_storage(sessions_path),
             auth_challenges: auth::AuthChallengeStore::new(),
             pending_auth_challenge: Arc::new(Mutex::new(None)),
+            rate_limiter: rate_limit::RateLimiter::new(),
             tls_status: Arc::new(Mutex::new(None)),
             reject_public_networks: Arc::new(AtomicBool::new(config.reject_public_networks)),
             theme_colors: Arc::new(Mutex::new(HashMap::new())),
@@ -159,6 +163,20 @@ impl ServerContext {
     pub fn update_auth_config(&self, config: auth::AuthConfig) {
         let mut cfg_guard = self.auth_config.lock().unwrap_or_else(|e| e.into_inner());
         *cfg_guard = config;
+    }
+
+    /// Returns the currently configured session expiration in seconds.
+    pub fn session_expiry_secs(&self) -> u64 {
+        self.auth_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .session_expiry_secs
+    }
+
+    /// Updates the configured session expiration duration in seconds.
+    pub fn set_session_expiry_secs(&self, secs: u64) {
+        let mut guard = self.auth_config.lock().unwrap_or_else(|e| e.into_inner());
+        guard.session_expiry_secs = secs;
     }
 
     /// Updates TLS status information.
@@ -1095,5 +1113,243 @@ mod tests {
         assert_eq!(res_headers.header("Referrer-Policy").unwrap(), "no-referrer");
 
         server_handle.stop();
+    }
+
+    #[test]
+    fn test_logout_flow_and_session_invalidation() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test_logout.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18992,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // 1. Initiate challenge
+        let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .call()
+            .unwrap();
+        assert_eq!(init_res.status(), 200);
+        let init_json: serde_json::Value = init_res.into_json().unwrap();
+        let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
+
+        // 2. Approve challenge
+        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
+            .unwrap();
+        assert_eq!(approve_res.status(), 200);
+
+        // 3. Poll challenge status to receive session
+        let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+            .call()
+            .unwrap();
+        assert_eq!(status_res.status(), 200);
+        let set_cookie_hdr = status_res.header("Set-Cookie").unwrap().to_string();
+        let status_json: serde_json::Value = status_res.into_json().unwrap();
+        assert_eq!(status_json["status"], "approved");
+        let session_id = status_json["session_id"].as_str().unwrap().to_string();
+
+        // 4. Verify accessing protected API with session cookie succeeds
+        let notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &set_cookie_hdr)
+            .call()
+            .unwrap();
+        assert_eq!(notes_res.status(), 200);
+
+        // 5. Call POST /api/auth/logout
+        let logout_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/logout", port))
+            .set("Cookie", &set_cookie_hdr)
+            .call()
+            .unwrap();
+        assert_eq!(logout_res.status(), 200);
+        let logout_cookie_hdr = logout_res.header("Set-Cookie").unwrap();
+        assert!(logout_cookie_hdr.contains("Max-Age=0") || logout_cookie_hdr.contains("notesplusplus_session="));
+
+        // 6. Verify subsequent requests using the old session cookie are rejected with 401
+        let reject_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &set_cookie_hdr)
+            .call();
+        match reject_res {
+            Ok(resp) => panic!("Expected 401 after logout, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // 7. Verify subsequent requests using the old session ID as Bearer token are also rejected
+        let reject_bearer = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Authorization", &format!("Bearer {}", session_id))
+            .call();
+        match reject_bearer {
+            Ok(resp) => panic!("Expected 401 for revoked Bearer token, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_web_ui_logout_button_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains logout button and action bindings
+        assert!(INDEX_HTML.contains("@click=\"logout\""));
+        assert!(INDEX_HTML.contains("btn-logout"));
+        assert!(INDEX_HTML.contains("Logout"));
+
+        // 2. Verify app.js defines and exports logout handler
+        assert!(APP_JS.contains("async function logout()"));
+        assert!(APP_JS.contains("/api/auth/logout"));
+        assert!(APP_JS.contains("logout,"));
+
+        // 3. Verify style.css defines styling for logout button
+        assert!(STYLE_CSS.contains(".btn-logout"));
+    }
+
+    #[test]
+    fn test_rate_limiting_on_auth_endpoint() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test_rate_limit.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18993,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // Send 10 allowed initiate requests
+        for _ in 0..10 {
+            let res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+                .call()
+                .unwrap();
+            assert_eq!(res.status(), 200);
+        }
+
+        // The 11th request from the same IP should be blocked by rate limiter with 429
+        let blocked_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .call();
+        match blocked_res {
+            Ok(resp) => panic!("Expected 429 Too Many Requests, got {}", resp.status()),
+            Err(ureq::Error::Status(code, resp)) => {
+                assert_eq!(code, 429);
+                assert!(resp.header("Retry-After").is_some());
+                let body: serde_json::Value = resp.into_json().unwrap();
+                assert_eq!(body["ok"], false);
+                assert!(body["error"].as_str().unwrap().contains("Too many authentication requests"));
+                assert!(body["retry_after"].as_u64().unwrap() >= 1);
+            }
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_configurable_session_expiration_and_remaining_time() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test_session_expiry.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18994,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // Configure session duration to 7200 seconds (2 hours)
+        server_handle.context().set_session_expiry_secs(7200);
+        assert_eq!(server_handle.context().session_expiry_secs(), 7200);
+
+        // Initiate challenge
+        let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .call()
+            .unwrap();
+        let init_json: serde_json::Value = init_res.into_json().unwrap();
+        let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
+
+        // Approve challenge
+        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
+            .unwrap();
+        assert_eq!(approve_res.status(), 200);
+
+        // Poll status and verify remaining_secs and expires_at are reported
+        let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+            .call()
+            .unwrap();
+        assert_eq!(status_res.status(), 200);
+        let set_cookie_hdr = status_res.header("Set-Cookie").unwrap().to_string();
+        let status_json: serde_json::Value = status_res.into_json().unwrap();
+        assert_eq!(status_json["status"], "approved");
+        let remaining_secs = status_json["remaining_secs"].as_u64().unwrap();
+        assert!(remaining_secs >= 7190 && remaining_secs <= 7200);
+        let expires_at = status_json["expires_at"].as_u64().unwrap();
+
+        // Check /api/auth/config returns authenticated session info with remaining_secs
+        let cfg_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/config", port))
+            .set("Cookie", &set_cookie_hdr)
+            .call()
+            .unwrap();
+        assert_eq!(cfg_res.status(), 200);
+        let cfg_json: serde_json::Value = cfg_res.into_json().unwrap();
+        assert_eq!(cfg_json["authenticated"], true);
+        assert_eq!(cfg_json["expires_at"], expires_at);
+        assert!(cfg_json["remaining_secs"].as_u64().unwrap() > 0);
+
+        // Check /api/auth/whoami returns session details with remaining_secs
+        let whoami_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/whoami", port))
+            .set("Cookie", &set_cookie_hdr)
+            .call()
+            .unwrap();
+        assert_eq!(whoami_res.status(), 200);
+        let whoami_json: serde_json::Value = whoami_res.into_json().unwrap();
+        assert_eq!(whoami_json["authenticated"], true);
+        assert_eq!(whoami_json["expires_at"], expires_at);
+        assert!(whoami_json["remaining_secs"].as_u64().unwrap() > 0);
+
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_web_ui_session_timer_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains session chip and remaining text
+        assert!(INDEX_HTML.contains("session-chip"));
+        assert!(INDEX_HTML.contains("sessionRemainingText"));
+        assert!(INDEX_HTML.contains("session-time"));
+
+        // 2. Verify app.js defines countdown and session timer handlers
+        assert!(APP_JS.contains("formatSessionRemaining"));
+        assert!(APP_JS.contains("sessionRemainingText"));
+        assert!(APP_JS.contains("sessionCountdownTimer"));
+        assert!(APP_JS.contains("startSessionCountdown"));
+
+        // 3. Verify style.css defines styling for session chip
+        assert!(STYLE_CSS.contains(".session-chip"));
+        assert!(STYLE_CSS.contains(".session-time"));
     }
 }

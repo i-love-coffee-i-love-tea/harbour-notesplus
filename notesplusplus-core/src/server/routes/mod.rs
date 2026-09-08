@@ -67,7 +67,7 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
     }
 
     if (clean_path == "api/auth/code/initiate" || clean_path == "api/auth/fingerprint/initiate" || clean_path == "api/auth/phone/initiate") && req.method == "POST" {
-        auth::handle_challenge_initiate(&mut stream, &ctx, &cors_origin);
+        auth::handle_challenge_initiate(&mut stream, &req, &ctx, &cors_origin);
         return;
     }
 
