@@ -223,11 +223,13 @@ impl NotesBridge {
         self.conn_receiver = Some(rx);
 
         let notes_path = self.notes_path.clone();
+        let notes_subdir = notes_path.join("notes");
         let data_dir = self.data_dir.clone();
 
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
             let _ = std::fs::create_dir_all(&notes_path);
+            let _ = std::fs::create_dir_all(&notes_subdir);
             let _ = std::fs::create_dir_all(data_dir.join("exports"));
             eprintln!("[startup] dirs created in {:?}", t0.elapsed());
 
@@ -242,11 +244,11 @@ impl NotesBridge {
                     eprintln!("[startup] init_schema in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"));
+                    let _ = page::copy_examples(&conn, &notes_subdir, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"));
                     eprintln!("[startup] copy_examples in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::sync_and_index_pages(&conn, &notes_path);
+                    let _ = page::sync_and_index_pages(&conn, &notes_subdir);
                     eprintln!("[startup] sync_and_index_pages in {:?}", t.elapsed());
 
                     eprintln!("[startup] background init total: {:?}", t0.elapsed());

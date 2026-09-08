@@ -92,10 +92,12 @@ impl Default for AgentBridge {
     fn default() -> Self {
         let paths = notesplusplus_core::paths::AppPaths::new();
         let notes_dir = paths.notes_dir;
+        let notes_subdir = notes_dir.join("notes");
         let db_path = paths.db_path;
         let backup_dir = paths.data_dir.join("backups");
 
         let _ = std::fs::create_dir_all(&notes_dir);
+        let _ = std::fs::create_dir_all(&notes_subdir);
         let _ = std::fs::create_dir_all(&backup_dir);
 
         let config = LlmConfig::default();
@@ -104,7 +106,7 @@ impl Default for AgentBridge {
         let perm_mgr = PermissionManager::new(perm_config);
 
         let mut session = AgentSession::new(
-            &notes_dir,
+            &notes_subdir,
             &db_path,
             &backup_dir,
             perm_mgr,
@@ -344,11 +346,12 @@ impl AgentBridge {
             PathBuf::from(p)
         };
         let notes_dir = notesplusplus_core::paths::AppPaths::new().notes_dir;
+        let notes_subdir = notes_dir.join("notes");
         let canonical = match expanded.canonicalize() {
             Ok(c) => c,
             Err(e) => return format!("Error resolving path: {}", e),
         };
-        if !canonical.starts_with(&notes_dir) {
+        if !canonical.starts_with(&notes_subdir) {
             return "Error: access denied — file is outside the notes directory".to_string();
         }
         match std::fs::read_to_string(&canonical) {

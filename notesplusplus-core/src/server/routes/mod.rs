@@ -45,8 +45,6 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
     if clean_path == API_ROUTE_PING {
         let resp = json!({
             "ok": true,
-            "is_tls": ctx.is_tls,
-            "auth_enabled": true,
         });
         send_response(&mut stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), &cors_origin);
         return;

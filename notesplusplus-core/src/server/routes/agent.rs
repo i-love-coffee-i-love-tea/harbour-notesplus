@@ -115,7 +115,7 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
     let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(ref fname) = context_filename {
         let content = context_content.unwrap_or_else(|| {
-            fs::read_to_string(ctx.notes_dir.join(fname)).unwrap_or_default()
+            fs::read_to_string(ctx.notes_subdir.join(fname)).unwrap_or_default()
         });
         session_guard.reset_session(Some((fname.as_str(), &content)), None);
     }

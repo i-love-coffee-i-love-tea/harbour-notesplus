@@ -89,8 +89,10 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
 }
 
 /// Export a specific note page from `notes_dir` to an output HTML file.
+/// `notes_dir` is used for reading .adoc files; `assets_dir` is used for image resolution.
 pub fn export_page_to_html5(
     notes_dir: &Path,
+    assets_dir: &Path,
     filename: &str,
     output_path: &Path,
 ) -> Result<PathBuf, String> {
@@ -99,7 +101,7 @@ pub fn export_page_to_html5(
         .map_err(|e| format!("Failed to read {}: {}", adoc_path.display(), e))?;
 
     let title = filename.strip_suffix(".adoc").unwrap_or(filename);
-    let html = adoc_to_html5(&content, title, Some(notes_dir));
+    let html = adoc_to_html5(&content, title, Some(assets_dir));
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
@@ -113,8 +115,10 @@ pub fn export_page_to_html5(
 }
 
 /// Export all .adoc files in `notes_dir` to HTML5 in `output_dir`.
+/// `notes_dir` is used for reading .adoc files; `assets_dir` is used for image resolution.
 pub fn export_all_pages_to_html5(
     notes_dir: &Path,
+    assets_dir: &Path,
     output_dir: &Path,
 ) -> Result<Vec<PathBuf>, String> {
     let mut exported = Vec::new();
@@ -127,7 +131,7 @@ pub fn export_all_pages_to_html5(
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 let out_filename = format!("{}.html", name.strip_suffix(".adoc").unwrap_or(name));
                 let out_path = output_dir.join(out_filename);
-                match export_page_to_html5(notes_dir, name, &out_path) {
+                match export_page_to_html5(notes_dir, assets_dir, name, &out_path) {
                     Ok(p) => exported.push(p),
                     Err(e) => return Err(e),
                 }

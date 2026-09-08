@@ -32,6 +32,7 @@ use crate::agent::{
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub notes_dir: PathBuf,
+    pub notes_subdir: PathBuf,
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub port: u16,
@@ -49,6 +50,7 @@ impl Default for ServerConfig {
         let paths = crate::paths::AppPaths::new();
         let backup_dir = paths.data_dir.join("backups");
         Self {
+            notes_subdir: paths.notes_dir.join("notes"),
             notes_dir: paths.notes_dir,
             db_path: paths.db_path,
             backup_dir,
@@ -68,6 +70,7 @@ impl Default for ServerConfig {
 #[derive(Clone)]
 pub struct ServerContext {
     pub notes_dir: PathBuf,
+    pub notes_subdir: PathBuf,
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub session: Arc<Mutex<AgentSession>>,
@@ -90,12 +93,13 @@ impl ServerContext {
 
     pub fn new_with_tls(config: ServerConfig, is_tls: bool) -> Self {
         let _ = fs::create_dir_all(&config.notes_dir);
+        let _ = fs::create_dir_all(&config.notes_subdir);
         let _ = fs::create_dir_all(&config.backup_dir);
 
         let perm_mgr = PermissionManager::new(config.permission_config.clone());
         let client = LlmClient::new(config.llm_config.clone());
         let mut session = AgentSession::new(
-            &config.notes_dir,
+            &config.notes_subdir,
             &config.db_path,
             &config.backup_dir,
             perm_mgr,
@@ -111,6 +115,7 @@ impl ServerContext {
 
         Self {
             notes_dir: config.notes_dir,
+            notes_subdir: config.notes_subdir,
             db_path: config.db_path,
             backup_dir: config.backup_dir,
             session: Arc::new(Mutex::new(session)),
@@ -255,8 +260,10 @@ pub fn start_server_full(
     llm_config: Option<LlmConfig>,
     permission_config: Option<PermissionConfig>,
 ) -> Result<HttpServerHandle, String> {
+    let notes_subdir = notes_dir.join("notes");
     let config = ServerConfig {
         notes_dir,
+        notes_subdir,
         db_path,
         backup_dir,
         port: requested_port,
@@ -478,11 +485,13 @@ mod tests {
     fn test_server_lifecycle_and_endpoints() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
+        let notes_subdir = notes_dir.join("notes");
         let db_path = tmp.path().join("test.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
+        fs::create_dir_all(&notes_subdir).unwrap();
 
-        fs::write(notes_dir.join("welcome.adoc"), "= Welcome\nTest content for server.").unwrap();
+        fs::write(notes_subdir.join("welcome.adoc"), "= Welcome\nTest content for server.").unwrap();
 
         let server_handle = start_server_full(
             notes_dir.clone(),
@@ -556,7 +565,7 @@ mod tests {
             .send_string("= Welcome\nUpdated content from PUT test.")
             .unwrap();
         assert_eq!(put_res.status(), 200);
-        let updated_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
+        let updated_file = fs::read_to_string(notes_subdir.join("welcome.adoc")).unwrap();
         assert!(updated_file.contains("Updated content from PUT test"));
 
         // Test POST /api/notes (create new)
@@ -568,7 +577,7 @@ mod tests {
             }))
             .unwrap();
         assert_eq!(create_res.status(), 200);
-        assert!(notes_dir.join("new-doc.adoc").exists());
+        assert!(notes_subdir.join("new-doc.adoc").exists());
 
         // Test POST /api/render
         let render_res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
@@ -593,7 +602,7 @@ mod tests {
         assert!(parse_json.get("blocks").and_then(|b| b.as_array()).unwrap().len() >= 3);
 
         // Test POST /api/notes/welcome.adoc/toggle (checklist toggle)
-        fs::write(notes_dir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
+        fs::write(notes_subdir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
         let toggle_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
             .set("Cookie", &session_cookie)
             .send_json(json!({
@@ -602,7 +611,7 @@ mod tests {
             }))
             .unwrap();
         assert_eq!(toggle_res.status(), 200);
-        let toggled_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
+        let toggled_file = fs::read_to_string(notes_subdir.join("welcome.adoc")).unwrap();
         assert!(toggled_file.contains("* [x] Task 1"));
 
         // Test POST /api/ai/config (update config)
@@ -653,7 +662,7 @@ mod tests {
             .call()
             .unwrap();
         assert_eq!(del_res.status(), 200);
-        assert!(!notes_dir.join("new-doc.adoc").exists());
+        assert!(!notes_subdir.join("new-doc.adoc").exists());
 
         // Stop server
         server_handle.stop();
@@ -663,15 +672,18 @@ mod tests {
     fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
+        let notes_subdir = notes_dir.join("notes");
         let db_path = tmp.path().join("test_phone_auth.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
+        fs::create_dir_all(&notes_subdir).unwrap();
 
-        fs::write(notes_dir.join("protected.adoc"), "= Protected\nContent only for authenticated users.").unwrap();
+        fs::write(notes_subdir.join("protected.adoc"), "= Protected\nContent only for authenticated users.").unwrap();
 
         let auth_cfg = auth::AuthConfig::default();
 
         let config = ServerConfig {
+            notes_subdir: notes_dir.join("notes"),
             notes_dir,
             db_path,
             backup_dir,
@@ -777,6 +789,7 @@ mod tests {
         let key_path = tls_dir.join("server.key");
 
         let config = ServerConfig {
+            notes_subdir: notes_dir.join("notes"),
             notes_dir,
             db_path,
             backup_dir,
@@ -997,5 +1010,91 @@ mod tests {
         assert_eq!(filtered_notes.len(), 1);
         assert_eq!(filtered_notes[0]["filename"], "architecture.adoc");
         assert_eq!(filtered_notes[0]["title"], "System Architecture");
+    }
+
+    #[test]
+    fn test_security_asset_path_isolation() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let notes_subdir = notes_dir.join("notes");
+        let db_path = tmp.path().join("test_security.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+        fs::create_dir_all(&notes_subdir).unwrap();
+
+        // Put a .adoc file in the notes subdirectory (where notes live)
+        fs::write(notes_subdir.join("secret.adoc"), "= Secret\nConfidential content.").unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18990,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // /assets/secret.adoc should NOT serve the note (notes are in notes/ subdir now)
+        let res = ureq::get(&format!("http://127.0.0.1:{}/assets/secret.adoc", port)).call();
+        match res {
+            Ok(resp) => panic!("Expected 404 for assets/secret.adoc, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 404, "assets/ should not serve .adoc files from notes subdir"),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // /raw/secret.adoc without auth should return the login page (SPA), not raw content
+        let res_raw = ureq::get(&format!("http://127.0.0.1:{}/raw/secret.adoc", port)).call().unwrap();
+        assert_eq!(res_raw.status(), 200);
+        let body = res_raw.into_string().unwrap();
+        assert!(body.contains("Notes++"), "unauthenticated /raw/ should serve login page, not note content");
+
+        // /api/notes without auth should return 401
+        let res_api = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
+        match res_api {
+            Ok(resp) => panic!("Expected 401 for unauthenticated /api/notes, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // /page/test without auth should return the login page
+        let res_page = ureq::get(&format!("http://127.0.0.1:{}/page/test", port)).call().unwrap();
+        assert_eq!(res_page.status(), 200);
+        let page_body = res_page.into_string().unwrap();
+        assert!(page_body.contains("Notes++"), "unauthenticated /page/ should serve login page");
+
+        // Path traversal attempt should be blocked (use raw TCP to avoid URL normalization)
+        {
+            use std::io::{Read, Write as IoWrite};
+            let mut tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+            tcp.write_all(b"GET /assets/../../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            let mut resp = String::new();
+            tcp.read_to_string(&mut resp).unwrap();
+            assert!(resp.starts_with("HTTP/1.1 403"), "path traversal should return 403, got: {}", &resp[..50.min(resp.len())]);
+        }
+
+        // /api/ping should not leak TLS or auth status
+        let res_ping = ureq::get(&format!("http://127.0.0.1:{}/api/ping", port)).call().unwrap();
+        assert_eq!(res_ping.status(), 200);
+        let ping_json: serde_json::Value = res_ping.into_json().unwrap();
+        assert!(ping_json.get("ok").is_some(), "ping should have 'ok' field");
+        assert!(ping_json.get("is_tls").is_none(), "ping should not leak TLS status");
+        assert!(ping_json.get("auth_enabled").is_none(), "ping should not leak auth status");
+
+        // /api/auth/config without auth should not leak username
+        let res_cfg = ureq::get(&format!("http://127.0.0.1:{}/api/auth/config", port)).call().unwrap();
+        assert_eq!(res_cfg.status(), 200);
+        let cfg_json: serde_json::Value = res_cfg.into_json().unwrap();
+        assert!(cfg_json.get("basic_username").is_none(), "auth config should not leak username");
+        assert!(cfg_json.get("has_password").is_none(), "auth config should not leak password existence");
+
+        // Verify security headers are present
+        let res_headers = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+        assert_eq!(res_headers.header("X-Content-Type-Options").unwrap(), "nosniff");
+        assert_eq!(res_headers.header("X-Frame-Options").unwrap(), "DENY");
+        assert_eq!(res_headers.header("Referrer-Policy").unwrap(), "no-referrer");
+        assert!(res_headers.header("Content-Security-Policy").is_some());
+
+        server_handle.stop();
     }
 }

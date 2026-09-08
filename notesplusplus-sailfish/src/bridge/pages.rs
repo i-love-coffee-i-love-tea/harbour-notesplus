@@ -33,7 +33,7 @@ impl NotesBridge {
     where
         F: FnOnce(&mut Vec<Block>) -> bool,
     {
-        let path = self.notes_path.join(filename);
+        let path = self.notes_path.join("notes").join(filename);
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -73,7 +73,7 @@ impl NotesBridge {
                 self.current_page_name = info.title.clone();
                 self.is_journal_page = info.is_journal;
 
-                let notes_dir = self.notes_path.clone();
+                let notes_dir = self.notes_path.join("notes");
                 let pending = self.pending.clone();
                 let drop_comments = self.drop_comments;
                 self.is_loading = true;
@@ -167,13 +167,13 @@ impl NotesBridge {
         };
 
         if is_journal {
-            if let Err(e) = journal::append_to_journal_today(&self.notes_path, &line_to_append) {
+            if let Err(e) = journal::append_to_journal_today(&self.notes_path.join("notes"), &line_to_append) {
                 self.error_message = format!("Failed to append to journal: {}", e);
                 self.error_occurred(self.error_message.clone());
                 return;
             }
             if let Some(conn) = self.conn() {
-                let path = self.notes_path.join(JOURNAL_FILENAME);
+                let path = self.notes_path.join("notes").join(JOURNAL_FILENAME);
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(Some(info)) = page::get_page(conn, JOURNAL_FILENAME) {
                         let _ = db::update_fts_content(conn, info.id, &content);
@@ -186,7 +186,7 @@ impl NotesBridge {
         }
 
         let filename = self.resolve_page_filename(&self.current_page_name);
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
 
         let mut content = std::fs::read_to_string(&path).unwrap_or_default();
 
@@ -236,7 +236,7 @@ impl NotesBridge {
         if block_index < 0 { return; }
         let idx = block_index as usize;
         let filename = JOURNAL_FILENAME.to_string();
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
 
         if idx < self.journal_blocks_data.len() {
             let mut curr = Some(&mut self.journal_blocks_data[idx]);
@@ -337,14 +337,14 @@ impl NotesBridge {
             trimmed.to_string()
         };
 
-        if let Err(e) = journal::append_to_journal_today(&self.notes_path, &line_to_append) {
+        if let Err(e) = journal::append_to_journal_today(&self.notes_path.join("notes"), &line_to_append) {
             self.error_message = format!("Failed to append to journal: {}", e);
             self.error_occurred(self.error_message.clone());
             return;
         }
 
         if let Some(conn) = self.conn() {
-            let path = self.notes_path.join(JOURNAL_FILENAME);
+            let path = self.notes_path.join("notes").join(JOURNAL_FILENAME);
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(Some(info)) = page::get_page(conn, JOURNAL_FILENAME) {
                     let _ = db::update_fts_content(conn, info.id, &content);
@@ -358,14 +358,14 @@ impl NotesBridge {
 
     fn get_page_source_impl(&mut self, name: String) -> String {
         let filename = self.resolve_page_filename(&name);
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
         std::fs::read_to_string(&path).unwrap_or_default()
     }
 
     fn save_page_source_impl(&mut self, name: String, content: String) {
         self.ensure_init();
         let filename = self.resolve_page_filename(&name);
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
         if let Err(e) = std::fs::write(&path, &content) {
             self.error_message = format!("Failed to save source: {}", e);
             self.error_occurred(self.error_message.clone());
@@ -390,7 +390,7 @@ impl NotesBridge {
         } else {
             self.resolve_page_filename(&self.current_page_name)
         };
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
 
         // Update in-memory block data cache synchronously without resetting page model
         if idx < self.current_blocks_data.len() {
@@ -452,7 +452,7 @@ impl NotesBridge {
             None => return,
         };
 
-        match page::create_page(conn, &self.notes_path, &name, false) {
+        match page::create_page(conn, &self.notes_path.join("notes"), &name, false) {
             Ok(_) => {
                 self.load_main_page_data_impl();
             }
@@ -474,7 +474,7 @@ impl NotesBridge {
         let target_title = target_page.as_ref().map(|p| p.title.clone()).unwrap_or_else(|| name.clone());
         let target_filename = target_page.as_ref().map(|p| p.filename.clone());
 
-        match page::delete_page(conn, &self.notes_path, &name) {
+        match page::delete_page(conn, &self.notes_path.join("notes"), &name) {
             Ok(_) => {
                 let is_current = self.current_page_name == name
                     || self.current_page_name == target_title
@@ -509,7 +509,7 @@ impl NotesBridge {
         } else {
             self.resolve_page_filename(&self.current_page_name)
         };
-        let path = self.notes_path.join(&filename);
+        let path = self.notes_path.join("notes").join(&filename);
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
@@ -550,7 +550,7 @@ impl NotesBridge {
                 let mut list = QVariantList::default();
                 for p in &pages {
                     let t_preview = std::time::Instant::now();
-                    let preview_values = page::get_page_preview_values_with_options(&self.notes_path, &p.filename, 8, self.drop_comments);
+                    let preview_values = page::get_page_preview_values_with_options(&self.notes_path.join("notes"), &p.filename, 8, self.drop_comments);
                     let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
                     eprintln!("[startup]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
 
@@ -573,11 +573,11 @@ impl NotesBridge {
             }
         }
 
-        let _ = journal::init_journal(&self.notes_path);
+        let _ = journal::init_journal(&self.notes_path.join("notes"));
         self.journal_blocks = QVariantList::default();
         self.journal_blocks_data = Vec::new();
 
-        match journal::recent_journal_lines(&self.notes_path, 5) {
+        match journal::recent_journal_lines(&self.notes_path.join("notes"), 5) {
             Ok(lines) => {
                 let mut list = QVariantList::default();
                 for line in &lines {
@@ -607,7 +607,7 @@ impl NotesBridge {
         let title = page_name.strip_suffix(".adoc").unwrap_or(&page_name);
         let output_path = export_dir.join(format!("{}.html", title));
 
-        match notesplusplus_core::html::export_page_to_html5(&self.notes_path, &filename, &output_path) {
+        match notesplusplus_core::html::export_page_to_html5(&self.notes_path.join("notes"), &self.notes_path, &filename, &output_path) {
             Ok(path) => {
                 let path_str = path.to_string_lossy().to_string();
                 self.html_exported(path_str.clone());
@@ -628,20 +628,29 @@ impl NotesBridge {
         let _ = std::fs::create_dir_all(&export_dir);
 
         let mut exported_count = 0;
+        let notes_subdir = self.notes_path.join("notes");
+        // Export .adoc files from the notes subdirectory
+        if let Ok(entries) = std::fs::read_dir(&notes_subdir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("adoc") {
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        let title = filename.strip_suffix(".adoc").unwrap_or(filename);
+                        let out_file = export_dir.join(format!("{}.html", title));
+                        if notesplusplus_core::html::export_page_to_html5(&notes_subdir, &self.notes_path, filename, &out_file).is_ok() {
+                            exported_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // Copy image assets from the root notes directory
         if let Ok(entries) = std::fs::read_dir(&self.notes_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if ext == "adoc" {
-                        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                            let title = filename.strip_suffix(".adoc").unwrap_or(filename);
-                            let out_file = export_dir.join(format!("{}.html", title));
-                            if notesplusplus_core::html::export_page_to_html5(&self.notes_path, filename, &out_file).is_ok() {
-                                exported_count += 1;
-                            }
-                        }
-                    } else if ["png", "jpg", "jpeg", "svg", "gif", "webp"].contains(&ext.to_ascii_lowercase().as_str()) {
+                    if ["png", "jpg", "jpeg", "svg", "gif", "webp"].contains(&ext.to_ascii_lowercase().as_str()) {
                         if let Some(filename) = path.file_name() {
                             let _ = std::fs::copy(&path, export_dir.join(filename));
                         }
@@ -689,6 +698,7 @@ impl NotesBridge {
 
         let config = notesplusplus_core::server::ServerConfig {
             notes_dir: self.notes_path.clone(),
+            notes_subdir: self.notes_path.join("notes"),
             db_path,
             backup_dir,
             port: 8080,
