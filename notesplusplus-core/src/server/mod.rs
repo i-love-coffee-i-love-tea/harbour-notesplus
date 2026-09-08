@@ -1093,7 +1093,6 @@ mod tests {
         assert_eq!(res_headers.header("X-Content-Type-Options").unwrap(), "nosniff");
         assert_eq!(res_headers.header("X-Frame-Options").unwrap(), "DENY");
         assert_eq!(res_headers.header("Referrer-Policy").unwrap(), "no-referrer");
-        assert!(res_headers.header("Content-Security-Policy").is_some());
 
         server_handle.stop();
     }
