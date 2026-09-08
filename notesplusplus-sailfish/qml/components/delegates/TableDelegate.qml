@@ -153,10 +153,18 @@ Column {
                             anchors {
                                 left: parent.left
                                 right: parent.right
-                                top: parent.top
+                                top: (modelData && modelData.valign === "bottom") ? undefined : ((modelData && modelData.valign === "middle") ? undefined : parent.top)
+                                bottom: (modelData && modelData.valign === "bottom") ? parent.bottom : undefined
+                                verticalCenter: (modelData && modelData.valign === "middle") ? parent.verticalCenter : undefined
                                 leftMargin: 8
                                 rightMargin: 8
                                 topMargin: 8
+                                bottomMargin: (modelData && modelData.valign === "bottom") ? 8 : 0
+                            }
+                            horizontalAlignment: {
+                                if (modelData && modelData.align === "center") return Text.AlignHCenter
+                                if (modelData && modelData.align === "right") return Text.AlignRight
+                                return Text.AlignLeft
                             }
                             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                             font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily

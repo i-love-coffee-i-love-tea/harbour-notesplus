@@ -25,6 +25,7 @@ Item {
         sourceComponent: {
             if (!blockData || !blockData.type) return standardListComponent
             if (blockData.type === "description_list_item") return dlComponent
+            if (blockData.type === "callout_list_item") return calloutComponent
             return standardListComponent
         }
     }

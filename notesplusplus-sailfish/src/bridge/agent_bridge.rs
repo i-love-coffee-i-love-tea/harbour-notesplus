@@ -203,6 +203,7 @@ impl AgentBridge {
             api_key: if key.trim().is_empty() { None } else { Some(key) },
             timeout_secs: self.timeout_secs as u64,
             allow_self_signed,
+            system_prompt: None,
         };
 
         let perm_config = PermissionConfig {
@@ -564,6 +565,7 @@ impl AgentBridge {
             api_key: if self.internal_api_key.trim().is_empty() { None } else { Some(self.internal_api_key.clone()) },
             timeout_secs: self.timeout_secs.max(15) as u64,
             allow_self_signed: self.allow_self_signed,
+            system_prompt: None,
         };
 
         let result_slot = self.models_result.clone();

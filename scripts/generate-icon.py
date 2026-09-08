@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the harbour-notesplusplus app icon: Notes++ on teal background.
+"""Generate the harbour-notesplusplus app icon: ><(((º> on teal background.
 
 Run from the project root:
     python3 scripts/generate-icon.py
 
 Requires: Pillow (pip install Pillow)
-Output:   rpm/harbour-notesplusplus.png (86x86)
+Output:   rpm/icons/{86x86,108x108,128x128,172x172}/harbour-notesplusplus.png
+          rpm/harbour-notesplusplus.png (86x86 copy)
 """
 
 import os
@@ -17,36 +18,54 @@ except ImportError:
     sys.exit("Pillow not found. Install with: pip install Pillow")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_PATH = os.path.join(PROJECT_ROOT, "rpm", "harbour-notesplusplus.png")
+RPM_DIR = os.path.join(PROJECT_ROOT, "rpm")
 
-SIZE = 86
-img = Image.new("RGB", (SIZE, SIZE), (0, 150, 136))
-draw = ImageDraw.Draw(img)
-
+SIZES = [86, 108, 128, 172]
+BACKGROUND = (0, 150, 136)  # Material Design Teal 600
+TEXT_COLOR = (255, 255, 255)
 FISH = "><(((\u00ba>"
 
-# Try to find a monospace font, fall back to default
-font = None
-for path in [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf",
-]:
-    if os.path.exists(path):
-        font = ImageFont.truetype(path, 18)
-        break
+# Generate at 512x512 master, then downscale
+MASTER_SIZE = 512
 
-if font is None:
-    font = ImageFont.load_default()
+# Find a monospace font
+def find_font(size):
+    for path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf",
+    ]:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
 
-# Center the text with padding
+# Render at master resolution
+master = Image.new("RGB", (MASTER_SIZE, MASTER_SIZE), BACKGROUND)
+draw = ImageDraw.Draw(master)
+
+font = find_font(110)
 bbox = draw.textbbox((0, 0), FISH, font=font)
 tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-x = (SIZE - tw) // 2
-y = (SIZE - th) // 2 - bbox[1]
+x = (MASTER_SIZE - tw) // 2
+y = (MASTER_SIZE - th) // 2 - bbox[1]
+draw.text((x, y), FISH, fill=TEXT_COLOR, font=font)
 
-draw.text((x, y), FISH, fill=(255, 255, 255), font=font)
+# Generate all sizes
+for size in SIZES:
+    icon = master.resize((size, size), Image.LANCZOS)
 
-img.save(OUT_PATH)
-print(f"Icon written to {OUT_PATH}")
+    # Save to rpm/icons/<size>x<size>/
+    icon_dir = os.path.join(RPM_DIR, "icons", f"{size}x{size}")
+    os.makedirs(icon_dir, exist_ok=True)
+    icon_path = os.path.join(icon_dir, "harbour-notesplusplus.png")
+    icon.save(icon_path)
+    print(f"  {icon_path}")
+
+    # Also save 86x86 as the default rpm/harbour-notesplusplus.png
+    if size == 86:
+        default_path = os.path.join(RPM_DIR, "harbour-notesplusplus.png")
+        icon.save(default_path)
+        print(f"  {default_path} (default)")
+
+print("Done — all icon sizes generated.")

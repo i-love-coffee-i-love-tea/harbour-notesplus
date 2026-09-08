@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>harbour-notesplusplus</id>
+  <name>Notes++</name>
+  <summary>AsciiDoc notes app for Sailfish OS</summary>
+  <description>
+    <p>
+      Notes++ is a powerful AsciiDoc note-taking app for Sailfish OS.
+      Keep a daily journal with auto-managed pages, link notes together,
+      search across your entire collection, and export to HTML5.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Daily journal with automatic page creation</li>
+      <li>Page linking with wiki-style navigation</li>
+      <li>Full-text search across all notes</li>
+      <li>AsciiDoc source editing with live preview</li>
+      <li>HTML5 export for sharing</li>
+      <li>Built-in documentation web server</li>
+      <li>AI assistant integration (Ollama / MiMoCode)</li>
+      <li>Import from external sources (clipboard, URLs, files)</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">harbour-notesplusplus.desktop</launchable>
+  <url type="homepage">https://github.com/gobuki/harbour-notesplusplus</url>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="org.gobuki">
+    <name>gobuki</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-01-01">
+      <description>
+        <p>Initial release of Notes++ for Sailfish OS.</p>
+        <ul>
+          <li>Daily journal with auto-managed pages</li>
+          <li>AsciiDoc editing with live preview</li>
+          <li>Page linking and full-text search</li>
+          <li>HTML5 export</li>
+          <li>Built-in web server for document access</li>
+          <li>AI assistant integration</li>
+          <li>External source import (clipboard, URLs, files)</li>
+          <li>German and Spanish translations</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main page with journal and recent notes</caption>
+      <image>https://raw.githubusercontent.com/gobuki/harbour-notesplusplus/main/docs/screenshots/main.png</image>
+    </screenshot>
+  </screenshots>
+</component>

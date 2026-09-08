@@ -29,7 +29,7 @@ Item {
         color: isSidebar ? Theme.rgba(Theme.highlightBackgroundColor, 0.08) : (isExample ? Theme.rgba(Theme.primaryColor, 0.03) : "transparent")
         border.color: isSidebar ? Theme.rgba(Theme.highlightColor, 0.35) : (isExample ? Theme.rgba(Theme.primaryColor, 0.25) : "transparent")
         border.width: isOpen ? 0 : 1
-        radius: Theme.paddingSmall
+        radius: 0
 
         Rectangle {
             visible: isSidebar
@@ -38,7 +38,7 @@ Item {
             anchors.bottom: parent.bottom
             width: 4
             color: Theme.highlightColor
-            radius: Theme.paddingSmall
+            radius: 0
         }
 
         Column {

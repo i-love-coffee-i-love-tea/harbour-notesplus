@@ -7,6 +7,7 @@ mod bridge;
 fn main() {
     let mut app = sailors::sailfishapp::QmlApp::application("harbour-notesplusplus".into());
     app.set_quit_on_last_window_closed(false);
+    let _ = app.install_default_translator();
     app.promote_gui_app_to_qml_context("RootApp".into());
 
     let uri = CStr::from_bytes_with_nul(b"harbour.notesplusplus\0").unwrap();

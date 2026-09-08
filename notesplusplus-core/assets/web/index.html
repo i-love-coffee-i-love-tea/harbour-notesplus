@@ -19,56 +19,35 @@
 <body>
   <div id="app" v-cloak>
     <!-- Login Screen Overlay when Authentication is Required -->
-    <div v-if="authRequired && !isAuthenticated" class="login-overlay">
+    <div v-if="!isAuthenticated" class="login-overlay">
       <div class="login-card">
         <div class="login-header">
           <img src="/icon.png" class="login-logo-img" alt="Notes++">
           <h2>Notes++</h2>
-          <p class="login-subtitle">Please authenticate to access your documentation</p>
+          <p class="login-subtitle">Web Access Authorization</p>
         </div>
 
-        <div v-if="loginError" class="login-error-banner">
-          ⚠️ {{ loginError }}
+        <div v-if="authError" class="login-error-banner">
+          {{ authError }}
         </div>
 
-        <form v-if="authBasicEnabled" @submit.prevent="submitLogin" class="login-form">
-          <div class="form-group">
-            <label for="login-user">Username</label>
-            <input 
-              id="login-user" 
-              ref="loginUserInput"
-              type="text" 
-              v-model="loginUsername" 
-              placeholder="Username" 
-              required 
-              autocomplete="username"
-            />
+        <!-- Phone authorization section -->
+        <div class="phone-auth-section">
+          <div class="phone-auth-icon-container">
+            <svg class="phone-auth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+              <line x1="12" y1="18" x2="12.01" y2="18" stroke-width="2"/>
+            </svg>
           </div>
-          <div class="form-group">
-            <label for="login-pass">Password</label>
-            <input 
-              id="login-pass" 
-              ref="loginPassInput"
-              type="password" 
-              v-model="loginPassword" 
-              placeholder="Password" 
-              required 
-              autocomplete="current-password"
-            />
+          <p class="phone-auth-instruction">Confirm login on your phone</p>
+          <div v-if="authVerificationCode" class="auth-code-display">
+            <p class="auth-code-label">Verify this code matches on your phone:</p>
+            <p class="auth-code">{{ authVerificationCode }}</p>
           </div>
-          <button type="submit" class="btn-login-submit" :disabled="isLoggingIn">
-            {{ isLoggingIn ? 'Authenticating...' : 'Sign In' }}
+          <p class="auth-status">{{ authStatus }}</p>
+          <button v-if="authCanRetry" type="button" class="btn-auth-retry" @click="startPhoneAuth()">
+            Request New Code
           </button>
-        </form>
-
-        <div v-if="authBasicEnabled && authOauthEnabled" class="login-divider">
-          <span>or</span>
-        </div>
-
-        <div v-if="authOauthEnabled" class="oauth-section">
-          <a href="/api/auth/oauth/login" class="btn-oauth-login">
-            🔐 Log in with {{ authOauthProviderName }}
-          </a>
         </div>
       </div>
     </div>
@@ -162,7 +141,7 @@
           </div>
 
           <!-- User Profile (when authenticated) -->
-          <div v-if="authRequired && isAuthenticated && authUser" class="nav-group-item status-chip user-chip" :title="'Logged in as ' + authUser">
+          <div v-if="isAuthenticated && authUser" class="nav-group-item status-chip user-chip" :title="'Logged in as ' + authUser">
             <svg class="chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
               <circle cx="12" cy="7" r="4"></circle>
@@ -245,7 +224,7 @@
               <button @click="wrapSelection('[NOTE]\n====\n', '\n====\n')" title="Note Admonition">Note</button>
               <button @click="wrapSelection('[source,rust]\n----\n', '\n----\n')" title="Source Code block">Code</button>
               <button @click="insertTableTemplate" title="Insert AsciiDoc Table">Table</button>
-              <button @click="insertLink" title="Insert Link / Cross reference">Link</button>
+              <button @click="openLinkDialog" title="Insert Link / Cross reference (Ctrl+K)">Link</button>
             </div>
           </div>
           <textarea 
@@ -300,6 +279,7 @@
                     <button @click="insertInPlacePrefix('* [ ] ')" title="Task Checkbox">☑</button>
                     <button @click="wrapInPlaceSelection('[NOTE]\n====\n', '\n====')" title="Admonition">Note</button>
                     <button @click="wrapInPlaceSelection('[source,rust]\n----\n', '\n----')" title="Code">Code</button>
+                    <button @click="openLinkDialog" title="Insert Link / Cross reference (Ctrl+K)">Link</button>
                   </div>
                   <div class="inplace-toolbar-right">
                     <button @click="saveBlockEdit(idx)" class="btn-block-save" title="Save block">✔ Done</button>
@@ -444,34 +424,58 @@
       <div class="ai-drawer-header">
         <div class="ai-title">
           <span class="sparkle">✨</span> <strong>Notes++ AI</strong>
-          <span class="ai-backend-badge">{{ aiConfig.provider }}: {{ aiConfig.model }}</span>
+          <select 
+            v-if="availableModels.length > 0" 
+            v-model="aiConfig.model" 
+            @change="onModelSelect" 
+            class="ai-model-select"
+            title="Select AI Model"
+          >
+            <option v-for="m in availableModels" :key="m.id" :value="m.id">
+              {{ m.name || m.id }}
+            </option>
+            <option v-if="!isCurrentModelInList && aiConfig.model" :value="aiConfig.model">
+              {{ aiConfig.model }} (Custom)
+            </option>
+          </select>
+          <span v-else class="ai-backend-badge">{{ aiConfig.model }}</span>
         </div>
         <div class="ai-header-actions">
-          <button @click="showAiSettings = !showAiSettings" class="btn-icon" title="AI Settings">⚙️</button>
+          <button @click="showAiSettings = !showAiSettings" class="btn-icon" title="AI Model Settings">⚙️</button>
           <button @click="openAiDrawer = false" class="btn-icon" title="Close Drawer">&times;</button>
         </div>
       </div>
 
       <!-- Collapsible AI Settings -->
       <div v-if="showAiSettings" class="ai-settings-panel">
-        <h4>AI Configuration (Backend Brokered)</h4>
+        <h4>AI Configuration</h4>
         <label>Provider:
-          <select v-model="aiConfig.provider">
-            <option value="ollama">Ollama (Local / LAN)</option>
+          <select v-model="aiConfig.provider" @change="onProviderChange">
+            <option value="ollama">Ollama</option>
             <option value="openai">OpenAI / Compatible</option>
           </select>
         </label>
-        <label>Endpoint URL:
-          <input v-model="aiConfig.endpoint" placeholder="http://localhost:11434">
+        <label>Model:
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select v-if="availableModels.length > 0" v-model="aiConfig.model" @change="onModelSelect" style="flex: 1;">
+              <option v-for="m in availableModels" :key="m.id" :value="m.id">
+                {{ m.name || m.id }}
+              </option>
+              <option v-if="!isCurrentModelInList && aiConfig.model" :value="aiConfig.model">
+                {{ aiConfig.model }} (Custom)
+              </option>
+            </select>
+            <input v-else v-model="aiConfig.model" placeholder="llama3.2" style="flex: 1;">
+            <button type="button" @click="fetchAvailableModels" class="btn-small" title="Fetch available models from server" :disabled="isLoadingModels">
+              {{ isLoadingModels ? '...' : '🔄' }}
+            </button>
+          </div>
         </label>
-        <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; margin-top: 4px; margin-bottom: 8px;">
-          <input type="checkbox" v-model="aiConfig.allow_self_signed"> Accept Self-Signed Certificates
+        <label v-if="availableModels.length > 0">Custom Model Name (or override):
+          <input v-model="aiConfig.model" placeholder="e.g. llama3.2, mistral, gpt-4o">
         </label>
-        <label>Model Name:
-          <input v-model="aiConfig.model" placeholder="llama3.2">
-        </label>
-        <label>API Key (Optional):
-          <input v-model="aiConfig.apiKey" type="password" placeholder="Leave empty for local Ollama">
+        <label>System Prompt (Optional):
+          <textarea v-model="aiConfig.system_prompt" placeholder="Leave empty for default Notes++ AsciiDoc assistant prompt..." rows="3" style="width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; font-size: 0.85rem;"></textarea>
         </label>
         <div class="settings-actions">
           <button type="button" @click="saveAiSettings" class="btn-small-primary">Save Settings</button>
@@ -595,6 +599,88 @@
         <div class="modal-actions">
           <button @click="createNote" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>
           <button @click="openNewNoteModal = false" class="btn-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Link Page / Insert Link Modal -->
+    <div v-if="openLinkModal" class="modal-overlay link-modal-overlay" @click.self="openLinkModal = false">
+      <div class="modal-card link-modal-card">
+        <div class="link-modal-header">
+          <h3>Insert Link / Cross-Reference</h3>
+          <button type="button" class="btn-icon" @click="openLinkModal = false" title="Close">&times;</button>
+        </div>
+
+        <div class="link-modal-body">
+          <div class="link-search-box">
+            <input 
+              ref="linkSearchInputRef"
+              type="text" 
+              v-model="linkSearchQuery" 
+              placeholder="Search notes by title, filename, or enter URL..."
+              @keydown="handleLinkKeydown"
+              autofocus
+            />
+          </div>
+
+          <!-- Filtered Pages List -->
+          <div class="link-pages-list" ref="linkPagesListRef">
+            <div 
+              v-for="(page, idx) in filteredLinkPages" 
+              :key="page.filename"
+              class="link-page-item"
+              :class="{ 'is-selected': selectedLinkFilename === page.filename, 'is-focused': linkFocusedIndex === idx }"
+              @click="selectLinkTarget(page)"
+              @dblclick="confirmLinkInsert"
+            >
+              <div class="link-page-title-row">
+                <span class="link-page-icon">📄</span>
+                <span class="link-page-title">{{ page.title }}</span>
+                <span class="link-page-filename">{{ page.filename }}</span>
+              </div>
+              <div v-if="page.snippet" class="link-page-snippet">{{ page.snippet }}</div>
+            </div>
+
+            <!-- Empty / Custom URL Fallback option -->
+            <div 
+              v-if="linkSearchQuery.trim() && !isExactMatch"
+              class="link-page-item link-page-fallback"
+              :class="{ 'is-selected': selectedLinkFilename === '', 'is-focused': linkFocusedIndex === filteredLinkPages.length }"
+              @click="selectCustomLinkTarget(linkSearchQuery.trim())"
+              @dblclick="confirmLinkInsert"
+            >
+              <div class="link-page-title-row">
+                <span class="link-page-icon">{{ isExternalUrl ? '🔗' : '➕' }}</span>
+                <span class="link-page-title">{{ isExternalUrl ? 'Use External URL: ' + linkSearchQuery.trim() : 'Link to / Create: ' + computedCustomFilename }}</span>
+              </div>
+            </div>
+
+            <div v-if="filteredLinkPages.length === 0 && !linkSearchQuery.trim()" class="link-empty-state">
+              No notes found.
+            </div>
+          </div>
+
+          <!-- Display Text Input -->
+          <label class="link-field-label">
+            Display Text:
+            <input 
+              type="text" 
+              v-model="linkDisplayText" 
+              placeholder="Text shown for the link"
+              @keydown.enter="confirmLinkInsert"
+            />
+          </label>
+
+          <!-- Syntax Preview -->
+          <div class="link-preview-container">
+            <span class="link-preview-label">AsciiDoc Syntax Preview:</span>
+            <code class="link-preview-code">{{ formattedLinkPreview || 'xref:filename.adoc[Link Text]' }}</code>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button @click="confirmLinkInsert" class="btn-primary" :disabled="!formattedLinkPreview">Insert Link</button>
+          <button @click="openLinkModal = false" class="btn-cancel">Cancel</button>
         </div>
       </div>
     </div>

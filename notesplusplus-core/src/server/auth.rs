@@ -1,17 +1,11 @@
 //! Authentication module for Notes++ Embedded Server:
-//! Supports HTTP Basic Authentication and OpenID Connect (OIDC) / OAuth 2.0 Single Sign-On.
+//! Enforces verification code authorization and manages sessions.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
-use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
-};
-use ring::digest::{digest, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
@@ -23,158 +17,26 @@ pub fn generate_secure_token(byte_len: usize) -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-/// Compute SHA-256 hash of `salt + ":" + password` in hex.
-pub fn hash_password(password: &str, salt: &str) -> String {
-    let payload = format!("{}:{}", salt, password);
-    let hash = digest(&SHA256, payload.as_bytes());
-    hash.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-/// Constant-time password hash verification.
-pub fn verify_password_hash(password: &str, salt: &str, expected_hash: &str) -> bool {
-    if expected_hash.is_empty() {
-        return false;
-    }
-    let actual_hash = hash_password(password, salt);
-    let a = actual_hash.as_bytes();
-    let b = expected_hash.as_bytes();
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+/// Generates a short numeric verification code (e.g. "4729") for challenge confirmation.
+pub fn generate_verification_code(digit_count: u32) -> String {
+    let rng = SystemRandom::new();
+    let max = 10u32.pow(digit_count);
+    let mut bytes = [0u8; 4];
+    rng.fill(&mut bytes).unwrap_or(());
+    let num = u32::from_be_bytes(bytes) % max;
+    format!("{:0width$}", num, width = digit_count as usize)
 }
 
 /// Authentication configuration stored in server state / persistent settings.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AuthConfig {
-    pub enabled: bool,
-    pub basic_enabled: bool,
-    pub basic_username: String,
-    pub basic_password_hash: String,
-    pub basic_password_salt: String,
-    pub oauth_enabled: bool,
-    pub oauth_provider_name: String,
-    pub oauth_issuer_url: String,
-    pub oauth_client_id: String,
-    pub oauth_client_secret: Option<String>,
-    pub oauth_allowed_emails: Vec<String>,
-    pub oauth_redirect_uri: Option<String>,
-    pub oauth_scopes: Vec<String>,
-    pub allow_self_signed_oidc: bool,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            basic_enabled: true,
-            basic_username: "admin".to_string(),
-            basic_password_hash: String::new(),
-            basic_password_salt: String::new(),
-            oauth_enabled: false,
-            oauth_provider_name: "Authentik".to_string(),
-            oauth_issuer_url: String::new(),
-            oauth_client_id: String::new(),
-            oauth_client_secret: None,
-            oauth_allowed_emails: Vec::new(),
-            oauth_redirect_uri: None,
-            oauth_scopes: vec!["openid".to_string(), "email".to_string(), "profile".to_string()],
-            allow_self_signed_oidc: false,
-        }
-    }
-}
-
-impl AuthConfig {
-    /// Sets a new password, generating a new random salt and SHA-256 hash.
-    pub fn set_password(&mut self, password: &str) -> Result<(), String> {
-        let salt = generate_secure_token(16)?;
-        let hash = hash_password(password, &salt);
-        self.basic_password_salt = salt;
-        self.basic_password_hash = hash;
-        Ok(())
-    }
-
-    /// Verifies username and password against configured basic auth.
-    pub fn verify_basic_credentials(&self, username: &str, password: &str) -> bool {
-        if !self.basic_enabled || self.basic_username.is_empty() {
-            return false;
-        }
-        if self.basic_username != username {
-            return false;
-        }
-        verify_password_hash(password, &self.basic_password_salt, &self.basic_password_hash)
-    }
-
-    /// Parses and verifies standard HTTP `Authorization: Basic <base64>` header.
-    pub fn verify_basic_auth_header(&self, header_val: &str) -> Option<String> {
-        let trimmed = header_val.trim();
-        if !trimmed.to_ascii_lowercase().starts_with("basic ") {
-            return None;
-        }
-        let b64 = trimmed[6..].trim();
-        let decoded = base64_decode(b64)?;
-        let credentials = match String::from_utf8(decoded) {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let (user, pass) = match credentials.split_once(':') {
-            Some((u, p)) => (u, p),
-            None => return None,
-        };
-        if self.verify_basic_credentials(user, pass) {
-            Some(user.to_string())
-        } else {
-            None
-        }
-    }
-}
-
-/// Simple base64 decoder for Basic Auth.
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    const TABLE: [i8; 256] = {
-        let mut t = [-1i8; 256];
-        let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut i = 0;
-        while i < chars.len() {
-            t[chars[i] as usize] = i as i8;
-            i += 1;
-        }
-        t
-    };
-
-    let bytes = input.trim_end_matches('=').as_bytes();
-    let mut out = Vec::new();
-    let mut buf = 0u32;
-    let mut bits = 0;
-
-    for &b in bytes {
-        let val = TABLE[b as usize];
-        if val < 0 {
-            if b == b' ' || b == b'\r' || b == b'\n' || b == b'\t' {
-                continue;
-            }
-            return None;
-        }
-        buf = (buf << 6) | (val as u32);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((buf >> bits) as u8);
-        }
-    }
-    Some(out)
-}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AuthConfig {}
 
 /// Active user session.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
     pub user: String,
-    pub auth_method: String, // "basic" | "oauth"
+    pub auth_method: String,
     pub created_at: u64,
     pub expires_at: u64,
 }
@@ -239,327 +101,176 @@ impl SessionStore {
                 let _ = std::fs::create_dir_all(parent);
             }
             if let Ok(json) = serde_json::to_string_pretty(map) {
-                let tmp_path = path.with_extension("tmp");
-                if std::fs::write(&tmp_path, json).is_ok() {
-                    let _ = std::fs::rename(tmp_path, path);
-                }
+                let _ = std::fs::write(path, json.as_bytes());
             }
         }
     }
 
-    /// Creates a new session valid for `duration_secs`.
-    pub fn create_session(&self, user: &str, auth_method: &str, duration_secs: u64) -> Result<Session, String> {
+    /// Validates a session token. Returns the session if valid and not expired.
+    pub fn validate_session(&self, token: &str) -> Option<Session> {
+        if token.trim().is_empty() {
+            return None;
+        }
+        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+
+        // Prune expired
+        let mut changed = false;
+        map.retain(|_, s| {
+            let valid = s.expires_at > now;
+            if !valid {
+                changed = true;
+            }
+            valid
+        });
+        if changed {
+            self.persist(&map);
+        }
+
+        map.get(token).cloned()
+    }
+
+    /// Creates and stores a new active session for the given username and auth method.
+    pub fn create_session(
+        &self,
+        username: &str,
+        auth_method: &str,
+        ttl_secs: u64,
+    ) -> Result<Session, String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let session_id = generate_secure_token(32)?;
+
         let session = Session {
-            id: generate_secure_token(32)?,
-            user: user.to_string(),
+            id: session_id.clone(),
+            user: username.to_string(),
             auth_method: auth_method.to_string(),
             created_at: now,
-            expires_at: now + duration_secs,
+            expires_at: now + ttl_secs,
         };
+
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(session.id.clone(), session.clone());
+        map.insert(session_id, session.clone());
         self.persist(&map);
+
         Ok(session)
     }
 
-    /// Validates session token and returns session if active.
-    pub fn validate_session(&self, token: &str) -> Option<Session> {
+    /// Revokes and removes a session by ID.
+    pub fn remove_session(&self, session_id: &str) {
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(session) = map.get(token) {
-            if session.is_expired() {
-                map.remove(token);
-                self.persist(&map);
-                None
-            } else {
-                Some(session.clone())
-            }
-        } else {
-            None
+        if map.remove(session_id).is_some() {
+            self.persist(&map);
         }
     }
 
-    /// Invalidate/remove session on logout.
-    pub fn remove_session(&self, token: &str) {
+    /// Cleans up all expired sessions from memory and disk.
+    pub fn clean_expired(&self) {
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.remove(token);
-        self.persist(&map);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let initial_len = map.len();
+        map.retain(|_, s| s.expires_at > now);
+        if map.len() != initial_len {
+            self.persist(&map);
+        }
     }
 }
 
-/// Pending state during OIDC authorization code flow.
-#[derive(Clone, Debug)]
-pub struct OidcPendingState {
-    pub pkce_verifier: String,
-    pub nonce: String,
+/// A pending authorization challenge.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuthChallenge {
+    pub challenge_id: String,
+    pub verification_code: String,
+    pub created_at: u64,
     pub expires_at: u64,
+    pub status: String, // "pending" | "approved" | "denied"
 }
 
-/// Manages OIDC state challenges and tokens.
+impl AuthChallenge {
+    pub fn is_expired(&self) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        now >= self.expires_at
+    }
+}
+
+/// Thread-safe store for authorization challenges.
 #[derive(Clone, Default)]
-pub struct OidcFlowManager {
-    states: Arc<Mutex<HashMap<String, OidcPendingState>>>,
+pub struct AuthChallengeStore {
+    challenges: Arc<Mutex<HashMap<String, AuthChallenge>>>,
 }
 
-impl OidcFlowManager {
+impl AuthChallengeStore {
     pub fn new() -> Self {
         Self {
-            states: Arc::new(Mutex::new(HashMap::new())),
+            challenges: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn insert_state(&self, state: String, pkce_verifier: String, nonce: String, ttl_secs: u64) {
+    /// Creates a new pending challenge with the given TTL in seconds.
+    pub fn create_challenge(&self, ttl_secs: u64) -> Result<AuthChallenge, String> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let mut map = self.states.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(
-            state,
-            OidcPendingState {
-                pkce_verifier,
-                nonce,
-                expires_at: now + ttl_secs,
-            },
-        );
+        let challenge = AuthChallenge {
+            challenge_id: generate_secure_token(32)?,
+            verification_code: generate_verification_code(4),
+            created_at: now,
+            expires_at: now + ttl_secs,
+            status: "pending".to_string(),
+        };
+        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(challenge.challenge_id.clone(), challenge.clone());
+        Ok(challenge)
     }
 
-    pub fn take_state(&self, state: &str) -> Option<OidcPendingState> {
-        let mut map = self.states.lock().unwrap_or_else(|e| e.into_inner());
-        let pending = map.remove(state)?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        if now < pending.expires_at {
-            Some(pending)
-        } else {
-            None
-        }
-    }
-}
-
-/// Custom synchronous HTTP client dispatcher for openidconnect with optional self-signed TLS support.
-pub fn oidc_http_client(
-    req: openidconnect::HttpRequest,
-    allow_self_signed: bool,
-) -> Result<openidconnect::HttpResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let mut builder = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(15))
-        .timeout_read(std::time::Duration::from_secs(30));
-
-    if allow_self_signed {
-        builder = builder.tls_config(std::sync::Arc::new(crate::agent::client::build_insecure_tls_client_config()));
+    /// Returns a challenge if it exists and hasn't been cleaned up.
+    pub fn get_challenge(&self, id: &str) -> Option<AuthChallenge> {
+        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        map.retain(|_, c| !c.is_expired() || c.status == "approved");
+        map.get(id).cloned()
     }
 
-    let agent = builder.build();
-    let mut ureq_req = agent.request_url(req.method.as_str(), &req.url);
-
-    for (k, v) in req.headers.iter() {
-        if let Ok(val_str) = v.to_str() {
-            ureq_req = ureq_req.set(k.as_str(), val_str);
-        }
-    }
-
-    let res = if req.body.is_empty() {
-        ureq_req.call()
-    } else {
-        ureq_req.send_bytes(&req.body)
-    };
-
-    match res {
-        Ok(response) => {
-            let status = openidconnect::http::StatusCode::from_u16(response.status())?;
-            let mut headers = openidconnect::http::HeaderMap::new();
-            for name in response.headers_names() {
-                if let Some(val) = response.header(&name) {
-                    if let (Ok(hname), Ok(hval)) = (
-                        openidconnect::http::header::HeaderName::from_bytes(name.as_bytes()),
-                        openidconnect::http::header::HeaderValue::from_str(val),
-                    ) {
-                        headers.insert(hname, hval);
-                    }
-                }
+    /// Marks a pending challenge as approved. Returns false if not found or not pending.
+    pub fn approve_challenge(&self, id: &str) -> bool {
+        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(challenge) = map.get_mut(id) {
+            if challenge.status == "pending" && !challenge.is_expired() {
+                challenge.status = "approved".to_string();
+                return true;
             }
-
-            let mut body = Vec::new();
-            std::io::Read::read_to_end(&mut response.into_reader(), &mut body)?;
-
-            Ok(openidconnect::HttpResponse {
-                status_code: status,
-                headers,
-                body,
-            })
         }
-        Err(ureq::Error::Status(code, response)) => {
-            let status = openidconnect::http::StatusCode::from_u16(code)?;
-            let mut headers = openidconnect::http::HeaderMap::new();
-            for name in response.headers_names() {
-                if let Some(val) = response.header(&name) {
-                    if let (Ok(hname), Ok(hval)) = (
-                        openidconnect::http::header::HeaderName::from_bytes(name.as_bytes()),
-                        openidconnect::http::header::HeaderValue::from_str(val),
-                    ) {
-                        headers.insert(hname, hval);
-                    }
-                }
+        false
+    }
+
+    /// Marks a pending challenge as denied. Returns false if not found or not pending.
+    pub fn deny_challenge(&self, id: &str) -> bool {
+        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(challenge) = map.get_mut(id) {
+            if challenge.status == "pending" {
+                challenge.status = "denied".to_string();
+                return true;
             }
-            let mut body = Vec::new();
-            std::io::Read::read_to_end(&mut response.into_reader(), &mut body)?;
-            Ok(openidconnect::HttpResponse {
-                status_code: status,
-                headers,
-                body,
-            })
         }
-        Err(e) => Err(Box::new(e)),
-    }
-}
-
-/// Initiates OpenID Connect Authorization Code Flow with PKCE.
-pub fn build_oidc_authorization_url(
-    config: &AuthConfig,
-    flow_mgr: &OidcFlowManager,
-    redirect_uri_override: Option<&str>,
-) -> Result<String, String> {
-    if !config.oauth_enabled || config.oauth_issuer_url.trim().is_empty() {
-        return Err("OpenID Connect is not enabled or Issuer URL is empty".to_string());
+        false
     }
 
-    let issuer_url = IssuerUrl::new(config.oauth_issuer_url.trim().to_string())
-        .map_err(|e| format!("Invalid Issuer URL: {}", e))?;
-
-    let allow_self_signed = config.allow_self_signed_oidc;
-    let http_fn = move |req| oidc_http_client(req, allow_self_signed).map_err(|e| {
-        openidconnect::ureq::Error::Other(e.to_string())
-    });
-
-    let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_fn)
-        .map_err(|e| format!("Failed to discover OIDC provider metadata: {}", e))?;
-
-    let redirect_url_str = redirect_uri_override
-        .or(config.oauth_redirect_uri.as_deref())
-        .unwrap_or("https://127.0.0.1:8080/api/auth/oauth/callback");
-
-    let redirect_url = RedirectUrl::new(redirect_url_str.to_string())
-        .map_err(|e| format!("Invalid Redirect URL: {}", e))?;
-
-    let client = CoreClient::from_provider_metadata(
-        provider_metadata,
-        ClientId::new(config.oauth_client_id.trim().to_string()),
-        config.oauth_client_secret.as_ref().map(|s| ClientSecret::new(s.trim().to_string())),
-    )
-    .set_redirect_uri(redirect_url);
-
-    let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-
-    let mut auth_req = client.authorize_url(
-        CoreAuthenticationFlow::AuthorizationCode,
-        CsrfToken::new_random,
-        Nonce::new_random,
-    );
-
-    for scope_name in &config.oauth_scopes {
-        if scope_name != "openid" {
-            auth_req = auth_req.add_scope(Scope::new(scope_name.clone()));
-        }
+    /// Removes a challenge from the store (e.g. after browser has consumed the result).
+    pub fn remove_challenge(&self, id: &str) {
+        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(id);
     }
-
-    let (auth_url, csrf_token, nonce) = auth_req.set_pkce_challenge(pkce_challenge).url();
-
-    // Store state with 10-minute TTL
-    flow_mgr.insert_state(
-        csrf_token.secret().clone(),
-        pkce_verifier.secret().clone(),
-        nonce.secret().clone(),
-        600,
-    );
-
-    Ok(auth_url.to_string())
-}
-
-/// Exchanges authorization code for tokens and verifies ID token / User claims.
-pub fn handle_oidc_callback(
-    config: &AuthConfig,
-    flow_mgr: &OidcFlowManager,
-    code: &str,
-    state: &str,
-    redirect_uri_override: Option<&str>,
-) -> Result<String, String> {
-    let pending_state = flow_mgr
-        .take_state(state)
-        .ok_or_else(|| "Invalid or expired OAuth state parameter".to_string())?;
-
-    let issuer_url = IssuerUrl::new(config.oauth_issuer_url.trim().to_string())
-        .map_err(|e| format!("Invalid Issuer URL: {}", e))?;
-
-    let allow_self_signed = config.allow_self_signed_oidc;
-    let http_fn = move |req| oidc_http_client(req, allow_self_signed).map_err(|e| {
-        openidconnect::ureq::Error::Other(e.to_string())
-    });
-
-    let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_fn)
-        .map_err(|e| format!("Failed to discover OIDC provider metadata: {}", e))?;
-
-    let redirect_url_str = redirect_uri_override
-        .or(config.oauth_redirect_uri.as_deref())
-        .unwrap_or("https://127.0.0.1:8080/api/auth/oauth/callback");
-
-    let redirect_url = RedirectUrl::new(redirect_url_str.to_string())
-        .map_err(|e| format!("Invalid Redirect URL: {}", e))?;
-
-    let client = CoreClient::from_provider_metadata(
-        provider_metadata,
-        ClientId::new(config.oauth_client_id.trim().to_string()),
-        config.oauth_client_secret.as_ref().map(|s| ClientSecret::new(s.trim().to_string())),
-    )
-    .set_redirect_uri(redirect_url);
-
-    let pkce_verifier = PkceCodeVerifier::new(pending_state.pkce_verifier);
-    let expected_nonce = Nonce::new(pending_state.nonce);
-
-    let token_response = client
-        .exchange_code(AuthorizationCode::new(code.to_string()))
-        .set_pkce_verifier(pkce_verifier)
-        .request(http_fn)
-        .map_err(|e| format!("OAuth token exchange failed: {}", e))?;
-
-    // Verify ID Token if present
-    let id_token = token_response
-        .id_token()
-        .ok_or_else(|| "Provider did not return an ID token".to_string())?;
-
-    let claims = id_token
-        .claims(&client.id_token_verifier(), &expected_nonce)
-        .map_err(|e| format!("ID token verification failed: {}", e))?;
-
-    // Extract user email or subject
-    let email = claims
-        .email()
-        .map(|e| e.as_str().to_string())
-        .or_else(|| claims.preferred_username().map(|u| u.as_str().to_string()))
-        .unwrap_or_else(|| claims.subject().as_str().to_string());
-
-    // Check allow-list if configured
-    if !config.oauth_allowed_emails.is_empty() {
-        let allowed = config.oauth_allowed_emails.iter().any(|allowed_entry| {
-            let entry = allowed_entry.trim().to_lowercase();
-            if entry.is_empty() {
-                return false;
-            }
-            email.to_lowercase() == entry
-                || (entry.starts_with('*') && email.to_lowercase().ends_with(&entry[1..]))
-        });
-
-        if !allowed {
-            return Err(format!("User '{}' is not authorized to access this Notes++ instance", email));
-        }
-    }
-
-    Ok(email)
 }
 
 #[cfg(test)]
@@ -567,35 +278,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_password_hash_and_verification() {
-        let mut config = AuthConfig::default();
-        config.set_password("MySecretPass123!").unwrap();
-
-        assert!(config.verify_basic_credentials("admin", "MySecretPass123!"));
-        assert!(!config.verify_basic_credentials("admin", "WrongPass"));
-        assert!(!config.verify_basic_credentials("other_user", "MySecretPass123!"));
-    }
-
-    #[test]
-    fn test_basic_auth_header_parser() {
-        let mut config = AuthConfig {
-            basic_username: "alice".to_string(),
-            ..Default::default()
-        };
-        config.set_password("wonderland").unwrap();
-
-        // Basic YWxpY2U6d29uZGVybGFuZA== is "alice:wonderland"
-        let valid_header = "Basic YWxpY2U6d29uZGVybGFuZA==";
-        assert_eq!(config.verify_basic_auth_header(valid_header), Some("alice".to_string()));
-
-        let invalid_header = "Basic d3Jvbmc6Y3JlZHM="; // "wrong:creds"
-        assert_eq!(config.verify_basic_auth_header(invalid_header), None);
-    }
-
-    #[test]
     fn test_session_store_lifecycle() {
         let store = SessionStore::new();
-        let session = store.create_session("alice", "basic", 3600).unwrap();
+        let session = store.create_session("alice", "code", 3600).unwrap();
         assert_eq!(session.user, "alice");
 
         let validated = store.validate_session(&session.id);
@@ -608,36 +293,67 @@ mod tests {
 
     #[test]
     fn test_session_store_persistence() {
-        let tmp_dir = std::env::temp_dir().join("notesplusplus_test_sessions");
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        let _ = std::fs::create_dir_all(&tmp_dir);
-        let storage_file = tmp_dir.join("sessions.json");
+        let tmp_dir = std::env::temp_dir().join(format!("notes_sess_test_{}", generate_verification_code(6)));
+        let sess_file = tmp_dir.join("sessions.json");
 
-        let session_id = {
-            let store = SessionStore::with_storage(storage_file.clone());
-            let sess = store.create_session("bob", "basic", 3600).unwrap();
-            sess.id
-        };
+        {
+            let store = SessionStore::with_storage(sess_file.clone());
+            let _ = store.create_session("bob", "code", 3600).unwrap();
+        }
 
-        // Reload store from disk
-        let reloaded_store = SessionStore::with_storage(storage_file.clone());
-        let validated = reloaded_store.validate_session(&session_id);
-        assert!(validated.is_some());
-        assert_eq!(validated.unwrap().user, "bob");
+        // Reopen from disk
+        let store2 = SessionStore::with_storage(sess_file.clone());
+        let map = store2.sessions.lock().unwrap().clone();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.values().next().unwrap().user, "bob");
 
-        let _ = std::fs::remove_dir_all(&tmp_dir);
+        let _ = std::fs::remove_dir_all(tmp_dir);
     }
 
     #[test]
-    fn test_oidc_flow_manager_state_expiry() {
-        let flow_mgr = OidcFlowManager::new();
-        flow_mgr.insert_state("state123".to_string(), "verifier_abc".to_string(), "nonce_xyz".to_string(), 600);
+    fn test_verification_code_generation() {
+        let code = generate_verification_code(4);
+        assert_eq!(code.len(), 4);
+        assert!(code.chars().all(|c| c.is_ascii_digit()));
 
-        let retrieved = flow_mgr.take_state("state123");
+        let code6 = generate_verification_code(6);
+        assert_eq!(code6.len(), 6);
+        assert!(code6.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn test_auth_challenge_lifecycle() {
+        let store = AuthChallengeStore::new();
+        let challenge = store.create_challenge(60).unwrap();
+        assert_eq!(challenge.status, "pending");
+        assert_eq!(challenge.verification_code.len(), 4);
+
+        let retrieved = store.get_challenge(&challenge.challenge_id);
         assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().pkce_verifier, "verifier_abc");
 
-        // Second take should be None
-        assert!(flow_mgr.take_state("state123").is_none());
+        let approved = store.approve_challenge(&challenge.challenge_id);
+        assert!(approved);
+
+        let after_approval = store.get_challenge(&challenge.challenge_id).unwrap();
+        assert_eq!(after_approval.status, "approved");
+    }
+
+    #[test]
+    fn test_auth_challenge_deny() {
+        let store = AuthChallengeStore::new();
+        let challenge = store.create_challenge(60).unwrap();
+        let denied = store.deny_challenge(&challenge.challenge_id);
+        assert!(denied);
+
+        let after_deny = store.get_challenge(&challenge.challenge_id).unwrap();
+        assert_eq!(after_deny.status, "denied");
+    }
+
+    #[test]
+    fn test_auth_challenge_remove() {
+        let store = AuthChallengeStore::new();
+        let challenge = store.create_challenge(60).unwrap();
+        store.remove_challenge(&challenge.challenge_id);
+        assert!(store.get_challenge(&challenge.challenge_id).is_none());
     }
 }

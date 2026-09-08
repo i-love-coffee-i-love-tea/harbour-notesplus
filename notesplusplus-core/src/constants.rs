@@ -14,16 +14,13 @@ pub const DEFAULT_TEMPERATURE: f32 = 0.7;
 // Session & Cookie constants
 pub const SESSION_COOKIE_NAME: &str = "notesplusplus_session";
 pub const SESSION_EXPIRY_SECS: u64 = 7 * 24 * 3600; // 7 days
+pub const AUTH_CHALLENGE_TTL_SECS: u64 = 60;
 
 // Common API Routes
 pub const API_ROUTE_PING: &str = "api/ping";
 pub const API_ROUTE_AUTH_CONFIG: &str = "api/auth/config";
-pub const API_ROUTE_AUTH_LOGIN: &str = "api/auth/login";
 pub const API_ROUTE_AUTH_LOGOUT: &str = "api/auth/logout";
 pub const API_ROUTE_AUTH_WHOAMI: &str = "api/auth/whoami";
-pub const API_ROUTE_AUTH_OAUTH_START: &str = "api/auth/oauth/start";
-pub const API_ROUTE_AUTH_OAUTH_LOGIN: &str = "api/auth/oauth/login";
-pub const API_ROUTE_AUTH_OAUTH_CALLBACK: &str = "api/auth/oauth/callback";
 pub const API_ROUTE_PAGES: &str = "api/pages";
 pub const API_ROUTE_SEARCH: &str = "api/search";
 pub const API_ROUTE_NOTES: &str = "api/notes";

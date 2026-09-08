@@ -43,7 +43,7 @@ Item {
         color: bgColor
         border.color: borderColor
         border.width: 2
-        radius: 4
+        radius: 0
         height: Math.max(iconImage.height + Theme.paddingMedium * 2, admonitionColumn.height + Theme.paddingMedium * 2)
 
         Image {

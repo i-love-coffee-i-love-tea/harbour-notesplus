@@ -144,9 +144,64 @@ pub struct TocHeading {
     pub id: String,
 }
 
+#[derive(Debug, Clone)]
+struct FootnoteItem {
+    id: String,
+    text: String,
+}
+
+struct ListItemNode<'a> {
+    block: &'a Block,
+    sub_items: Vec<ListItemNode<'a>>,
+}
+
+fn build_list_tree<'a>(items: &'a [Block]) -> Vec<ListItemNode<'a>> {
+    let mut root_nodes: Vec<ListItemNode<'a>> = Vec::new();
+    let mut stack: Vec<(u8, ListItemNode<'a>)> = Vec::new();
+
+    for item in items {
+        let level = match item {
+            Block::UnorderedListItem { level, .. } => *level,
+            Block::OrderedListItem { level, .. } => *level,
+            _ => 0,
+        };
+
+        let current_node = ListItemNode {
+            block: item,
+            sub_items: Vec::new(),
+        };
+
+        while let Some((top_level, _)) = stack.last() {
+            if *top_level >= level {
+                let (_, popped) = stack.pop().unwrap();
+                if let Some((_, parent)) = stack.last_mut() {
+                    parent.sub_items.push(popped);
+                } else {
+                    root_nodes.push(popped);
+                }
+            } else {
+                break;
+            }
+        }
+
+        stack.push((level, current_node));
+    }
+
+    while let Some((_, popped)) = stack.pop() {
+        if let Some((_, parent)) = stack.last_mut() {
+            parent.sub_items.push(popped);
+        } else {
+            root_nodes.push(popped);
+        }
+    }
+
+    root_nodes
+}
+
 struct HtmlRenderContext<'a> {
     notes_dir: Option<&'a Path>,
-    footnotes: Vec<String>,
+    footnotes: Vec<FootnoteItem>,
+    footnote_id_to_idx: HashMap<String, usize>,
     heading_counts: HashMap<String, usize>,
     toc_headings: Vec<TocHeading>,
 }
@@ -159,6 +214,7 @@ impl<'a> HtmlRenderContext<'a> {
         Self {
             notes_dir,
             footnotes: Vec::new(),
+            footnote_id_to_idx: HashMap::new(),
             heading_counts: HashMap::new(),
             toc_headings,
         }
@@ -192,18 +248,9 @@ impl<'a> HtmlRenderContext<'a> {
                         i += 1;
                     }
                     let items = &blocks[start..i];
-                    let is_checklist = items.iter().any(|b| matches!(b, Block::UnorderedListItem { checked: Some(_), .. }));
-                    let list_class = if is_checklist { "ulist checklist" } else { "ulist" };
-                    let ul_class = if is_checklist { r#" class="checklist""# } else { "" };
-                    out.push_str(&format!(r#"<div class="{list_class}"><ul{ul_class}>"#));
+                    let tree = build_list_tree(items);
+                    out.push_str(&self.render_unordered_tree(&tree));
                     out.push('\n');
-                    for item in items {
-                        if let Block::UnorderedListItem { checked, children, .. } = item {
-                            out.push_str(&self.render_unordered_list_item(*checked, children));
-                            out.push('\n');
-                        }
-                    }
-                    out.push_str("</ul></div>\n");
                 }
                 Block::OrderedListItem { .. } => {
                     let start = i;
@@ -211,17 +258,9 @@ impl<'a> HtmlRenderContext<'a> {
                         i += 1;
                     }
                     let items = &blocks[start..i];
-                    let is_reversed = items.iter().any(|b| matches!(b, Block::OrderedListItem { reversed: true, .. }));
-                    let rev_attr = if is_reversed { " reversed" } else { "" };
-                    out.push_str(&format!(r#"<div class="olist arabic"><ol class="arabic"{rev_attr}>"#));
+                    let tree = build_list_tree(items);
+                    out.push_str(&self.render_ordered_tree(&tree));
                     out.push('\n');
-                    for item in items {
-                        if let Block::OrderedListItem { marker, reversed, children, .. } = item {
-                            out.push_str(&self.render_ordered_list_item(marker, *reversed, children));
-                            out.push('\n');
-                        }
-                    }
-                    out.push_str("</ol></div>\n");
                 }
                 Block::DescriptionListItem { .. } => {
                     let start = i;
@@ -265,29 +304,66 @@ impl<'a> HtmlRenderContext<'a> {
         out
     }
 
-    fn render_unordered_list_item(&mut self, checked: Option<bool>, children: &[Block]) -> String {
-        let (class_attr, checkbox) = match checked {
-            Some(true) => (
-                r#" class="checklist-item checked""#,
-                r#"<input type="checkbox" checked disabled class="checklist-checkbox">"#,
-            ),
-            Some(false) => (
-                r#" class="checklist-item unchecked""#,
-                r#"<input type="checkbox" disabled class="checklist-checkbox">"#,
-            ),
-            None => ("", ""),
-        };
-        let mut out = format!("<li{class_attr}>{checkbox}", class_attr = class_attr, checkbox = checkbox);
-        out.push_str(&self.render_blocks(children));
-        out.push_str("</li>");
+    fn render_unordered_tree(&mut self, nodes: &[ListItemNode]) -> String {
+        if nodes.is_empty() {
+            return String::new();
+        }
+        let is_checklist = nodes.iter().any(|n| {
+            matches!(n.block, Block::UnorderedListItem { checked: Some(_), .. })
+        });
+        let list_class = if is_checklist { "ulist checklist" } else { "ulist" };
+        let ul_class = if is_checklist { r#" class="checklist""# } else { "" };
+        let mut out = format!(r#"<div class="{list_class}"><ul{ul_class}>"#);
+        out.push('\n');
+        for node in nodes {
+            if let Block::UnorderedListItem { checked, children, .. } = node.block {
+                let (class_attr, checkbox) = match checked {
+                    Some(true) => (
+                        r#" class="checklist-item checked""#,
+                        r#"<input type="checkbox" checked disabled class="checklist-checkbox">"#,
+                    ),
+                    Some(false) => (
+                        r#" class="checklist-item unchecked""#,
+                        r#"<input type="checkbox" disabled class="checklist-checkbox">"#,
+                    ),
+                    None => ("", ""),
+                };
+                out.push_str(&format!("<li{class_attr}>{checkbox}"));
+                out.push_str(self.render_blocks(children).trim());
+                if !node.sub_items.is_empty() {
+                    out.push('\n');
+                    out.push_str(&self.render_unordered_tree(&node.sub_items));
+                }
+                out.push_str("</li>\n");
+            }
+        }
+        out.push_str("</ul></div>");
         out
     }
 
-    fn render_ordered_list_item(&mut self, marker: &str, reversed: bool, children: &[Block]) -> String {
-        let rev_attr = if reversed { " data-reversed=\"true\"" } else { "" };
-        let mut out = format!(r#"<li class="ordered-list-item"{rev_attr} data-marker="{marker}">"#);
-        out.push_str(&self.render_blocks(children));
-        out.push_str("</li>");
+    fn render_ordered_tree(&mut self, nodes: &[ListItemNode]) -> String {
+        if nodes.is_empty() {
+            return String::new();
+        }
+        let is_reversed = nodes.iter().any(|n| {
+            matches!(n.block, Block::OrderedListItem { reversed: true, .. })
+        });
+        let rev_attr = if is_reversed { " reversed" } else { "" };
+        let mut out = format!(r#"<div class="olist arabic"><ol class="arabic"{rev_attr}>"#);
+        out.push('\n');
+        for node in nodes {
+            if let Block::OrderedListItem { marker, reversed, children, .. } = node.block {
+                let rev_item_attr = if *reversed { " data-reversed=\"true\"" } else { "" };
+                out.push_str(&format!(r#"<li class="ordered-list-item"{rev_item_attr} data-marker="{marker}">"#));
+                out.push_str(self.render_blocks(children).trim());
+                if !node.sub_items.is_empty() {
+                    out.push('\n');
+                    out.push_str(&self.render_ordered_tree(&node.sub_items));
+                }
+                out.push_str("</li>\n");
+            }
+        }
+        out.push_str("</ol></div>");
         out
     }
 
@@ -300,8 +376,8 @@ impl<'a> HtmlRenderContext<'a> {
     fn render_callout_list_item(&mut self, number: usize, children: &[Block]) -> String {
         let body = self.render_blocks(children);
         format!(
-            r#"<li class="callout-item"><b class="conum">({})</b> {}</li>"#,
-            number, body
+            r#"<li class="callout-item"><b class="conum"><span class="conum-badge">{}</span></b> {}</li>"#,
+            number, body.trim()
         )
     }
 
@@ -309,11 +385,13 @@ impl<'a> HtmlRenderContext<'a> {
         match block {
             Block::Heading { level, spans, .. } => self.render_heading_block(*level, spans),
             Block::Paragraph { spans, .. } => format!("<p>{}</p>", self.render_spans(spans)),
-            Block::OrderedListItem { marker, reversed, children, .. } => {
-                self.render_ordered_list_item(marker, *reversed, children)
+            Block::OrderedListItem { .. } => {
+                let tree = build_list_tree(std::slice::from_ref(block));
+                self.render_ordered_tree(&tree)
             }
-            Block::UnorderedListItem { checked, children, .. } => {
-                self.render_unordered_list_item(*checked, children)
+            Block::UnorderedListItem { .. } => {
+                let tree = build_list_tree(std::slice::from_ref(block));
+                self.render_unordered_tree(&tree)
             }
             Block::DescriptionListItem { term_spans, children, .. } => {
                 self.render_description_list_item(term_spans, children)
@@ -499,7 +577,7 @@ impl<'a> HtmlRenderContext<'a> {
         )
     }
 
-    fn render_table_block(&mut self, title: Option<&str>, rows: &[Vec<Vec<Block>>], col_widths: &[f64], frame: Option<&str>, grid: Option<&str>) -> String {
+    fn render_table_block(&mut self, title: Option<&str>, rows: &[Vec<crate::block::TableCell>], col_widths: &[f64], frame: Option<&str>, grid: Option<&str>) -> String {
         let title_html = title
             .map(|t| format!(r#"<div class="table-title">{}</div>"#, escape_html(t)))
             .unwrap_or_default();
@@ -514,9 +592,15 @@ impl<'a> HtmlRenderContext<'a> {
         );
 
         if !col_widths.is_empty() {
+            let total_width: f64 = col_widths.iter().sum();
             table_out.push_str("<colgroup>");
             for width in col_widths {
-                table_out.push_str(&format!(r#"<col style="width: {:.1}%;">"#, width));
+                let pct = if total_width > 0.0 {
+                    (width / total_width) * 100.0
+                } else {
+                    100.0 / col_widths.len() as f64
+                };
+                table_out.push_str(&format!(r#"<col style="width: {:.4}%;">"#, pct));
             }
             table_out.push_str("</colgroup>");
         }
@@ -527,8 +611,22 @@ impl<'a> HtmlRenderContext<'a> {
             table_out.push_str("<tr>");
             for cell in row {
                 let tag = if is_header { "th" } else { "td" };
-                let cell_html = self.render_blocks(cell);
-                table_out.push_str(&format!("<{tag}>{cell}</{tag}>", tag = tag, cell = cell_html));
+                let mut attrs = String::new();
+                if cell.colspan > 1 {
+                    attrs.push_str(&format!(r#" colspan="{}""#, cell.colspan));
+                }
+                let mut styles = Vec::new();
+                if let Some(ref a) = cell.align {
+                    styles.push(format!("text-align: {};", a));
+                }
+                if let Some(ref v) = cell.valign {
+                    styles.push(format!("vertical-align: {};", v));
+                }
+                if !styles.is_empty() {
+                    attrs.push_str(&format!(r#" style="{}""#, styles.join(" ")));
+                }
+                let cell_html = self.render_blocks(&cell.blocks);
+                table_out.push_str(&format!("<{tag}{attrs}>{cell}</{tag}>", tag = tag, attrs = attrs, cell = cell_html.trim()));
             }
             table_out.push_str("</tr>");
         }
@@ -641,14 +739,41 @@ impl<'a> HtmlRenderContext<'a> {
                 }
             }
             InlineSpan::Footnote { id, text } => {
-                self.footnotes.push(text.clone());
-                let idx = self.footnotes.len();
-                let fn_id = id.clone().unwrap_or_else(|| format!("fn-{}", idx));
-                format!(
-                    "<sup class=\"footnote\" id=\"fnref-{idx}\"><a href=\"#{fn_id}\">[{idx}]</a></sup>",
-                    idx = idx,
-                    fn_id = fn_id
-                )
+                let existing_idx = id.as_ref().and_then(|id_str| self.footnote_id_to_idx.get(id_str).copied());
+                if let Some(idx) = existing_idx {
+                    let fn_id = self.footnotes[idx - 1].id.clone();
+                    format!(
+                        "<sup class=\"footnote\"><a href=\"#{}\">[{}]</a></sup>",
+                        fn_id, idx
+                    )
+                } else if text.is_empty() && id.is_some() {
+                    let idx = self.footnotes.len() + 1;
+                    let fn_id = id.clone().unwrap_or_else(|| format!("fn-{}", idx));
+                    self.footnote_id_to_idx.insert(fn_id.clone(), idx);
+                    self.footnotes.push(FootnoteItem {
+                        id: fn_id.clone(),
+                        text: text.clone(),
+                    });
+                    format!(
+                        "<sup class=\"footnote\" id=\"fnref-{}\"><a href=\"#{}\">[{}]</a></sup>",
+                        idx, fn_id, idx
+                    )
+                } else {
+                    let idx = self.footnotes.len() + 1;
+                    let fn_id = id.clone().unwrap_or_else(|| format!("fn-{}", idx));
+                    if let Some(id_str) = id.as_ref() {
+                        self.footnote_id_to_idx.insert(id_str.clone(), idx);
+                    }
+                    self.footnote_id_to_idx.insert(fn_id.clone(), idx);
+                    self.footnotes.push(FootnoteItem {
+                        id: fn_id.clone(),
+                        text: text.clone(),
+                    });
+                    format!(
+                        "<sup class=\"footnote\" id=\"fnref-{}\"><a href=\"#{}\">[{}]</a></sup>",
+                        idx, fn_id, idx
+                    )
+                }
             }
             InlineSpan::Callout(num) => format!(r#"<b class="conum"><span class="conum-badge">{}</span></b>"#, num),
             InlineSpan::Kbd(keys) => {
@@ -704,15 +829,23 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_footnotes(&self) -> String {
-        if self.footnotes.is_empty() {
+        let active_footnotes: Vec<(usize, &FootnoteItem)> = self
+            .footnotes
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| !item.text.is_empty())
+            .map(|(i, item)| (i + 1, item))
+            .collect();
+
+        if active_footnotes.is_empty() {
             return String::new();
         }
         let mut out = String::from(r#"<div id="footnotes"><hr><div class="footnotes-title">Footnotes</div><ol>"#);
-        for (i, fn_text) in self.footnotes.iter().enumerate() {
-            let idx = i + 1;
+        for (idx, item) in active_footnotes {
             out.push_str(&format!(
-                "<li id=\"fn-{idx}\"><p>{} <a href=\"#fnref-{idx}\">&#8617;</a></p></li>",
-                escape_html(fn_text),
+                "<li id=\"{}\"><p>{} <a href=\"#fnref-{idx}\">&#8617;</a></p></li>",
+                item.id,
+                escape_html(&item.text),
                 idx = idx
             ));
         }
@@ -1012,6 +1145,11 @@ This is important.
         assert!(html.contains("class=\"admonitionblock important\""));
         // Check for embedded SVG icons
         assert!(html.contains("<svg"));
+        // Check admonition colors and sharp corners
+        assert!(html.contains("--tip-border: #f0ad4e;"));
+        assert!(html.contains("--warning-border: #d9534f;"));
+        assert!(html.contains(".admonitionblock {\n    margin: 1.5em 0;\n    padding: 14px 18px;\n    border-radius: 0;"));
+        assert!(html.contains(".toc {\n    margin: 1.5em 0 2em 0;\n    padding: 16px 20px;\n    background-color: var(--sidebar-bg);\n    border: 1px solid var(--border-color);\n    border-radius: 0;"));
     }
 
     #[test]
@@ -1046,6 +1184,9 @@ Cross reference: xref:other-page.adoc[Other Page]
         assert!(html.contains("class=\"menuseq\""));
         assert!(html.contains("<mark>"));
         assert!(html.contains("class=\"conum\""));
+        assert!(html.contains(".conum {"));
+        assert!(html.contains("background-color: var(--note-bg);"));
+        assert!(html.contains("color: var(--note-border);"));
         assert!(html.contains("class=\"xref\""));
         assert!(html.contains("class=\"notes-icon icon-star\""));
         assert!(html.contains("class=\"notes-icon icon-folder\""));
@@ -1067,9 +1208,26 @@ Cross reference: xref:other-page.adoc[Other Page]
         assert!(html.contains("<input type=\"checkbox\" checked disabled class=\"checklist-checkbox\">"));
         assert!(html.contains("Buy groceries"));
         assert!(html.contains("Finish documentation"));
-        // Verify CSS includes inline paragraph styling for list items and flex alignment
+        // Verify CSS includes inline paragraph styling for list items and proper checklist styling
         assert!(html.contains(".checklist-item {"));
         assert!(html.contains("li > p {"));
+    }
+
+    #[test]
+    fn test_nested_checklist_rendering() {
+        let adoc = r#"
+* [ ] Parent task
+  * [x] Child task 1
+  * [ ] Child task 2
+"#;
+        let html = adoc_to_html5(adoc, "Nested Checklist", None);
+        assert!(html.contains("class=\"checklist-item unchecked\""));
+        assert!(html.contains("class=\"checklist-item checked\""));
+        assert!(html.contains("Parent task"));
+        assert!(html.contains("Child task 1"));
+        assert!(html.contains("Child task 2"));
+        // Ensure child list is nested inside parent list item correctly
+        assert!(html.contains("<li class=\"checklist-item unchecked\"><input type=\"checkbox\" disabled class=\"checklist-checkbox\"><p>Parent task</p>\n<div class=\"ulist checklist\"><ul class=\"checklist\">"));
     }
 
     #[test]
@@ -1116,5 +1274,67 @@ Conclusion.
     #[test]
     fn escape_html_escapes_ampersand() {
         assert_eq!(escape_html("a&b"), "a&amp;b");
+    }
+
+    #[test]
+    fn test_callout_list_rendering_and_styles() {
+        let adoc = r#"
+[source,rust]
+----
+fn main() { // <1>
+    println!("hello"); // <2>
+}
+----
+<1> Entrypoint function
+<2> Print statement
+"#;
+        let html = adoc_to_html5(adoc, "Callout Test", None);
+        assert!(html.contains("<ol class=\"calloutlist\">"));
+        assert!(html.contains("<li class=\"callout-item\"><b class=\"conum\"><span class=\"conum-badge\">1</span></b> <p>Entrypoint function</p></li>"));
+        assert!(html.contains("<li class=\"callout-item\"><b class=\"conum\"><span class=\"conum-badge\">2</span></b> <p>Print statement</p></li>"));
+        assert!(html.contains(".callout-item {"));
+        assert!(html.contains("list-style-type: none;"));
+    }
+
+    #[test]
+    fn test_footnote_deduplication_rendering() {
+        let adoc = r#"
+Here is a statement with footnote:defops[DefOps is great].
+And here we refer to the same footnote:defops[].
+And another reference: footnote:defops[].
+"#;
+        let html = adoc_to_html5(adoc, "Footnotes Test", None);
+        assert!(html.contains("<sup class=\"footnote\" id=\"fnref-1\"><a href=\"#defops\">[1]</a></sup>"));
+        assert!(html.contains("<sup class=\"footnote\"><a href=\"#defops\">[1]</a></sup>"));
+        // Check that footnotes section contains only 1 footnote entry and no empty items
+        assert!(html.contains("<li id=\"defops\"><p>DefOps is great <a href=\"#fnref-1\">&#8617;</a></p></li>"));
+        assert!(!html.contains("<li id=\"fn-2\">"));
+        assert!(!html.contains("<li id=\"fn-3\">"));
+    }
+
+    #[test]
+    fn test_table_alignments_and_colspans_from_chronicles() {
+        let adoc = r#"
+[%header%footer,cols="2,2s,^4",grid=rows,frame=ends,width=75%,caption=]
+|===
+|Name |Title |Alias
+
+|Sarah White
+|President
+|http://twitter.com/carbonfray[@carbonfray]
+
+|Dan Allen
+|Vice President
+|http://twitter.com/mojavelinux[@mojavelinux]
+
+3+^.e|Powered by Open Source
+|===
+"#;
+        let html = adoc_to_html5(adoc, "Chronicles Table", None);
+        assert!(html.contains("<table class=\"table frame-ends grid-rows\">"));
+        assert!(html.contains("<col style=\"width: 25.0000%;\">"));
+        assert!(html.contains("<col style=\"width: 50.0000%;\">"));
+        assert!(html.contains("<td colspan=\"3\" style=\"text-align: center;\"><p><em>Powered by Open Source</em></p></td>"));
+        assert!(html.contains("style=\"text-align: center;\""));
     }
 }

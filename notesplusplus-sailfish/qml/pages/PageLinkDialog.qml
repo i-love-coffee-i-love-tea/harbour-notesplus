@@ -5,11 +5,14 @@ Dialog {
     id: pageLinkDialog
     allowedOrientations: Orientation.All
 
+    property string mode: "link" // "link" or "select"
     property string selectedText: ""
     property string targetPageFilename: ""
     property string targetPageTitle: ""
     property string linkDisplayText: selectedText || ""
     property string formattedLink: ""
+    property alias selectedFilename: pageLinkDialog.targetPageFilename
+    property alias selectedTitle: pageLinkDialog.targetPageTitle
     property var pagesList: []
 
     canAccept: (targetPageFilename.length > 0) || (searchField.text.trim().length > 0) || (linkDisplayField.text.trim().length > 0)
@@ -21,7 +24,10 @@ Dialog {
 
         if (fn.length === 0 && searchField.text.trim().length > 0) {
             var rawQuery = searchField.text.trim()
-            if (rawQuery.indexOf(".adoc") === rawQuery.length - 5) {
+            if (rawQuery.indexOf("http://") === 0 || rawQuery.indexOf("https://") === 0 || rawQuery.indexOf("mailto:") === 0 || rawQuery.indexOf("ftp://") === 0) {
+                fn = rawQuery
+                if (title.length === 0) title = rawQuery
+            } else if (rawQuery.indexOf(".adoc") === rawQuery.length - 5) {
                 fn = rawQuery
             } else {
                 fn = rawQuery + ".adoc"
@@ -37,14 +43,14 @@ Dialog {
         }
 
         // Check if external web link
-        if (fn.indexOf("http://") === 0 || fn.indexOf("https://") === 0) {
-            var label = display.length > 0 ? display : "Link"
+        if (fn.indexOf("http://") === 0 || fn.indexOf("https://") === 0 || fn.indexOf("mailto:") === 0 || fn.indexOf("ftp://") === 0) {
+            var label = display.length > 0 ? display : (title.length > 0 ? title : fn)
             formattedLink = fn + "[" + label + "]"
             return
         }
 
         // AsciiDoc xref link: xref:filename.adoc[Display text]
-        if (display.length > 0 && display !== title && display !== fn.replace(/\.adoc$/, "")) {
+        if (display.length > 0) {
             formattedLink = "xref:" + fn + "[" + display + "]"
         } else if (title.length > 0) {
             formattedLink = "xref:" + fn + "[" + title + "]"
@@ -83,16 +89,22 @@ Dialog {
             width: parent.width
 
             DialogHeader {
-                title: qsTr("Link Page")
-                acceptText: qsTr("Insert Link")
+                title: pageLinkDialog.mode === "select" ? qsTr("Select Page") : qsTr("Link Page")
+                acceptText: pageLinkDialog.mode === "select" ? qsTr("Select") : qsTr("Insert Link")
                 cancelText: qsTr("Cancel")
             }
 
             SearchField {
                 id: searchField
                 width: parent.width
-                placeholderText: qsTr("Search page to link...")
+                placeholderText: pageLinkDialog.mode === "select" ? qsTr("Search page to select...") : qsTr("Search page to link or enter URL...")
                 text: ""
+                EnterKey.enabled: pageLinkDialog.canAccept
+                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+                EnterKey.onClicked: {
+                    pageLinkDialog.updateFormattedLink()
+                    pageLinkDialog.accept()
+                }
                 onTextChanged: {
                     loadPages(text)
                     pageLinkDialog.updateFormattedLink()
@@ -105,9 +117,16 @@ Dialog {
             TextField {
                 id: linkDisplayField
                 width: parent.width
+                visible: pageLinkDialog.mode === "link"
                 label: qsTr("Link display text (optional)")
                 placeholderText: pageLinkDialog.selectedText.length > 0 ? pageLinkDialog.selectedText : (pageLinkDialog.targetPageTitle.length > 0 ? pageLinkDialog.targetPageTitle : qsTr("Text to show for link"))
                 text: pageLinkDialog.linkDisplayText
+                EnterKey.enabled: pageLinkDialog.canAccept
+                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+                EnterKey.onClicked: {
+                    pageLinkDialog.updateFormattedLink()
+                    pageLinkDialog.accept()
+                }
                 onTextChanged: {
                     pageLinkDialog.linkDisplayText = text
                     pageLinkDialog.updateFormattedLink()
@@ -118,7 +137,7 @@ Dialog {
             Item {
                 width: parent.width
                 height: previewBox.height + Theme.paddingMedium
-                visible: pageLinkDialog.formattedLink.length > 0
+                visible: pageLinkDialog.mode === "link" && pageLinkDialog.formattedLink.length > 0
 
                 Rectangle {
                     id: previewBox
@@ -164,20 +183,33 @@ Dialog {
                 text: searchField.text.trim().length > 0 ? qsTr("Matching Pages") : qsTr("All Pages")
             }
 
-            // Create new page option when query doesn't match exact page
+            // Create new page or use URL option when query doesn't match exact page
             BackgroundItem {
                 id: createNewItem
                 width: parent.width
                 height: Theme.itemSizeSmall
                 visible: searchField.text.trim().length > 0 && !exactMatchExists()
+                property bool isWebUrl: {
+                    var q = searchField.text.trim().toLowerCase()
+                    return q.indexOf("http://") === 0 || q.indexOf("https://") === 0 || q.indexOf("mailto:") === 0 || q.indexOf("ftp://") === 0
+                }
                 onClicked: {
                     var raw = searchField.text.trim()
-                    pageLinkDialog.targetPageTitle = raw.replace(/\.adoc$/, "")
-                    pageLinkDialog.targetPageFilename = raw.indexOf(".adoc") === -1 ? (raw + ".adoc") : raw
+                    if (isWebUrl) {
+                        pageLinkDialog.targetPageTitle = raw
+                        pageLinkDialog.targetPageFilename = raw
+                    } else {
+                        pageLinkDialog.targetPageTitle = raw.replace(/\.adoc$/, "")
+                        pageLinkDialog.targetPageFilename = raw.indexOf(".adoc") === -1 ? (raw + ".adoc") : raw
+                    }
                     if (!pageLinkDialog.linkDisplayText) {
                         pageLinkDialog.linkDisplayText = pageLinkDialog.targetPageTitle
                     }
                     pageLinkDialog.updateFormattedLink()
+                }
+                onDoubleClicked: {
+                    onClicked()
+                    pageLinkDialog.accept()
                 }
 
                 function exactMatchExists() {
@@ -199,7 +231,7 @@ Dialog {
                     spacing: Theme.paddingMedium
 
                     Image {
-                        source: "image://theme/icon-m-add?" + Theme.highlightColor
+                        source: createNewItem.isWebUrl ? ("image://theme/icon-m-link?" + Theme.highlightColor) : ("image://theme/icon-m-add?" + Theme.highlightColor)
                         width: Theme.iconSizeSmall
                         height: Theme.iconSizeSmall
                         anchors.verticalCenter: parent.verticalCenter
@@ -210,7 +242,7 @@ Dialog {
                         anchors.verticalCenter: parent.verticalCenter
 
                         Label {
-                            text: qsTr("Create & Link: ") + searchField.text.trim()
+                            text: createNewItem.isWebUrl ? (qsTr("Use URL: ") + searchField.text.trim()) : (qsTr("Create & Link: ") + searchField.text.trim())
                             color: Theme.highlightColor
                             font.pixelSize: Theme.fontSizeSmall
                             font.bold: true
@@ -219,7 +251,7 @@ Dialog {
                         }
 
                         Label {
-                            text: qsTr("Links to a new page '") + (searchField.text.trim().indexOf(".adoc") === -1 ? (searchField.text.trim() + ".adoc") : searchField.text.trim()) + "'"
+                            text: createNewItem.isWebUrl ? qsTr("Links to external web address") : (qsTr("Links to a new page '") + (searchField.text.trim().indexOf(".adoc") === -1 ? (searchField.text.trim() + ".adoc") : searchField.text.trim()) + "'")
                             color: Theme.secondaryColor
                             font.pixelSize: Theme.fontSizeExtraSmall
                             truncationMode: TruncationMode.Fade
@@ -227,6 +259,16 @@ Dialog {
                         }
                     }
                 }
+            }
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: pagesList.length === 0 && (!createNewItem.visible)
+                text: searchField.text.trim().length > 0 ? qsTr("No matching pages found") : qsTr("No pages available")
+                color: Theme.secondaryColor
+                font.pixelSize: Theme.fontSizeSmall
+                topPadding: Theme.paddingLarge
+                bottomPadding: Theme.paddingLarge
             }
 
             // Repeater of matching pages

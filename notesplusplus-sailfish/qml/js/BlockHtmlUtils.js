@@ -70,7 +70,7 @@ function spanToHtml(span, themeColors, notesDir, allowExternal) {
         case "text": return escapeHtml(span.value || "")
         case "bold": return "<b>" + spansToHtml(span.spans || [], themeColors, notesDir, allowExternal) + "</b>"
         case "italic": return "<i>" + spansToHtml(span.spans || [], themeColors, notesDir, allowExternal) + "</i>"
-        case "code": return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:3px;font-family:monospace;word-break:break-all;'>" + (span.spans ? spansToHtml(span.spans, themeColors, notesDir, allowExternal) : escapeHtml(span.value || "")) + "</code>"
+        case "code": return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:0;font-family:monospace;word-break:break-all;'>" + (span.spans ? spansToHtml(span.spans, themeColors, notesDir, allowExternal) : escapeHtml(span.value || "")) + "</code>"
         case "quote": return "&ldquo;" + spansToHtml(span.spans || [], themeColors, notesDir, allowExternal) + "&rdquo;"
         case "squote": return "&lsquo;" + spansToHtml(span.spans || [], themeColors, notesDir, allowExternal) + "&rsquo;"
         case "link": return "<a href='" + escapeHtml(span.url || "") + "' style='color:" + highlight + "'>" + escapeHtml(span.display || span.url || "") + "</a>"
@@ -188,7 +188,7 @@ function blocksToHtmlFromItems(items, depth, themeColors, notesDir, allowExterna
                 childHtml = blocksToHtmlFromItems(childList, depth + 1, themeColors, notesDir, allowExternal)
             }
 
-            var indentPad = (depth > 0) ? (depth * 20) : 0
+            var indentPad = (lvl > 0) ? (lvl * 20) : ((depth > 0) ? (depth * 20) : 0)
             html += "<table width='100%' style='width:100%;border-collapse:collapse;margin:2px 0;'>"
             html += "<tr>"
             if (indentPad > 0) {
@@ -223,7 +223,7 @@ function blocksToHtmlFromItems(items, depth, themeColors, notesDir, allowExterna
                 html += "<h3 style='color:" + highlight + ";margin:6px 0 2px 0;'>" + spansToHtml(b.spans, themeColors, notesDir, allowExternal) + "</h3>"
             } else if (t === "code_block" || t === "literal_block") {
                 var codeLines = (b.lines || []).map(function(l) { return escapeHtml(l) }).join("<br/>")
-                html += "<pre style='background:#18181c;color:#f2f2f7;padding:6px;border-radius:4px;font-family:monospace;margin:4px 0;word-break:break-all;'>" + codeLines + "</pre>"
+                html += "<pre style='background:#18181c;color:#f2f2f7;padding:6px;border-radius:0;font-family:monospace;margin:4px 0;word-break:break-all;'>" + codeLines + "</pre>"
             } else if (t === "description_list_item") {
                 var termTxt = b.term_spans ? spansToHtml(b.term_spans, themeColors, notesDir, allowExternal) : escapeHtml(b.term || "")
                 var descHtml = ""
@@ -246,7 +246,7 @@ function blocksToHtmlFromItems(items, depth, themeColors, notesDir, allowExterna
             } else if (t === "admonition") {
                 html += "<div style='margin:4px 0;padding:6px;border-left:3px solid " + highlight + ";background:" + highlightBg + ";'><b>" + escapeHtml(b.kind || "NOTE") + ":</b> " + blocksToHtml(b.blocks || [], depth, "", themeColors, notesDir, allowExternal) + "</div>"
             } else if (t === "sidebar" || t === "example" || t === "open") {
-                html += "<div style='margin:4px 0;padding:6px;border:1px solid " + highlight + ";border-radius:4px;'>" + (b.title ? ("<b style='color:" + highlight + ";'>" + escapeHtml(b.title) + "</b><br/>") : "") + blocksToHtml(b.blocks || [], depth, "", themeColors, notesDir, allowExternal) + "</div>"
+                html += "<div style='margin:4px 0;padding:6px;border:1px solid " + highlight + ";border-radius:0;'>" + (b.title ? ("<b style='color:" + highlight + ";'>" + escapeHtml(b.title) + "</b><br/>") : "") + blocksToHtml(b.blocks || [], depth, "", themeColors, notesDir, allowExternal) + "</div>"
             } else if (t === "image") {
                 var imgW = b.width ? (" width='" + escapeHtml(b.width) + "'") : " style='max-width:100%;'"
                 html += "<img src='" + escapeHtml(resolveImagePath(b.target || "", notesDir, allowExternal)) + "'" + imgW + " alt='" + escapeHtml(b.alt || "") + "' />"

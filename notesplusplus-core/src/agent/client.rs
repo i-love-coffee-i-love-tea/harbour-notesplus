@@ -32,6 +32,8 @@ pub struct LlmConfig {
     pub timeout_secs: u64,
     #[serde(default)]
     pub allow_self_signed: bool,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
 }
 
 impl Default for LlmConfig {
@@ -43,6 +45,7 @@ impl Default for LlmConfig {
             api_key: None,
             timeout_secs: DEFAULT_AI_TIMEOUT_SECS,
             allow_self_signed: false,
+            system_prompt: None,
         }
     }
 }
@@ -767,6 +770,7 @@ mod tests {
             api_key: None,
             timeout_secs: 30,
             allow_self_signed: false,
+            system_prompt: None,
         };
         let client = LlmClient::new(cfg.clone());
         assert_eq!(client.resolve_chat_url(), "http://192.168.1.100:11434/api/chat");
@@ -846,6 +850,7 @@ mod tests {
             api_key: None,
             timeout_secs: 120,
             allow_self_signed: false,
+            system_prompt: None,
         };
         let client = LlmClient::new(cfg);
         assert_eq!(client.config().timeout_secs, 120);
@@ -860,6 +865,7 @@ mod tests {
             api_key: None,
             timeout_secs: 60,
             allow_self_signed: false,
+            system_prompt: None,
         };
         let client = LlmClient::new(cfg);
 
@@ -922,6 +928,7 @@ mod tests {
             api_key: Some("secret".to_string()),
             timeout_secs: 60,
             allow_self_signed: false,
+            system_prompt: None,
         };
         let client = LlmClient::new(cfg);
 

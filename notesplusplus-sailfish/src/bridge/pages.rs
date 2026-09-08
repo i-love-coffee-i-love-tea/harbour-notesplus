@@ -703,6 +703,9 @@ impl NotesBridge {
 
         match notesplusplus_core::server::start_server_with_config(config) {
             Ok(handle) => {
+                if !self.pending_theme_colors.is_empty() {
+                    handle.context().set_theme_colors(self.pending_theme_colors.clone());
+                }
                 let primary_url = handle.primary_url();
                 self.web_server_url = primary_url.clone();
                 self.web_server_running = true;
@@ -755,6 +758,15 @@ impl NotesBridge {
                 handle.context().set_reject_public_networks(reject);
             }
             self.reject_public_networks_changed();
+        }
+    }
+
+    fn set_theme_impl(&mut self, colors_json: String) {
+        if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&colors_json) {
+            self.pending_theme_colors = map.clone();
+            if let Some(ref handle) = self.server_handle {
+                handle.context().set_theme_colors(map);
+            }
         }
     }
 
@@ -937,65 +949,16 @@ impl NotesBridge {
 
     fn configure_auth_impl(
         &mut self,
-        enabled: bool,
-        basic_enabled: bool,
-        username: String,
-        password: String,
-        oauth_enabled: bool,
-        provider_name: String,
-        issuer_url: String,
-        client_id: String,
-        client_secret: String,
-        allowed_emails: String,
-        allow_self_signed: bool,
+        _enabled: bool,
+        _basic_enabled: bool,
+        _username: String,
+        _password: String,
     ) {
-        self.auth_config.enabled = enabled;
-        self.auth_config.basic_enabled = basic_enabled;
-        self.auth_config.basic_username = if username.trim().is_empty() {
-            "admin".to_string()
-        } else {
-            username.trim().to_string()
-        };
-        if !password.is_empty() {
-            let _ = self.auth_config.set_password(&password);
-        }
-        self.auth_config.oauth_enabled = oauth_enabled;
-        self.auth_config.oauth_provider_name = if provider_name.trim().is_empty() {
-            "OpenID Connect".to_string()
-        } else {
-            provider_name.trim().to_string()
-        };
-        self.auth_config.oauth_issuer_url = issuer_url.trim().to_string();
-        self.auth_config.oauth_client_id = client_id.trim().to_string();
-        self.auth_config.oauth_client_secret = if client_secret.trim().is_empty() {
-            None
-        } else {
-            Some(client_secret.trim().to_string())
-        };
-        self.auth_config.oauth_allowed_emails = allowed_emails
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        self.auth_config.allow_self_signed_oidc = allow_self_signed;
-
-        if let Some(ref handle) = self.server_handle {
-            handle.context().update_auth_config(self.auth_config.clone());
-        }
     }
 
     fn get_auth_info_json_impl(&self) -> String {
         serde_json::json!({
-            "enabled": self.auth_config.enabled,
-            "basic_enabled": self.auth_config.basic_enabled,
-            "basic_username": self.auth_config.basic_username,
-            "has_password": !self.auth_config.basic_password_hash.is_empty(),
-            "oauth_enabled": self.auth_config.oauth_enabled,
-            "oauth_provider_name": self.auth_config.oauth_provider_name,
-            "oauth_issuer_url": self.auth_config.oauth_issuer_url,
-            "oauth_client_id": self.auth_config.oauth_client_id,
-            "oauth_allowed_emails": self.auth_config.oauth_allowed_emails.join(", "),
-            "allow_self_signed_oidc": self.auth_config.allow_self_signed_oidc,
+            "auth_required": true,
         }).to_string()
     }
 
@@ -1021,27 +984,8 @@ impl NotesBridge {
         basic_enabled: bool,
         username: String,
         password: String,
-        oauth_enabled: bool,
-        provider_name: String,
-        issuer_url: String,
-        client_id: String,
-        client_secret: String,
-        allowed_emails: String,
-        allow_self_signed: bool,
     ) {
-        self.configure_auth_impl(
-            enabled,
-            basic_enabled,
-            username,
-            password,
-            oauth_enabled,
-            provider_name,
-            issuer_url,
-            client_id,
-            client_secret,
-            allowed_emails,
-            allow_self_signed,
-        );
+        self.configure_auth_impl(enabled, basic_enabled, username, password);
     }
     pub fn get_auth_info_json(&mut self) -> String {
         self.get_auth_info_json_impl()
@@ -1070,6 +1014,70 @@ impl NotesBridge {
     pub fn start_web_server(&mut self) -> String { self.start_web_server_impl() }
     pub fn stop_web_server(&mut self) { self.stop_web_server_impl(); }
     pub fn toggle_web_server(&mut self) -> bool { self.toggle_web_server_impl() }
+
+    pub fn set_theme(&mut self, colors_json: String) { self.set_theme_impl(colors_json); }
+
+    /// Polls the server context for a pending authorization challenge. Returns true if one is pending.
+    pub fn check_auth_challenge(&mut self) -> bool {
+        if let Some(ref handle) = self.server_handle {
+            let ctx = handle.context();
+            let guard = ctx.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(challenge_id) = guard.as_ref() {
+                let mut changed = false;
+                if self.auth_challenge_id != *challenge_id {
+                    self.auth_challenge_id = challenge_id.clone();
+                    changed = true;
+                }
+                if let Some(challenge) = ctx.auth_challenges.get_challenge(challenge_id) {
+                    if self.auth_verification_code != challenge.verification_code {
+                        self.auth_verification_code = challenge.verification_code.clone();
+                        changed = true;
+                    }
+                }
+                if !self.auth_challenge_pending {
+                    self.auth_challenge_pending = true;
+                    changed = true;
+                }
+                if changed {
+                    self.auth_challenge_changed();
+                }
+                return true;
+            }
+        }
+        if self.auth_challenge_pending {
+            self.auth_challenge_pending = false;
+            self.auth_challenge_id = String::new();
+            self.auth_verification_code = String::new();
+            self.auth_challenge_changed();
+        }
+        false
+    }
+
+    /// Approves an authorization challenge.
+    pub fn approve_auth_challenge(&mut self, challenge_id: String) {
+        if let Some(ref handle) = self.server_handle {
+            let ctx = handle.context();
+            ctx.auth_challenges.approve_challenge(&challenge_id);
+            ctx.clear_auth_challenge();
+        }
+        self.auth_challenge_pending = false;
+        self.auth_challenge_id = String::new();
+        self.auth_verification_code = String::new();
+        self.auth_challenge_changed();
+    }
+
+    /// Denies/cancels an authorization challenge.
+    pub fn deny_auth_challenge(&mut self, challenge_id: String) {
+        if let Some(ref handle) = self.server_handle {
+            let ctx = handle.context();
+            ctx.auth_challenges.deny_challenge(&challenge_id);
+            ctx.clear_auth_challenge();
+        }
+        self.auth_challenge_pending = false;
+        self.auth_challenge_id = String::new();
+        self.auth_verification_code = String::new();
+        self.auth_challenge_changed();
+    }
 }
 
 #[cfg(test)]

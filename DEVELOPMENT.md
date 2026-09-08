@@ -148,3 +148,53 @@ The repository includes automated GitHub Actions workflows under `.github/workfl
 - **Root Cause**: Modern host Cargo (1.85+) generates `Cargo.lock` with `version = 4`. Rust 1.75 in the Sailfish SDK only supports `version = 3`.
 - **How to fix**:
   `./build-sailfish.sh` automatically ensures `Cargo.lock` uses `version = 3` before building.
+
+### Problem 4: `GLIBC_2.33 not found` when building with older SDK targets
+- **Root Cause**: The `SailfishOS-4.6.0.13` tooling ships glibc 2.30. Rust's `serde_derive` proc-macro binary (and any proc-macro crate compiled inside sb2) gets linked against the tooling's glibc, which produces a `.so` requiring GLIBC 2.33+. The `SailfishOS-5.1.0.11` tooling ships glibc 2.41 which is sufficient.
+- **Scope**: This is NOT a dependency version issue — it affects ANY Rust project using proc-macros (serde, syn, etc.) on the 4.6 SDK. Downgrading crate versions does not help.
+- **Status**: Fundamental SDK toolchain limitation. Only `SailfishOS-5.1.0.11-aarch64` can build Rust projects.
+
+### Problem 5: `can't find crate for zerofrom_derive` / ICU dependency chain
+- **Root Cause**: `url` >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Unicode normalization stack (`icu_collections`, `icu_normalizer`, `displaydoc`, `zerofrom`). These proc-macro crates trigger sb2 cross-compilation bugs.
+- **Fix**: Downgrade `url` to 2.5.2: `cargo update -p url --precise 2.5.2`. This replaces `idna 1.x` (ICU-based) with `idna 0.5` (pure Rust), removing the entire ICU chain.
+- **Note**: This fix alone does not resolve Problem 4 — the serde glibc issue remains.
+
+---
+
+## 8. Device Compatibility
+
+### Current build target
+
+All RPMs are built with `SailfishOS-5.1.0.11-aarch64`. This produces **aarch64** binaries linked against **glibc 2.32+**.
+
+### Supported devices
+
+| Device | Arch | Sailfish OS | Compatible |
+|--------|------|-------------|------------|
+| Jolla C2 | aarch64 | 5.1+ | Yes |
+| Xperia 10 II / III / IV | aarch64 | 4.5+ | Yes (if SFOS 5.1+) |
+| Xperia XA2 (64-bit SFOS) | aarch64 | 5.0+ | No — SDK glibc 2.32+ required, device has 2.30 |
+| Xperia XA2 (32-bit SFOS) | armv7hl | 4.6 | No — architecture mismatch |
+| Jolla C | armv7hl | 4.x | No — architecture mismatch |
+| Jolla 1 | armv7l | 3.4 | No — architecture mismatch + too old |
+
+### Why not older targets?
+
+**SailfishOS-4.6.0.13-aarch64** was tested to support older devices (glibc 2.30). It fails because the SDK tooling's glibc 2.30 is too old — Rust proc-macro crates (`serde_derive`, `syn`, etc.) compiled inside sb2 produce `.so` files requiring GLIBC 2.33+. This is a fundamental SDK toolchain limitation, not a dependency version issue.
+
+**armv7hl** builds are blocked by:
+1. sb2 SIGSEGV in `libsb2.so.1(opendir)` during Rust cross-compilation
+2. The `ring` crate's `build.rs` passes x86 host flags to the ARM cross-compiler
+3. The same glibc limitation as aarch64 (4.6 tooling glibc too old for proc-macros)
+
+### Dependency note: `url` crate and ICU chain
+
+The `url` crate >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Unicode normalization stack (`icu_collections`, `icu_normalizer`, `displaydoc`, `zerofrom`), adding ~20 heavy proc-macro crates. Downgrading to `url 2.5.2` replaces the ICU-based `idna 1.x` with pure-Rust `idna 0.5`, significantly reducing the dependency tree. This does NOT enable4.6 builds (glibc limitation remains) but reduces build times and binary size.
+
+```bash
+cargo update -p url --precise 2.5.2
+```
+
+### Building for older Sailfish versions
+
+Currently not possible for Rust-based apps due to SDK toolchain limitations. The app will only install on Sailfish OS 5.1+ aarch64 devices.

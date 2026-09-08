@@ -41,14 +41,12 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
         return;
     }
 
-    let auth_config = ctx.auth_config.lock().unwrap_or_else(|e| e.into_inner()).clone();
-
     // 3. Health check & Ping
     if clean_path == API_ROUTE_PING {
         let resp = json!({
             "ok": true,
             "is_tls": ctx.is_tls,
-            "auth_enabled": auth_config.enabled,
+            "auth_enabled": true,
         });
         send_response(&mut stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), &cors_origin);
         return;
@@ -57,11 +55,6 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
     // 4. Public / Auth endpoints
     if clean_path == "api/auth/config" {
         auth::handle_auth_config(&mut stream, &req, &ctx, &cors_origin);
-        return;
-    }
-
-    if clean_path == "api/auth/login" && req.method == "POST" {
-        auth::handle_login(&mut stream, &req, &ctx, &cors_origin);
         return;
     }
 
@@ -75,15 +68,31 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
         return;
     }
 
-    if (clean_path == "api/auth/oauth/start" || clean_path == "api/auth/oauth/login")
-        && (req.method == "GET" || req.method == "POST")
-    {
-        auth::handle_oauth_start(&mut stream, clean_path, &ctx, &cors_origin);
+    if (clean_path == "api/auth/code/initiate" || clean_path == "api/auth/fingerprint/initiate" || clean_path == "api/auth/phone/initiate") && req.method == "POST" {
+        auth::handle_challenge_initiate(&mut stream, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/auth/oauth/callback" {
-        auth::handle_oauth_callback(&mut stream, &req, &ctx, &cors_origin);
+    if (clean_path == "api/auth/code/status" || clean_path == "api/auth/fingerprint/status" || clean_path == "api/auth/phone/status") && req.method == "GET" {
+        auth::handle_challenge_status(&mut stream, &req, &ctx, &cors_origin);
+        return;
+    }
+
+    if (clean_path == "api/auth/code/approve" || clean_path == "api/auth/fingerprint/approve" || clean_path == "api/auth/phone/approve") && req.method == "POST" {
+        auth::handle_challenge_approve(&mut stream, &req, &ctx, &cors_origin);
+        return;
+    }
+
+    if (clean_path == "api/auth/code/deny" || clean_path == "api/auth/fingerprint/deny" || clean_path == "api/auth/phone/deny") && req.method == "POST" {
+        auth::handle_challenge_deny(&mut stream, &req, &ctx, &cors_origin);
+        return;
+    }
+
+    // 4b. Theme colors (Sailfish ambience sync)
+    if clean_path == "api/theme" && req.method == "GET" {
+        let colors = ctx.theme_colors.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let body = serde_json::to_string(&colors).unwrap_or_else(|_| "{}".into());
+        send_response(&mut stream, 200, "OK", MIME_JSON, body.as_bytes(), &cors_origin);
         return;
     }
 
@@ -99,8 +108,8 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
         || clean_path.starts_with("assets/")
         || clean_path.starts_with("api/auth/");
 
-    if auth_config.enabled && !is_public_path {
-        let session = auth::authenticate_request(&req, &auth_config, &ctx.session_store);
+    if !is_public_path {
+        let session = auth::authenticate_request(&req, &ctx.session_store);
         if session.is_none() {
             if clean_path.starts_with("api/") {
                 let err = json!({ "error": "Unauthorized", "authenticated": false });
@@ -164,32 +173,32 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
     }
 
     // 10. AI Agent APIs
-    if clean_path == "api/ai/models" && req.method == "GET" {
+    if (clean_path == "api/ai/models" || clean_path == "api/agent/models") && req.method == "GET" {
         agent::handle_agent_models(&mut stream, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/ai/config" {
+    if clean_path == "api/ai/config" || clean_path == "api/agent/config" {
         agent::handle_agent_config(&mut stream, &req, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/ai/chat" && req.method == "POST" {
+    if (clean_path == "api/ai/chat" || clean_path == "api/agent/chat") && req.method == "POST" {
         agent::handle_agent_chat(stream, &req, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/ai/template" && req.method == "POST" {
+    if (clean_path == "api/ai/template" || clean_path == "api/agent/template") && req.method == "POST" {
         agent::handle_agent_template(stream, &req, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/ai/confirm" && req.method == "POST" {
+    if (clean_path == "api/ai/confirm" || clean_path == "api/agent/confirm") && req.method == "POST" {
         agent::handle_agent_confirm(stream, &req, &ctx, &cors_origin);
         return;
     }
 
-    if clean_path == "api/ai/undo" && req.method == "POST" {
+    if (clean_path == "api/ai/undo" || clean_path == "api/agent/undo") && req.method == "POST" {
         agent::handle_agent_undo(&mut stream, &ctx, &cors_origin);
         return;
     }

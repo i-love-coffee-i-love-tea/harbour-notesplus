@@ -183,91 +183,31 @@ createApp({
     const showExportMenu = ref(false);
 
     // Authentication State
-    const authRequired = ref(false);
-    const isAuthenticated = ref(true);
-    const authBasicEnabled = ref(true);
-    const authOauthEnabled = ref(false);
-    const authOauthProviderName = ref('Authentik');
+    const isAuthenticated = ref(false);
     const authUser = ref('');
-    const loginUsername = ref('admin');
-    const loginPassword = ref('');
-    const loginError = ref('');
-    const isLoggingIn = ref(false);
-    const loginUserInput = ref(null);
-    const loginPassInput = ref(null);
-
-    function focusFirstEmptyLoginField() {
-      nextTick(() => {
-        if (!authRequired.value || isAuthenticated.value) return;
-        const user = (loginUsername.value || '').trim();
-        if (!user && loginUserInput.value) {
-          loginUserInput.value.focus();
-        } else if (loginPassInput.value) {
-          loginPassInput.value.focus();
-          loginPassInput.value.select?.();
-        }
-      });
-    }
-
-    watch([authRequired, isAuthenticated], ([req, authed]) => {
-      if (req && !authed) {
-        focusFirstEmptyLoginField();
-      }
-    });
+    const authError = ref('');
+    const authStatus = ref('');
+    const authVerificationCode = ref('');
+    const authChallengeId = ref('');
+    const authCanRetry = ref(false);
+    const authPollTimer = ref(null);
 
     async function fetchAuthConfig() {
       try {
         const res = await fetch('/api/auth/config', { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          authRequired.value = !!data.auth_required;
-          authBasicEnabled.value = data.basic_enabled !== false;
-          authOauthEnabled.value = !!data.oauth_enabled;
-          authOauthProviderName.value = data.oauth_provider_name || 'OpenID Connect';
           isAuthenticated.value = !!data.authenticated;
           authUser.value = data.user || '';
-          if (authRequired.value && !isAuthenticated.value) {
-            focusFirstEmptyLoginField();
+          if (!isAuthenticated.value) {
+            startPhoneAuth();
           }
           return data.authenticated;
         }
       } catch (err) {
         console.warn('Failed to fetch auth config:', err);
       }
-      return true;
-    }
-
-    async function submitLogin() {
-      if (isLoggingIn.value) return;
-      isLoggingIn.value = true;
-      loginError.value = '';
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: loginUsername.value,
-            password: loginPassword.value
-          })
-        });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          isAuthenticated.value = true;
-          authUser.value = data.user || loginUsername.value;
-          loginPassword.value = '';
-          loginError.value = '';
-          await fetchNotesList();
-          await fetchAiConfig();
-        } else {
-          loginError.value = data.error || 'Invalid username or password';
-          focusFirstEmptyLoginField();
-        }
-      } catch (err) {
-        loginError.value = 'Login request failed: ' + err.message;
-        focusFirstEmptyLoginField();
-      } finally {
-        isLoggingIn.value = false;
-      }
+      return false;
     }
 
     async function logout() {
@@ -276,9 +216,77 @@ createApp({
       } catch (_) {}
       isAuthenticated.value = false;
       authUser.value = '';
-      loginPassword.value = '';
+      stopAuthPolling();
+      authChallengeId.value = '';
+      authVerificationCode.value = '';
       await fetchAuthConfig();
-      focusFirstEmptyLoginField();
+    }
+
+    // Phone authentication challenge flow
+    async function startPhoneAuth() {
+      stopAuthPolling();
+      authError.value = '';
+      authStatus.value = 'Connecting to phone...';
+      authCanRetry.value = false;
+      try {
+        const res = await fetch('/api/auth/code/initiate', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          authChallengeId.value = data.challenge_id;
+          authVerificationCode.value = data.verification_code || '';
+          authStatus.value = 'Please tap Accept on your phone';
+          startAuthPolling();
+        } else {
+          authStatus.value = '';
+          authError.value = data.error || 'Failed to initiate login authorization';
+          authCanRetry.value = true;
+        }
+      } catch (err) {
+        authStatus.value = '';
+        authError.value = 'Authorization request failed: ' + err.message;
+        authCanRetry.value = true;
+      }
+    }
+
+    function startAuthPolling() {
+      stopAuthPolling();
+      authPollTimer.value = setInterval(async () => {
+        if (!authChallengeId.value) {
+          stopAuthPolling();
+          return;
+        }
+        try {
+          const res = await fetch('/api/auth/code/status?challenge_id=' + encodeURIComponent(authChallengeId.value));
+          const data = await res.json();
+          if (data.status === 'approved') {
+            stopAuthPolling();
+            isAuthenticated.value = true;
+            authUser.value = data.user || 'phone-user';
+            authChallengeId.value = '';
+            authVerificationCode.value = '';
+            authStatus.value = '';
+            authError.value = '';
+            authCanRetry.value = false;
+            await fetchNotesList();
+            await fetchAiConfig();
+          } else if (data.status === 'denied') {
+            stopAuthPolling();
+            authStatus.value = 'Login request was denied on the phone.';
+            authCanRetry.value = true;
+          } else if (data.status === 'expired') {
+            stopAuthPolling();
+            authStatus.value = 'Code expired. Requesting a new code...';
+            setTimeout(() => { startPhoneAuth(); }, 1200);
+          }
+        } catch (_) {}
+      }, 1000);
+    }
+
+    function stopAuthPolling() {
+      if (authPollTimer.value) {
+        clearInterval(authPollTimer.value);
+        authPollTimer.value = null;
+      }
     }
 
     // Connection & Health Check State
@@ -306,9 +314,9 @@ createApp({
       }
     }
 
-    async function checkConnection() {
+    async function checkConnection(quiet) {
       if (isCheckingConnection.value) return;
-      isCheckingConnection.value = true;
+      if (!quiet) isCheckingConnection.value = true;
       try {
         let signal = undefined;
         let timer = null;
@@ -331,7 +339,7 @@ createApp({
       } catch (err) {
         markPhoneUnreachable(err);
       } finally {
-        isCheckingConnection.value = false;
+        if (!quiet) isCheckingConnection.value = false;
       }
     }
 
@@ -514,6 +522,17 @@ createApp({
     const newNoteTitle = ref('');
     const newNoteTemplate = ref('blank');
 
+    // Link Modal State
+    const openLinkModal = ref(false);
+    const linkSearchQuery = ref('');
+    const selectedLinkFilename = ref('');
+    const selectedLinkTitle = ref('');
+    const linkDisplayText = ref('');
+    const linkFocusedIndex = ref(0);
+    const linkEditorContext = ref({ mode: 'split', start: 0, end: 0, blockIndex: null });
+    const linkSearchInputRef = ref(null);
+    const linkPagesListRef = ref(null);
+
     // AI Assistant State
     const openAiDrawer = ref(false);
     const showAiSettings = ref(false);
@@ -525,14 +544,19 @@ createApp({
     const messages = ref([]);
     const pendingAction = ref(null);
     const canUndo = ref(false);
+    const availableModels = ref([]);
+    const isLoadingModels = ref(false);
+    const modelsError = ref('');
 
     const aiConfig = ref({
       provider: 'ollama',
-      endpoint: '',
       model: 'llama3.2',
-      apiKey: '',
-      timeout: 90,
-      allow_self_signed: false
+      system_prompt: ''
+    });
+
+    const isCurrentModelInList = computed(() => {
+      if (!aiConfig.value.model) return false;
+      return availableModels.value.some(m => m.id === aiConfig.value.model || m.name === aiConfig.value.model);
     });
 
     // Refs
@@ -584,6 +608,61 @@ createApp({
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
       return (slug || 'untitled') + '.adoc';
+    });
+
+    // Link Search & Selection Dialog State & Computeds
+    const isExternalUrl = computed(() => {
+      const q = (linkSearchQuery.value || '').trim();
+      return /^(https?:\/\/|mailto:|ftp:\/\/)/i.test(q);
+    });
+
+    const computedCustomFilename = computed(() => {
+      const q = (linkSearchQuery.value || '').trim();
+      if (!q) return '';
+      if (isExternalUrl.value) return q;
+      if (q.toLowerCase().endsWith('.adoc')) return q;
+      const slug = q.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+      return (slug || 'untitled') + '.adoc';
+    });
+
+    const filteredLinkPages = computed(() => {
+      const q = (linkSearchQuery.value || '').trim().toLowerCase();
+      if (!q) {
+        return notesList.value;
+      }
+      return notesList.value.filter(n => {
+        const titleMatch = (n.title || '').toLowerCase().includes(q);
+        const fileMatch = (n.filename || '').toLowerCase().includes(q);
+        const snippetMatch = (n.snippet || '').toLowerCase().includes(q);
+        return titleMatch || fileMatch || snippetMatch;
+      });
+    });
+
+    const isExactMatch = computed(() => {
+      const q = (linkSearchQuery.value || '').trim().toLowerCase();
+      if (!q) return false;
+      const targetFn = q.endsWith('.adoc') ? q : `${q}.adoc`;
+      return filteredLinkPages.value.some(n => 
+        (n.filename || '').toLowerCase() === targetFn || 
+        (n.title || '').toLowerCase() === q
+      );
+    });
+
+    const formattedLinkPreview = computed(() => {
+      if (selectedLinkFilename.value) {
+        const text = (linkDisplayText.value || '').trim() || selectedLinkTitle.value || selectedLinkFilename.value;
+        return `xref:${selectedLinkFilename.value}[${text}]`;
+      }
+      const q = (linkSearchQuery.value || '').trim();
+      if (q) {
+        const text = (linkDisplayText.value || '').trim() || q;
+        if (isExternalUrl.value) {
+          return `${q}[${text}]`;
+        }
+        const fn = computedCustomFilename.value;
+        return `xref:${fn}[${text}]`;
+      }
+      return '';
     });
 
     async function loadInPlaceBlocks(text) {
@@ -952,12 +1031,15 @@ createApp({
         if (res.ok) {
           markPhoneReachable();
           const data = await res.json();
-          aiConfig.value.provider = data.provider || 'ollama';
-          aiConfig.value.endpoint = data.endpoint || '';
-          aiConfig.value.model = data.model || 'llama3.2';
-          aiConfig.value.timeout = data.timeout || 90;
-          aiConfig.value.allow_self_signed = !!data.allow_self_signed;
+          if (data.provider) {
+            aiConfig.value.provider = data.provider;
+          }
+          if (data.model) {
+            aiConfig.value.model = data.model;
+          }
+          aiConfig.value.system_prompt = data.system_prompt || '';
           canUndo.value = !!data.can_undo;
+          await fetchAvailableModels();
         } else {
           markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
@@ -967,6 +1049,37 @@ createApp({
       }
     }
 
+    async function fetchAvailableModels() {
+      isLoadingModels.value = true;
+      modelsError.value = '';
+      try {
+        const res = await fetch('/api/ai/models');
+        if (res.ok) {
+          markPhoneReachable();
+          const data = await res.json();
+          if (data && Array.isArray(data.models)) {
+            availableModels.value = data.models;
+          } else {
+            availableModels.value = [];
+          }
+        } else {
+          console.warn('Could not fetch models from server:', res.status);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch models from server:', err);
+      } finally {
+        isLoadingModels.value = false;
+      }
+    }
+
+    async function onProviderChange() {
+      await saveAiSettings();
+    }
+
+    async function onModelSelect() {
+      await saveAiSettings();
+    }
+
     async function saveAiSettings() {
       try {
         const res = await fetch('/api/ai/config', {
@@ -974,16 +1087,14 @@ createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             provider: aiConfig.value.provider,
-            endpoint: aiConfig.value.endpoint,
             model: aiConfig.value.model,
-            api_key: aiConfig.value.apiKey,
-            timeout: Number(aiConfig.value.timeout) || 90,
-            allow_self_signed: !!aiConfig.value.allow_self_signed
+            system_prompt: aiConfig.value.system_prompt
           })
         });
         if (res.ok) {
           markPhoneReachable();
           showAiSettings.value = false;
+          await fetchAvailableModels();
         } else {
           markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
@@ -997,6 +1108,9 @@ createApp({
       openAiDrawer.value = !openAiDrawer.value;
       if (openAiDrawer.value) {
         scrollChatToBottom();
+        if (availableModels.value.length === 0) {
+          fetchAvailableModels();
+        }
       }
     }
 
@@ -1272,12 +1386,144 @@ createApp({
       onContentChange();
     }
 
-    function insertLink() {
-      const url = prompt('Enter URL or note link:', 'https://example.com');
-      const text = prompt('Enter link title:', 'Link Description');
-      if (url && text) {
-        wrapSelection(`${url}[${text}]`, '');
+    function selectLinkTarget(note) {
+      if (!note) return;
+      selectedLinkFilename.value = note.filename;
+      selectedLinkTitle.value = note.title || note.filename;
+      if (!linkDisplayText.value.trim()) {
+        linkDisplayText.value = note.title || note.filename;
       }
+    }
+
+    function selectCustomLinkTarget(query) {
+      selectedLinkFilename.value = '';
+      selectedLinkTitle.value = query;
+      if (!linkDisplayText.value.trim()) {
+        linkDisplayText.value = query;
+      }
+    }
+
+    function openLinkDialog() {
+      let initialText = '';
+      let ctx = { mode: 'split', start: 0, end: 0, blockIndex: null };
+
+      if (viewMode.value === 'inplace' && editingBlockIndex.value !== null && editingBlockIndex.value >= 0) {
+        ctx.mode = 'inplace';
+        ctx.blockIndex = editingBlockIndex.value;
+        const blockEl = document.querySelector('.inplace-editor-card textarea');
+        if (blockEl) {
+          ctx.start = blockEl.selectionStart || 0;
+          ctx.end = blockEl.selectionEnd || 0;
+          if (ctx.start !== ctx.end) {
+            initialText = (activeBlockText.value || '').substring(ctx.start, ctx.end);
+          }
+        } else {
+          ctx.start = (activeBlockText.value || '').length;
+          ctx.end = (activeBlockText.value || '').length;
+        }
+      } else {
+        ctx.mode = 'split';
+        const el = editorTextarea.value;
+        if (el) {
+          ctx.start = el.selectionStart || 0;
+          ctx.end = el.selectionEnd || 0;
+          if (ctx.start !== ctx.end) {
+            initialText = (rawContent.value || '').substring(ctx.start, ctx.end);
+          }
+        } else {
+          ctx.start = (rawContent.value || '').length;
+          ctx.end = (rawContent.value || '').length;
+        }
+      }
+
+      linkEditorContext.value = ctx;
+      linkDisplayText.value = initialText;
+      linkSearchQuery.value = '';
+      selectedLinkFilename.value = '';
+      selectedLinkTitle.value = '';
+      linkFocusedIndex.value = 0;
+      openLinkModal.value = true;
+
+      nextTick(() => {
+        if (linkSearchInputRef.value) {
+          linkSearchInputRef.value.focus();
+        }
+      });
+    }
+
+    function handleLinkKeydown(e) {
+      const hasFallback = (linkSearchQuery.value || '').trim() && !isExactMatch.value;
+      const totalCount = filteredLinkPages.value.length + (hasFallback ? 1 : 0);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (totalCount > 0) {
+          linkFocusedIndex.value = (linkFocusedIndex.value + 1) % totalCount;
+          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
+            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+          } else {
+            selectCustomLinkTarget((linkSearchQuery.value || '').trim());
+          }
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (totalCount > 0) {
+          linkFocusedIndex.value = (linkFocusedIndex.value - 1 + totalCount) % totalCount;
+          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
+            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+          } else {
+            selectCustomLinkTarget((linkSearchQuery.value || '').trim());
+          }
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (totalCount > 0 && !selectedLinkFilename.value && !isExternalUrl.value) {
+          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
+            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+          }
+        }
+        confirmLinkInsert();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        openLinkModal.value = false;
+      }
+    }
+
+    function confirmLinkInsert() {
+      const linkText = formattedLinkPreview.value;
+      if (!linkText) return;
+
+      const ctx = linkEditorContext.value;
+      if (ctx.mode === 'inplace') {
+        const s = ctx.start;
+        const e = ctx.end;
+        activeBlockText.value = (activeBlockText.value || '').slice(0, s) + linkText + (activeBlockText.value || '').slice(e);
+        openLinkModal.value = false;
+        nextTick(() => {
+          const blockEl = document.querySelector('.inplace-editor-card textarea');
+          if (blockEl) {
+            blockEl.focus();
+            blockEl.setSelectionRange(s + linkText.length, s + linkText.length);
+          }
+        });
+      } else {
+        const el = editorTextarea.value;
+        const s = ctx.start;
+        const e = ctx.end;
+        rawContent.value = (rawContent.value || '').slice(0, s) + linkText + (rawContent.value || '').slice(e);
+        onContentChange();
+        openLinkModal.value = false;
+        nextTick(() => {
+          if (el) {
+            el.focus();
+            el.setSelectionRange(s + linkText.length, s + linkText.length);
+          }
+        });
+      }
+    }
+
+    function insertLink() {
+      openLinkDialog();
     }
 
     function scrollChatToBottom() {
@@ -1294,9 +1540,23 @@ createApp({
 
     // Keyboard Shortcuts
     function handleGlobalKeyDown(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (openLinkModal.value) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          openLinkModal.value = false;
+        }
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         saveCurrentNote();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        openLinkDialog();
         return;
       }
 
@@ -1377,26 +1637,37 @@ createApp({
       }
 
       // Start periodic health check heartbeat (every 4 seconds)
-      heartbeatTimer = setInterval(checkConnection, 4000);
+      heartbeatTimer = setInterval(() => checkConnection(true), 4000);
+
+      // Fetch Sailfish ambience theme and apply as CSS overrides
+      fetchTheme();
+      setInterval(fetchTheme, 10000);
     });
 
+    async function fetchTheme() {
+      try {
+        const res = await fetch('/api/theme', { cache: 'no-store' });
+        if (!res.ok) return;
+        const colors = await res.json();
+        if (!colors || Object.keys(colors).length === 0) return;
+        const root = document.documentElement;
+        for (const [key, value] of Object.entries(colors)) {
+          root.style.setProperty('--' + key, value);
+        }
+      } catch (_) {}
+    }
+
     return {
-      authRequired,
       isAuthenticated,
-      authBasicEnabled,
-      authOauthEnabled,
-      authOauthProviderName,
       authUser,
-      loginUsername,
-      loginPassword,
-      loginError,
-      isLoggingIn,
-      loginUserInput,
-      loginPassInput,
-      focusFirstEmptyLoginField,
+      authError,
+      authStatus,
+      authVerificationCode,
+      authChallengeId,
+      authCanRetry,
       fetchAuthConfig,
-      submitLogin,
       logout,
+      startPhoneAuth,
       isPhoneReachable,
       isCheckingConnection,
       connectionError,
@@ -1432,6 +1703,25 @@ createApp({
       newNoteTitle,
       newNoteTemplate,
       computedNewFilename,
+      openLinkModal,
+      linkSearchQuery,
+      selectedLinkFilename,
+      selectedLinkTitle,
+      linkDisplayText,
+      linkFocusedIndex,
+      linkEditorContext,
+      linkSearchInputRef,
+      linkPagesListRef,
+      isExternalUrl,
+      computedCustomFilename,
+      filteredLinkPages,
+      isExactMatch,
+      formattedLinkPreview,
+      selectLinkTarget,
+      selectCustomLinkTarget,
+      openLinkDialog,
+      handleLinkKeydown,
+      confirmLinkInsert,
       openAiDrawer,
       showAiSettings,
       isAiBusy,
@@ -1442,6 +1732,13 @@ createApp({
       messages,
       pendingAction,
       canUndo,
+      availableModels,
+      isLoadingModels,
+      modelsError,
+      isCurrentModelInList,
+      fetchAvailableModels,
+      onProviderChange,
+      onModelSelect,
       aiConfig,
       editorTextarea,
       chatMessagesContainer,

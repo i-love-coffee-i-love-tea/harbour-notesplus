@@ -132,72 +132,6 @@ ApplicationWindow {
         defaultValue: false
     }
 
-    ConfigurationValue {
-        id: webAuthEnabledConf
-        key: "/apps/harbour-notesplusplus/web_auth_enabled"
-        defaultValue: false
-    }
-
-    ConfigurationValue {
-        id: webAuthBasicEnabledConf
-        key: "/apps/harbour-notesplusplus/web_auth_basic_enabled"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: webAuthUsernameConf
-        key: "/apps/harbour-notesplusplus/web_auth_username"
-        defaultValue: "admin"
-    }
-
-    ConfigurationValue {
-        id: webAuthPasswordConf
-        key: "/apps/harbour-notesplusplus/web_auth_password"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthEnabledConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_enabled"
-        defaultValue: false
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthProviderNameConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_provider_name"
-        defaultValue: "Authentik"
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthIssuerUrlConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_issuer_url"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthClientIdConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_client_id"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthClientSecretConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_client_secret"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthAllowedEmailsConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_allowed_emails"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: webAuthOauthAllowSelfSignedConf
-        key: "/apps/harbour-notesplusplus/web_auth_oauth_allow_self_signed"
-        defaultValue: false
-    }
-
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
@@ -219,18 +153,6 @@ ApplicationWindow {
     property bool aiAutoAllowCreate: aiAutoAllowCreateConf.value !== undefined ? aiAutoAllowCreateConf.value : true
     property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
     property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
-
-    property bool webAuthEnabled: webAuthEnabledConf.value !== undefined ? webAuthEnabledConf.value : false
-    property bool webAuthBasicEnabled: webAuthBasicEnabledConf.value !== undefined ? webAuthBasicEnabledConf.value : true
-    property string webAuthUsername: webAuthUsernameConf.value !== undefined ? webAuthUsernameConf.value : "admin"
-    property string webAuthPassword: webAuthPasswordConf.value !== undefined ? webAuthPasswordConf.value : ""
-    property bool webAuthOauthEnabled: webAuthOauthEnabledConf.value !== undefined ? webAuthOauthEnabledConf.value : false
-    property string webAuthOauthProviderName: webAuthOauthProviderNameConf.value !== undefined ? webAuthOauthProviderNameConf.value : "Authentik"
-    property string webAuthOauthIssuerUrl: webAuthOauthIssuerUrlConf.value !== undefined ? webAuthOauthIssuerUrlConf.value : ""
-    property string webAuthOauthClientId: webAuthOauthClientIdConf.value !== undefined ? webAuthOauthClientIdConf.value : ""
-    property string webAuthOauthClientSecret: webAuthOauthClientSecretConf.value !== undefined ? webAuthOauthClientSecretConf.value : ""
-    property string webAuthOauthAllowedEmails: webAuthOauthAllowedEmailsConf.value !== undefined ? webAuthOauthAllowedEmailsConf.value : ""
-    property bool webAuthOauthAllowSelfSigned: webAuthOauthAllowSelfSignedConf.value !== undefined ? webAuthOauthAllowSelfSignedConf.value : false
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -294,6 +216,19 @@ ApplicationWindow {
         }
     }
 
+    function syncTheme() {
+        if (typeof bridge !== "undefined" && bridge && typeof bridge.set_theme === "function") {
+            var highlight = String(Theme.highlightColor)
+            var colors = {
+                "primary": highlight,
+                "primary-hover": highlight,
+                "accent": highlight,
+                "accent-light": String(Theme.highlightBackgroundColor)
+            }
+            bridge.set_theme(JSON.stringify(colors))
+        }
+    }
+
     function setAiProvider(provider) {
         aiProviderConf.value = provider
         syncAiConfig()
@@ -339,79 +274,6 @@ ApplicationWindow {
         syncAiConfig()
     }
 
-    function syncWebAuthConfig() {
-        if (typeof bridge !== "undefined" && bridge && typeof bridge.configure_auth === "function") {
-            bridge.configure_auth(
-                app.webAuthEnabled || false,
-                app.webAuthBasicEnabled !== undefined ? app.webAuthBasicEnabled : true,
-                app.webAuthUsername || "admin",
-                app.webAuthPassword || "",
-                app.webAuthOauthEnabled || false,
-                app.webAuthOauthProviderName || "Authentik",
-                app.webAuthOauthIssuerUrl || "",
-                app.webAuthOauthClientId || "",
-                app.webAuthOauthClientSecret || "",
-                app.webAuthOauthAllowedEmails || "",
-                app.webAuthOauthAllowSelfSigned || false
-            )
-        }
-    }
-
-    function setWebAuthEnabled(val) {
-        webAuthEnabledConf.value = val
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthBasicEnabled(val) {
-        webAuthBasicEnabledConf.value = val
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthUsername(user) {
-        webAuthUsernameConf.value = user
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthPassword(pass) {
-        webAuthPasswordConf.value = pass
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthEnabled(val) {
-        webAuthOauthEnabledConf.value = val
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthProviderName(name) {
-        webAuthOauthProviderNameConf.value = name
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthIssuerUrl(url) {
-        webAuthOauthIssuerUrlConf.value = url
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthClientId(id) {
-        webAuthOauthClientIdConf.value = id
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthClientSecret(secret) {
-        webAuthOauthClientSecretConf.value = secret
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthAllowedEmails(emails) {
-        webAuthOauthAllowedEmailsConf.value = emails
-        syncWebAuthConfig()
-    }
-
-    function setWebAuthOauthAllowSelfSigned(val) {
-        webAuthOauthAllowSelfSignedConf.value = val
-        syncWebAuthConfig()
-    }
-
     function openAssistant(contextFilename, contextContent) {
         pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), {
             contextFilename: contextFilename || "",
@@ -453,11 +315,12 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncAiConfig()
-        syncWebAuthConfig()
         bridge.set_drop_comments(app.dropComments)
         bridge.set_reject_public_networks(app.rejectPublicNetworks)
+        syncTheme()
         if (app.autostartWebServer) {
             bridge.start_web_server()
+            syncTheme()
         }
         pageStack.forceActiveFocus()
         startupTimer.start()
@@ -471,9 +334,43 @@ ApplicationWindow {
         onTriggered: bridge.poll_results()
     }
 
+    property var activeAuthPromptPage: null
+
+    function showOrUpdateAuthPrompt(challengeId, verificationCode) {
+        if (!challengeId) return
+        if (activeAuthPromptPage) {
+            if (typeof activeAuthPromptPage.updateChallenge === "function") {
+                activeAuthPromptPage.updateChallenge(challengeId, verificationCode)
+                return
+            }
+        }
+        var page = pageStack.push(Qt.resolvedUrl("pages/AuthPrompt.qml"), {
+            challengeId: challengeId,
+            verificationCode: verificationCode
+        })
+        activeAuthPromptPage = page
+    }
+
+    Timer {
+        id: authChallengePollTimer
+        interval: 500
+        repeat: true
+        running: false
+        onTriggered: {
+            if (bridge.check_auth_challenge()) {
+                showOrUpdateAuthPrompt(bridge.auth_challenge_id, bridge.auth_verification_code)
+            }
+        }
+    }
+
     Connections {
         target: RootApp
         onLastWindowClosed: Qt.quit()
+    }
+
+    Connections {
+        target: Theme
+        onHighlightColorChanged: syncTheme()
     }
 
     NotesBridge {
@@ -482,6 +379,19 @@ ApplicationWindow {
         onError_occurred: {
             notification.text = message
             notification.show()
+        }
+        onWeb_server_status_changed: {
+            if (bridge.web_server_running) {
+                syncTheme()
+                authChallengePollTimer.start()
+            } else {
+                authChallengePollTimer.stop()
+            }
+        }
+        onAuth_challenge_changed: {
+            if (bridge.auth_challenge_pending) {
+                showOrUpdateAuthPrompt(bridge.auth_challenge_id, bridge.auth_verification_code)
+            }
         }
     }
 

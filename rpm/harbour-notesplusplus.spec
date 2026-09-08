@@ -16,6 +16,7 @@ BuildRequires:  rust
 BuildRequires:  rust-std-static
 BuildRequires:  gcc-c++
 BuildRequires:  meego-rpm-config
+BuildRequires:  qt5-qttools-linguist
 
 %description
 Notes++ is an AsciiDoc notes app for Sailfish OS.
@@ -40,8 +41,14 @@ export CXXFLAGS_aarch64_unknown_linux_gnu=$CXXFLAGS
 rustc --version
 cargo --version
 
-export CARGO_BUILD_JOBS=4
-cargo build --release --locked -p harbour-notesplusplus -j 4
+export CARGO_BUILD_JOBS=1
+
+cargo build --release --locked -p harbour-notesplusplus -j 1
+
+# Compile translations
+cd notesplusplus-sailfish/translations
+lrelease harbour-notesplusplus.ts harbour-notesplusplus_de.ts harbour-notesplusplus_es.ts
+cd ../..
 
 %install
 rm -rf %{buildroot}
@@ -89,14 +96,29 @@ EOF
 mkdir -p %{buildroot}%{_sysconfdir}/sailjail/permissions
 install -m 644 %{_sourcedir}/%{name}.profile %{buildroot}%{_sysconfdir}/sailjail/permissions/
 
-mkdir -p %{buildroot}%{_datadir}/icons/hicolor/86x86/apps
-install -m 644 rpm/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/86x86/apps/%{name}.png
+for SIZE in 86 108 128 172; do
+  mkdir -p %{buildroot}%{_datadir}/icons/hicolor/${SIZE}x${SIZE}/apps
+  install -m 644 rpm/icons/${SIZE}x${SIZE}/%{name}.png %{buildroot}%{_datadir}/icons/hicolor/${SIZE}x${SIZE}/apps/%{name}.png
+done
+
+# Install translations
+mkdir -p %{buildroot}%{_datadir}/%{name}/translations
+install -m 644 notesplusplus-sailfish/translations/*.qm %{buildroot}%{_datadir}/%{name}/translations/
+
+# Install AppStream metadata
+mkdir -p %{buildroot}%{_datadir}/metainfo
+install -m 644 rpm/%{name}.appdata.xml %{buildroot}%{_datadir}/metainfo/%{name}.metainfo.xml
 
 %files
 %defattr(-,root,root,-)
 %{_bindir}/%{name}
 %{_datadir}/%{name}/qml
+%{_datadir}/%{name}/translations
 %{_datadir}/%{name}/examples
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/86x86/apps/%{name}.png
+%{_datadir}/icons/hicolor/108x108/apps/%{name}.png
+%{_datadir}/icons/hicolor/128x128/apps/%{name}.png
+%{_datadir}/icons/hicolor/172x172/apps/%{name}.png
+%{_datadir}/metainfo/%{name}.metainfo.xml
 %config %{_sysconfdir}/sailjail/permissions/%{name}.profile

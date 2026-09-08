@@ -43,6 +43,9 @@ pub struct NotesBridge {
     web_server_url: qt_property!(String; NOTIFY web_server_status_changed),
     error_message: qt_property!(String; NOTIFY error_occurred),
     initialized: qt_property!(bool; NOTIFY initialized_changed),
+    auth_challenge_pending: qt_property!(bool; NOTIFY auth_challenge_changed),
+    auth_challenge_id: qt_property!(String; NOTIFY auth_challenge_changed),
+    auth_verification_code: qt_property!(String; NOTIFY auth_challenge_changed),
 
     // Signals
     page_changed: qt_signal!(),
@@ -56,6 +59,7 @@ pub struct NotesBridge {
     page_saved: qt_signal!(),
     html_exported: qt_signal!(path: String),
     initialized_changed: qt_signal!(),
+    auth_challenge_changed: qt_signal!(),
 
     // Methods
     load_page: qt_method!(fn(&mut self, name: String)),
@@ -90,8 +94,12 @@ pub struct NotesBridge {
     reset_tls_certificate: qt_method!(fn(&mut self) -> String),
     is_custom_tls_certificate: qt_method!(fn(&mut self) -> bool),
     get_tls_certificate_info_json: qt_method!(fn(&mut self) -> String),
-    configure_auth: qt_method!(fn(&mut self, enabled: bool, basic_enabled: bool, username: String, password: String, oauth_enabled: bool, provider_name: String, issuer_url: String, client_id: String, client_secret: String, allowed_emails: String, allow_self_signed: bool)),
+    configure_auth: qt_method!(fn(&mut self, enabled: bool, basic_enabled: bool, username: String, password: String)),
     get_auth_info_json: qt_method!(fn(&mut self) -> String),
+    set_theme: qt_method!(fn(&mut self, colors_json: String)),
+    check_auth_challenge: qt_method!(fn(&mut self) -> bool),
+    approve_auth_challenge: qt_method!(fn(&mut self, challenge_id: String)),
+    deny_auth_challenge: qt_method!(fn(&mut self, challenge_id: String)),
 
     // Internal state
     conn: Option<rusqlite::Connection>,
@@ -105,6 +113,7 @@ pub struct NotesBridge {
     permission_config: notesplusplus_core::agent::PermissionConfig,
     auth_config: notesplusplus_core::server::auth::AuthConfig,
     conn_receiver: Option<mpsc::Receiver<Result<rusqlite::Connection, String>>>,
+    pending_theme_colors: std::collections::HashMap<String, String>,
 }
 
 impl Default for NotesBridge {
@@ -178,6 +187,14 @@ impl Default for NotesBridge {
             get_tls_certificate_info_json: Default::default(),
             configure_auth: Default::default(),
             get_auth_info_json: Default::default(),
+            set_theme: Default::default(),
+            check_auth_challenge: Default::default(),
+            approve_auth_challenge: Default::default(),
+            deny_auth_challenge: Default::default(),
+            auth_challenge_pending: false,
+            auth_challenge_id: String::new(),
+            auth_verification_code: String::new(),
+            auth_challenge_changed: Default::default(),
             conn: None,
             notes_path,
             data_dir,
@@ -189,6 +206,7 @@ impl Default for NotesBridge {
             permission_config: notesplusplus_core::agent::PermissionConfig::default(),
             auth_config: notesplusplus_core::server::auth::AuthConfig::default(),
             conn_receiver: None,
+            pending_theme_colors: std::collections::HashMap::new(),
         }
     }
 }

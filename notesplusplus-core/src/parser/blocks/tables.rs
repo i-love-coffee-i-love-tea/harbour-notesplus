@@ -1,12 +1,13 @@
-use crate::block::Block;
+use crate::block::{Block, TableCell};
 use crate::inline::{parse_inline, InlineSpan};
-use crate::parser::attributes::{is_attribute_line, parse_table_attributes};
+use crate::parser::attributes::{is_attribute_line, parse_table_attributes, ColSpec};
 use crate::parser::parse_blocks;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CellSpec {
     pub colspan: usize,
     pub align: Option<char>, // '<', '^', '>'
+    pub valign: Option<char>, // '<', '^', '>'
     pub style: Option<char>, // 'a', 'e', 's', 'm', 'h', 'l', 'v', 'd'
 }
 
@@ -14,6 +15,7 @@ pub fn parse_cell_spec(s: &str) -> CellSpec {
     let mut spec = CellSpec {
         colspan: 1,
         align: None,
+        valign: None,
         style: None,
     };
     let trimmed = s.trim();
@@ -21,60 +23,46 @@ pub fn parse_cell_spec(s: &str) -> CellSpec {
         return spec;
     }
 
+    let mut rest = trimmed;
     // Check colspan: e.g. "3+" or "2+^.e"
-    if let Some(plus_idx) = trimmed.find('+') {
-        let num_str = &trimmed[..plus_idx];
+    if let Some(plus_idx) = rest.find('+') {
+        let num_str = &rest[..plus_idx];
         if let Ok(n) = num_str.parse::<usize>() {
             if n > 0 {
                 spec.colspan = n;
             }
         }
+        rest = &rest[plus_idx + 1..];
     }
 
-    // Check align: '^', '>', '<'
-    if trimmed.contains('^') {
-        spec.align = Some('^');
-    } else if trimmed.contains('>') {
-        spec.align = Some('>');
-    } else if trimmed.contains('<') {
-        spec.align = Some('<');
-    }
-
-    // Check style: after '.' or single style letter
-    if let Some(dot_idx) = trimmed.rfind('.') {
-        let style_part = &trimmed[dot_idx + 1..];
-        if let Some(first_char) = style_part.chars().next() {
-            spec.style = Some(first_char.to_ascii_lowercase());
-        }
+    let (h_part, v_part) = if let Some(dot_idx) = rest.find('.') {
+        let (h, v) = rest.split_at(dot_idx);
+        (h, &v[1..])
     } else {
-        for c in trimmed.chars() {
-            if matches!(
-                c,
-                'a' | 'e'
-                    | 'i'
-                    | 's'
-                    | 'b'
-                    | 'm'
-                    | 'c'
-                    | 'h'
-                    | 'l'
-                    | 'v'
-                    | 'd'
-                    | 'A'
-                    | 'E'
-                    | 'I'
-                    | 'S'
-                    | 'B'
-                    | 'M'
-                    | 'C'
-                    | 'H'
-                    | 'L'
-                    | 'V'
-                    | 'D'
-            ) {
-                spec.style = Some(c.to_ascii_lowercase());
-                break;
-            }
+        (rest, "")
+    };
+
+    for c in h_part.chars() {
+        if c == '^' {
+            spec.align = Some('^');
+        } else if c == '>' {
+            spec.align = Some('>');
+        } else if c == '<' {
+            spec.align = Some('<');
+        } else if matches!(c, 'a' | 'e' | 'i' | 's' | 'b' | 'm' | 'c' | 'h' | 'l' | 'v' | 'd' | 'A' | 'E' | 'I' | 'S' | 'B' | 'M' | 'C' | 'H' | 'L' | 'V' | 'D') {
+            spec.style = Some(c.to_ascii_lowercase());
+        }
+    }
+
+    for c in v_part.chars() {
+        if c == '^' {
+            spec.valign = Some('^');
+        } else if c == '>' {
+            spec.valign = Some('>');
+        } else if c == '<' {
+            spec.valign = Some('<');
+        } else if matches!(c, 'a' | 'e' | 'i' | 's' | 'b' | 'm' | 'c' | 'h' | 'l' | 'v' | 'd' | 'A' | 'E' | 'I' | 'S' | 'B' | 'M' | 'C' | 'H' | 'L' | 'V' | 'D') {
+            spec.style = Some(c.to_ascii_lowercase());
         }
     }
 
@@ -160,12 +148,13 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
     // Consume optional attribute lines before |===
     let mut col_asciidoc: Vec<bool> = Vec::new();
     let mut col_widths: Vec<f64> = Vec::new();
+    let mut col_specs: Vec<ColSpec> = Vec::new();
     let mut frame: Option<String> = None;
     let mut grid: Option<String> = None;
     while consumed < lines.len() && is_attribute_line(lines[consumed].trim()) {
         let attr = lines[consumed].trim();
         raw_parts.push(lines[consumed].to_string());
-        parse_table_attributes(attr, &mut col_widths, &mut col_asciidoc, &mut frame, &mut grid);
+        parse_table_attributes(attr, &mut col_widths, &mut col_asciidoc, &mut col_specs, &mut frame, &mut grid);
         consumed += 1;
     }
 
@@ -187,29 +176,44 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
         let mut has_open_cell = false;
 
         let flush_row = |row_cells: &mut Vec<(Vec<String>, CellSpec)>,
-                         rows: &mut Vec<Vec<Vec<Block>>>,
-                         col_asciidoc: &[bool]| {
+                         rows: &mut Vec<Vec<TableCell>>,
+                         col_specs: &[ColSpec]| {
             if !row_cells.is_empty() {
                 let mut col_idx = 0;
-                let parsed: Vec<Vec<Block>> = row_cells
+                let parsed: Vec<TableCell> = row_cells
                     .drain(..)
                     .map(|(cell_lines, spec)| {
                         let content = cell_lines.join("\n");
-                        let use_ad = if spec.style == Some('a') {
+                        let col_spec = col_specs.get(col_idx);
+                        let effective_style = spec.style.or_else(|| col_spec.and_then(|c| c.style));
+                        let use_ad = if effective_style == Some('a') {
                             true
                         } else {
-                            col_asciidoc.get(col_idx).copied().unwrap_or(false)
+                            col_spec.map(|c| c.is_asciidoc).unwrap_or(false)
                         };
+
+                        let align_opt = spec.align.map(|c| match c {
+                            '^' => "center",
+                            '>' => "right",
+                            _ => "left",
+                        }.to_string()).or_else(|| col_spec.and_then(|c| c.align.clone()));
+
+                        let valign_opt = spec.valign.map(|c| match c {
+                            '^' => "middle",
+                            '>' => "bottom",
+                            _ => "top",
+                        }.to_string()).or_else(|| col_spec.and_then(|c| c.valign.clone()));
+
                         col_idx += spec.colspan.max(1);
-                        if use_ad {
+                        let blocks = if use_ad {
                             parse_blocks(&content)
                         } else {
                             let mut spans = parse_inline(&content);
-                            if spec.style == Some('e') || spec.style == Some('i') {
+                            if effective_style == Some('e') || effective_style == Some('i') {
                                 spans = vec![InlineSpan::Italic(spans)];
-                            } else if spec.style == Some('s') || spec.style == Some('b') {
+                            } else if effective_style == Some('s') || effective_style == Some('b') {
                                 spans = vec![InlineSpan::Bold(spans)];
-                            } else if spec.style == Some('m') || spec.style == Some('c') {
+                            } else if effective_style == Some('m') || effective_style == Some('c') {
                                 spans = vec![InlineSpan::Code(content.clone())];
                             }
                             if spans.is_empty() {
@@ -220,6 +224,14 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
                                     raw: content,
                                 }]
                             }
+                        };
+
+                        TableCell {
+                            blocks,
+                            colspan: spec.colspan.max(1),
+                            align: align_opt,
+                            valign: valign_opt,
+                            style: effective_style,
                         }
                     })
                     .collect();
@@ -253,7 +265,7 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
                     &mut current_row_cells,
                     &mut current_row_col_count,
                 );
-                flush_row(&mut current_row_cells, &mut rows, &col_asciidoc);
+                flush_row(&mut current_row_cells, &mut rows, &col_specs);
                 break;
             }
 
@@ -269,7 +281,7 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
                     if num_cols.is_none() {
                         num_cols = Some(current_row_col_count);
                     }
-                    flush_row(&mut current_row_cells, &mut rows, &col_asciidoc);
+                    flush_row(&mut current_row_cells, &mut rows, &col_specs);
                     current_row_col_count = 0;
                 }
                 consumed += 1;
@@ -293,7 +305,7 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
 
                     if let Some(max_cols) = num_cols {
                         if current_row_col_count >= max_cols {
-                            flush_row(&mut current_row_cells, &mut rows, &col_asciidoc);
+                            flush_row(&mut current_row_cells, &mut rows, &col_specs);
                             current_row_col_count = 0;
                         }
                     }
@@ -323,7 +335,7 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
             &mut current_row_cells,
             &mut current_row_col_count,
         );
-        flush_row(&mut current_row_cells, &mut rows, &col_asciidoc);
+        flush_row(&mut current_row_cells, &mut rows, &col_specs);
     } else {
         // Simple pipe-delimited table (no |=== delimiters)
         while consumed < lines.len() {
@@ -350,25 +362,26 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
     )
 }
 
-pub fn parse_table_row(line: &str) -> Vec<Vec<Block>> {
-    let mut cells: Vec<Vec<Block>> = line
+pub fn parse_table_row(line: &str) -> Vec<TableCell> {
+    let mut cells: Vec<TableCell> = line
         .split('|')
         .skip(1)
         .map(|s| {
             let text = s.trim();
             let spans = parse_inline(text);
-            if spans.is_empty() {
+            let blocks = if spans.is_empty() {
                 vec![]
             } else {
                 vec![Block::Paragraph {
                     spans,
                     raw: text.to_string(),
                 }]
-            }
+            };
+            TableCell::new(blocks)
         })
         .collect();
     // Remove trailing empty cell from trailing pipe
-    while cells.last().is_some_and(|c| c.is_empty()) {
+    while cells.last().is_some_and(|c| c.blocks.is_empty()) {
         cells.pop();
     }
     cells

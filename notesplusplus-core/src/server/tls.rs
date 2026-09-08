@@ -5,6 +5,8 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use std::io::Write;
+
 use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig as RustlsServerConfig;
@@ -49,6 +51,29 @@ impl Default for TlsOptions {
             alt_names: vec!["localhost".to_string(), "127.0.0.1".to_string()],
             cert_path: None,
             key_path: None,
+        }
+    }
+}
+
+/// Atomic file write: writes to a temp file then renames, so kill -9 can't corrupt the target.
+fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(data)?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)
+}
+
+/// Clean up stale .tmp files left behind by a killed process mid atomic_write.
+fn cleanup_stale_tmp(dir: &Path) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().map_or(false, |e| e == "tmp") {
+                let _ = fs::remove_file(&p);
+            }
         }
     }
 }
@@ -237,9 +262,9 @@ pub fn reset_to_self_signed_cert(
         let _ = fs::create_dir_all(parent);
     }
 
-    fs::write(cert_path, &cert.cert_pem)
+    atomic_write(cert_path, cert.cert_pem.as_bytes())
         .map_err(|e| format!("Failed to write cert file: {}", e))?;
-    fs::write(key_path, &cert.key_pem)
+    atomic_write(key_path, cert.key_pem.as_bytes())
         .map_err(|e| format!("Failed to write key file: {}", e))?;
 
     // Remove custom marker if present
@@ -257,6 +282,12 @@ pub fn get_or_create_tls_cert(
     key_path: &Path,
     options: Option<TlsOptions>,
 ) -> Result<TlsCertificate, String> {
+    // Ensure parent directory exists and clean up stale temp files
+    if let Some(dir) = cert_path.parent() {
+        let _ = fs::create_dir_all(dir);
+        cleanup_stale_tmp(dir);
+    }
+
     if cert_path.is_file() && key_path.is_file() {
         if let (Ok(cert_pem), Ok(key_pem)) = (fs::read_to_string(cert_path), fs::read_to_string(key_path)) {
             if let Ok(cert) = validate_tls_pair(&cert_pem, &key_pem) {

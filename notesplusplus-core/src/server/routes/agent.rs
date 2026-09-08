@@ -23,15 +23,14 @@ pub fn handle_agent_config<W: Write>(
             let cfg = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
             let is_undo_available = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).can_undo();
             let has_pending = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).pending_action().is_some();
+            // Server address and tokens are configured on phone app and kept safe from leaking to the web UI
             let resp = json!({
                 "provider": match cfg.provider {
                     LlmProvider::Ollama => "ollama",
                     LlmProvider::OpenAiCompatible => "openai",
                 },
-                "endpoint": cfg.endpoint_url,
                 "model": cfg.model,
-                "timeout": cfg.timeout_secs,
-                "has_key": cfg.api_key.as_ref().map(|k| !k.is_empty()).unwrap_or(false),
+                "system_prompt": cfg.system_prompt.clone().unwrap_or_default(),
                 "can_undo": is_undo_available,
                 "has_pending": has_pending
             });
@@ -47,27 +46,30 @@ pub fn handle_agent_config<W: Write>(
                         _ => LlmProvider::Ollama,
                     };
                 }
-                if let Some(ep) = json_body.get("endpoint").and_then(|v| v.as_str()) {
-                    cfg_guard.endpoint_url = ep.to_string();
-                }
                 if let Some(m) = json_body.get("model").and_then(|v| v.as_str()) {
                     cfg_guard.model = m.to_string();
                 }
-                if let Some(k) = json_body.get("api_key").and_then(|v| v.as_str()) {
-                    cfg_guard.api_key = if k.is_empty() { None } else { Some(k.to_string()) };
-                }
-                if let Some(t) = json_body.get("timeout").and_then(|v| v.as_u64()) {
-                    cfg_guard.timeout_secs = t;
-                }
-                if let Some(a) = json_body.get("allow_self_signed").and_then(|v| v.as_bool()) {
-                    cfg_guard.allow_self_signed = a;
+                if let Some(sp) = json_body.get("system_prompt").and_then(|v| v.as_str()) {
+                    cfg_guard.system_prompt = if sp.trim().is_empty() {
+                        None
+                    } else {
+                        Some(sp.to_string())
+                    };
                 }
 
                 let new_client = LlmClient::new(cfg_guard.clone());
                 let perm_mgr = PermissionManager::new(ctx.perm_config.lock().unwrap_or_else(|e| e.into_inner()).clone());
                 ctx.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
 
-                let resp = json!({ "ok": true });
+                let resp = json!({
+                    "ok": true,
+                    "provider": match cfg_guard.provider {
+                        LlmProvider::Ollama => "ollama",
+                        LlmProvider::OpenAiCompatible => "openai",
+                    },
+                    "model": cfg_guard.model,
+                    "system_prompt": cfg_guard.system_prompt.clone().unwrap_or_default()
+                });
                 send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
             }
         }

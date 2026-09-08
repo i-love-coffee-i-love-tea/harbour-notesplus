@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::agent::backup::BackupManager;
 use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
-use crate::agent::prompt::build_system_prompt;
+use crate::agent::prompt::build_system_prompt_with_custom;
 use crate::agent::tools::{is_blocked_host, ToolCall};
 use crate::db;
 use crate::page;
@@ -109,7 +109,11 @@ impl AgentSession {
         self.messages.clear();
         self.pending_action = None;
         self.last_created_note = None;
-        let sys_prompt = build_system_prompt(active_note, extra_context);
+        let sys_prompt = build_system_prompt_with_custom(
+            self.client.config().system_prompt.as_deref(),
+            active_note,
+            extra_context,
+        );
         self.messages.push(ChatMessage::system(sys_prompt));
     }
 

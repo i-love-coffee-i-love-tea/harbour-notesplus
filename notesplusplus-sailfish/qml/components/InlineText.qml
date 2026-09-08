@@ -51,7 +51,7 @@ Label {
             case "italic":
                 return "<i>" + renderSpans(span.spans) + "</i>"
             case "code":
-                return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:3px;font-family:monospace;word-break:break-all;'>" + (span.spans ? renderSpans(span.spans) : escapeHtml(span.value || "")) + "</code>"
+                return "<code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:0;font-family:monospace;word-break:break-all;'>" + (span.spans ? renderSpans(span.spans) : escapeHtml(span.value || "")) + "</code>"
             case "quote":
                 return "&ldquo;" + renderSpans(span.spans) + "&rdquo;"
             case "squote":

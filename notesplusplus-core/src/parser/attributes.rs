@@ -46,16 +46,89 @@ pub fn parse_source_lang(line: &str) -> Option<String> {
     }
 }
 
-pub fn parse_cols_value(val: &str) -> (Vec<f64>, Vec<bool>) {
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColSpec {
+    pub width: f64,
+    pub is_asciidoc: bool,
+    pub align: Option<String>,
+    pub valign: Option<String>,
+    pub style: Option<char>,
+}
+
+impl Default for ColSpec {
+    fn default() -> Self {
+        Self {
+            width: 1.0,
+            is_asciidoc: false,
+            align: None,
+            valign: None,
+            style: None,
+        }
+    }
+}
+
+pub fn parse_single_col(s: &str) -> ColSpec {
+    let mut spec = ColSpec::default();
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return spec;
+    }
+
+    let (h_part, v_part) = if let Some(dot_idx) = trimmed.find('.') {
+        let (h, v) = trimmed.split_at(dot_idx);
+        (h, &v[1..])
+    } else {
+        (trimmed, "")
+    };
+
+    let mut width_str = String::new();
+    for c in h_part.chars() {
+        if c == '^' {
+            spec.align = Some("center".into());
+        } else if c == '>' {
+            spec.align = Some("right".into());
+        } else if c == '<' {
+            spec.align = Some("left".into());
+        } else if c.is_ascii_digit() {
+            width_str.push(c);
+        } else if matches!(c, 'a' | 'e' | 'i' | 's' | 'b' | 'm' | 'c' | 'h' | 'l' | 'v' | 'd' | 'A' | 'E' | 'I' | 'S' | 'B' | 'M' | 'C' | 'H' | 'L' | 'V' | 'D') {
+            spec.style = Some(c.to_ascii_lowercase());
+        }
+    }
+
+    for c in v_part.chars() {
+        if c == '^' {
+            spec.valign = Some("middle".into());
+        } else if c == '>' {
+            spec.valign = Some("bottom".into());
+        } else if c == '<' {
+            spec.valign = Some("top".into());
+        } else if c.is_ascii_digit() && width_str.is_empty() {
+            width_str.push(c);
+        } else if matches!(c, 'a' | 'e' | 'i' | 's' | 'b' | 'm' | 'c' | 'h' | 'l' | 'v' | 'd' | 'A' | 'E' | 'I' | 'S' | 'B' | 'M' | 'C' | 'H' | 'L' | 'V' | 'D') {
+            spec.style = Some(c.to_ascii_lowercase());
+        }
+    }
+
+    if let Ok(w) = width_str.parse::<f64>() {
+        spec.width = w.max(0.1);
+    }
+    spec.is_asciidoc = spec.style == Some('a') || spec.style == Some('d');
+    spec
+}
+
+pub fn parse_cols_value(val: &str) -> (Vec<f64>, Vec<bool>, Vec<ColSpec>) {
     let val = val.trim_matches('"').trim_matches('\'').trim();
     let mut widths = Vec::new();
     let mut asciidoc = Vec::new();
+    let mut specs = Vec::new();
 
     // Check if entire val is a single positive integer (e.g. "2" or "3")
     if !val.contains(',') && !val.contains('*') {
         if let Ok(count) = val.parse::<usize>() {
             if count > 0 {
-                return (vec![1.0; count], vec![false; count]);
+                let default_spec = ColSpec::default();
+                return (vec![1.0; count], vec![false; count], vec![default_spec; count]);
             }
         }
     }
@@ -71,27 +144,28 @@ pub fn parse_cols_value(val: &str) -> (Vec<f64>, Vec<bool>) {
         } else {
             (1, spec)
         };
-        let is_ad = base_spec.ends_with('a') || base_spec.ends_with('A') || base_spec.ends_with('d') || base_spec.ends_with('D');
-        let num_str = if is_ad { &base_spec[..base_spec.len() - 1] } else { base_spec };
-        let w: f64 = if num_str.is_empty() { 1.0 } else { num_str.parse().unwrap_or(1.0) };
+        let col = parse_single_col(base_spec);
         for _ in 0..count {
-            widths.push(w.max(1.0));
-            asciidoc.push(is_ad);
+            widths.push(col.width);
+            asciidoc.push(col.is_asciidoc);
+            specs.push(col.clone());
         }
     }
-    (widths, asciidoc)
+    (widths, asciidoc, specs)
 }
 
 #[allow(dead_code)]
 pub fn parse_cols_attribute(attr: &str) -> (Vec<f64>, Vec<bool>) {
     let inner = attr.trim_start_matches("[cols=").trim_end_matches(']');
-    parse_cols_value(inner)
+    let (w, a, _) = parse_cols_value(inner);
+    (w, a)
 }
 
 pub fn parse_table_attributes(
     attr_line: &str,
     col_widths: &mut Vec<f64>,
     col_asciidoc: &mut Vec<bool>,
+    col_specs: &mut Vec<ColSpec>,
     frame: &mut Option<String>,
     grid: &mut Option<String>,
 ) {
@@ -135,9 +209,10 @@ pub fn parse_table_attributes(
             let val = v.trim().trim_matches('"').trim_matches('\'');
             match key.as_str() {
                 "cols" => {
-                    let (w, a) = parse_cols_value(val);
+                    let (w, a, sp) = parse_cols_value(val);
                     *col_widths = w;
                     *col_asciidoc = a;
+                    *col_specs = sp;
                 }
                 "frame" => {
                     *frame = Some(val.to_lowercase());

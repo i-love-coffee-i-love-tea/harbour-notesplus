@@ -3,6 +3,53 @@ use serde::{Deserialize, Serialize};
 use crate::inline::InlineSpan;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TableCell {
+    pub blocks: Vec<Block>,
+    #[serde(default = "default_colspan", skip_serializing_if = "is_default_colspan")]
+    pub colspan: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valign: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<char>,
+}
+
+fn default_colspan() -> usize { 1 }
+fn is_default_colspan(val: &usize) -> bool { *val <= 1 }
+
+impl TableCell {
+    pub fn new(blocks: Vec<Block>) -> Self {
+        Self {
+            blocks,
+            colspan: 1,
+            align: None,
+            valign: None,
+            style: None,
+        }
+    }
+}
+
+impl From<Vec<Block>> for TableCell {
+    fn from(blocks: Vec<Block>) -> Self {
+        TableCell::new(blocks)
+    }
+}
+
+impl std::ops::Deref for TableCell {
+    type Target = [Block];
+    fn deref(&self) -> &Self::Target {
+        &self.blocks
+    }
+}
+
+impl std::ops::DerefMut for TableCell {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.blocks
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Block {
     Heading {
         level: u8,
@@ -77,7 +124,7 @@ pub enum Block {
     },
     Table {
         title: Option<String>,
-        rows: Vec<Vec<Vec<Block>>>,
+        rows: Vec<Vec<TableCell>>,
         col_widths: Vec<f64>,
         frame: Option<String>,
         grid: Option<String>,
@@ -281,7 +328,23 @@ impl Block {
                 map.insert("rows".into(), serde_json::Value::Array(
                     rows.iter().map(|row| {
                         serde_json::Value::Array(
-                            row.iter().map(|cell| blocks_to_json(cell)).collect()
+                            row.iter().map(|cell| {
+                                let mut cell_map = serde_json::Map::new();
+                                cell_map.insert("blocks".into(), blocks_to_json(&cell.blocks));
+                                if cell.colspan > 1 {
+                                    cell_map.insert("colspan".into(), serde_json::Value::Number(serde_json::Number::from(cell.colspan)));
+                                }
+                                if let Some(ref a) = cell.align {
+                                    cell_map.insert("align".into(), serde_json::Value::String(a.clone()));
+                                }
+                                if let Some(ref v) = cell.valign {
+                                    cell_map.insert("valign".into(), serde_json::Value::String(v.clone()));
+                                }
+                                if let Some(s) = cell.style {
+                                    cell_map.insert("style".into(), serde_json::Value::String(s.to_string()));
+                                }
+                                serde_json::Value::Object(cell_map)
+                            }).collect()
                         )
                     }).collect()
                 ));
@@ -451,10 +514,16 @@ mod tests {
         let table = Block::Table {
             title: None,
             rows: vec![vec![
-                vec![
-                    Block::Paragraph { spans: vec![InlineSpan::Text("cell text".into())], raw: "cell text".into() },
-                    Block::CodeBlock { title: None, language: None, lines: vec!["code".into()], raw: "----\ncode\n----".into() },
-                ],
+                TableCell {
+                    blocks: vec![
+                        Block::Paragraph { spans: vec![InlineSpan::Text("cell text".into())], raw: "cell text".into() },
+                        Block::CodeBlock { title: None, language: None, lines: vec!["code".into()], raw: "----\ncode\n----".into() },
+                    ],
+                    colspan: 1,
+                    align: None,
+                    valign: None,
+                    style: None,
+                },
             ]],
             raw: "|===\n| cell text\n|===\n".into(),
             col_widths: vec![],
@@ -464,8 +533,7 @@ mod tests {
         let json = table.to_qvariant_map();
         let rows = json["rows"].as_array().unwrap();
         let cell = &rows[0][0];
-        assert!(cell.is_array());
-        let blocks = cell.as_array().unwrap();
+        let blocks = cell["blocks"].as_array().unwrap();
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0]["type"], "paragraph");
         assert_eq!(blocks[1]["type"], "code_block");

@@ -28,7 +28,7 @@ Item {
         color: Qt.rgba(Theme.highlightBackgroundColor.r, Theme.highlightBackgroundColor.g, Theme.highlightBackgroundColor.b, 0.1)
         border.color: Theme.highlightColor
         border.width: 1
-        radius: 4
+        radius: 0
         clip: true
 
         Column {

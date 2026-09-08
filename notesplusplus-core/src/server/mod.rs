@@ -22,6 +22,8 @@ pub use routes::pages::{
     extract_title_from_adoc, list_all_notes_json, make_slug_filename, render_web_page_html,
 };
 
+use std::collections::HashMap;
+
 use crate::agent::{
     AgentSession, LlmClient, LlmConfig, PermissionConfig, PermissionManager,
 };
@@ -73,9 +75,11 @@ pub struct ServerContext {
     pub perm_config: Arc<Mutex<PermissionConfig>>,
     pub auth_config: Arc<Mutex<auth::AuthConfig>>,
     pub session_store: auth::SessionStore,
-    pub oidc_flow_mgr: auth::OidcFlowManager,
+    pub auth_challenges: auth::AuthChallengeStore,
+    pub pending_auth_challenge: Arc<Mutex<Option<String>>>,
     pub tls_status: Arc<Mutex<Option<tls::TlsStatusInfo>>>,
     pub reject_public_networks: Arc<AtomicBool>,
+    pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
     pub is_tls: bool,
 }
 
@@ -114,9 +118,11 @@ impl ServerContext {
             perm_config: Arc::new(Mutex::new(config.permission_config)),
             auth_config: Arc::new(Mutex::new(config.auth_config)),
             session_store: auth::SessionStore::with_storage(sessions_path),
-            oidc_flow_mgr: auth::OidcFlowManager::new(),
+            auth_challenges: auth::AuthChallengeStore::new(),
+            pending_auth_challenge: Arc::new(Mutex::new(None)),
             tls_status: Arc::new(Mutex::new(None)),
             reject_public_networks: Arc::new(AtomicBool::new(config.reject_public_networks)),
+            theme_colors: Arc::new(Mutex::new(HashMap::new())),
             is_tls,
         }
     }
@@ -154,6 +160,30 @@ impl ServerContext {
     pub fn update_tls_status(&self, status: Option<tls::TlsStatusInfo>) {
         let mut s_guard = self.tls_status.lock().unwrap_or_else(|e| e.into_inner());
         *s_guard = status;
+    }
+
+    /// Updates the Sailfish ambience theme colors for the web UI.
+    pub fn set_theme_colors(&self, colors: HashMap<String, String>) {
+        let mut guard = self.theme_colors.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = colors;
+    }
+
+    /// Signals that an authorization challenge is pending, notifying the QML app.
+    pub fn signal_auth_challenge(&self, challenge_id: String) {
+        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(challenge_id);
+    }
+
+    /// Clears the pending authorization challenge signal.
+    pub fn clear_auth_challenge(&self) {
+        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = None;
+    }
+
+    /// Takes the pending authorization challenge ID (returns and clears it).
+    pub fn take_auth_challenge(&self) -> Option<String> {
+        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        guard.take()
     }
 }
 
@@ -304,7 +334,26 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
             .clone()
             .unwrap_or_else(|| cert_dir.join("server.key"));
 
-        let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, None)?;
+        let mut alt_names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+        for ip in &local_ips {
+            let addr = ip.to_string();
+            if !alt_names.contains(&addr) {
+                alt_names.push(addr);
+            }
+        }
+        // Include wildcard DNS and common private ranges so the cert works
+        // regardless of which network the phone is on
+        for dns in &["*.local", "*.home", "*.lan"] {
+            let s = dns.to_string();
+            if !alt_names.contains(&s) {
+                alt_names.push(s);
+            }
+        }
+        let tls_opts = tls::TlsOptions {
+            alt_names,
+            ..tls::TlsOptions::default()
+        };
+        let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, Some(tls_opts))?;
         let r_cfg = tls::create_rustls_server_config(&cert)?;
         Some((r_cfg, cert_path, key_path))
     } else {
@@ -479,19 +528,30 @@ mod tests {
         let res_css = ureq::get(&format!("http://127.0.0.1:{}/style.css", port)).call().unwrap();
         assert_eq!(res_css.status(), 200);
 
+        // Authenticate session for API testing
+        let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+        let session_cookie = format!("{}={}", crate::constants::SESSION_COOKIE_NAME, sess.id);
+
         // Test GET /api/notes
-        let res_notes = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call().unwrap();
+        let res_notes = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         assert_eq!(res_notes.status(), 200);
         let notes_json: serde_json::Value = res_notes.into_json().unwrap();
         assert!(!notes_json.as_array().unwrap().is_empty());
 
         // Test GET /api/notes/welcome.adoc
-        let res_note = ureq::get(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port)).call().unwrap();
+        let res_note = ureq::get(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         assert_eq!(res_note.status(), 200);
         assert!(res_note.into_string().unwrap().contains("Test content"));
 
         // Test PUT /api/notes/welcome.adoc
         let put_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
+            .set("Cookie", &session_cookie)
             .set("Content-Type", "text/plain")
             .send_string("= Welcome\nUpdated content from PUT test.")
             .unwrap();
@@ -501,6 +561,7 @@ mod tests {
 
         // Test POST /api/notes (create new)
         let create_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &session_cookie)
             .send_json(json!({
                 "title": "New Doc",
                 "content": "= New Doc\nCreated via API"
@@ -511,6 +572,7 @@ mod tests {
 
         // Test POST /api/render
         let render_res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
+            .set("Cookie", &session_cookie)
             .send_json(json!({
                 "content": "= Header\n* Bullet item\n"
             }))
@@ -521,6 +583,7 @@ mod tests {
 
         // Test POST /api/blocks/parse
         let parse_res = ureq::post(&format!("http://127.0.0.1:{}/api/blocks/parse", port))
+            .set("Cookie", &session_cookie)
             .send_json(json!({
                 "content": "= Heading 1\n\nParagraph text\n\n* [ ] Task 1"
             }))
@@ -532,6 +595,7 @@ mod tests {
         // Test POST /api/notes/welcome.adoc/toggle (checklist toggle)
         fs::write(notes_dir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
         let toggle_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
+            .set("Cookie", &session_cookie)
             .send_json(json!({
                 "item_index": 0,
                 "checked": true
@@ -543,33 +607,51 @@ mod tests {
 
         // Test POST /api/ai/config (update config)
         let ai_update_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/config", port))
+            .set("Cookie", &session_cookie)
             .send_json(json!({
-                "provider": "ollama",
-                "endpoint": "http://127.0.0.1:11434",
-                "model": "llama3.2",
-                "timeout": 45
+                "provider": "openai",
+                "model": "mistral",
+                "system_prompt": "You are a concise technical writer."
             }))
             .unwrap();
         assert_eq!(ai_update_res.status(), 200);
 
         // Verify updated config
-        let ai_cfg_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/ai/config", port)).call().unwrap();
+        let ai_cfg_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/ai/config", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         let ai_cfg_json2: serde_json::Value = ai_cfg_res2.into_json().unwrap();
-        assert_eq!(ai_cfg_json2.get("model").unwrap(), "llama3.2");
-        assert_eq!(ai_cfg_json2.get("timeout").unwrap(), 45);
+        assert_eq!(ai_cfg_json2.get("provider").unwrap(), "openai");
+        assert_eq!(ai_cfg_json2.get("model").unwrap(), "mistral");
+        assert_eq!(ai_cfg_json2.get("system_prompt").unwrap(), "You are a concise technical writer.");
+        // Verify endpoint, tokens, keys, or cert options are never exposed in responses to web UI
+        assert!(ai_cfg_json2.get("endpoint").is_none());
+        assert!(ai_cfg_json2.get("api_key").is_none());
+        assert!(ai_cfg_json2.get("has_key").is_none());
+        assert!(ai_cfg_json2.get("allow_self_signed").is_none());
 
         // Test GET /raw/welcome.adoc
-        let raw_res = ureq::get(&format!("http://127.0.0.1:{}/raw/welcome.adoc", port)).call().unwrap();
+        let raw_res = ureq::get(&format!("http://127.0.0.1:{}/raw/welcome.adoc", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         assert_eq!(raw_res.status(), 200);
         assert!(raw_res.into_string().unwrap().contains("Task"));
 
         // Test GET /export/welcome.adoc
-        let export_res = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.adoc", port)).call().unwrap();
+        let export_res = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.adoc", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         assert_eq!(export_res.status(), 200);
         assert!(export_res.into_string().unwrap().contains("html"));
 
         // Test DELETE /api/notes/new-doc.adoc
-        let del_res = ureq::delete(&format!("http://127.0.0.1:{}/api/notes/new-doc.adoc", port)).call().unwrap();
+        let del_res = ureq::delete(&format!("http://127.0.0.1:{}/api/notes/new-doc.adoc", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
         assert_eq!(del_res.status(), 200);
         assert!(!notes_dir.join("new-doc.adoc").exists());
 
@@ -578,26 +660,22 @@ mod tests {
     }
 
     #[test]
-    fn test_server_basic_auth_and_session_lifecycle() {
+    fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let db_path = tmp.path().join("test_auth.db");
+        let db_path = tmp.path().join("test_phone_auth.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        fs::write(notes_dir.join("secret.adoc"), "= Secret Doc\nTop Secret Content.").unwrap();
+        fs::write(notes_dir.join("protected.adoc"), "= Protected\nContent only for authenticated users.").unwrap();
 
-        let mut auth_cfg = auth::AuthConfig::default();
-        auth_cfg.enabled = true;
-        auth_cfg.basic_enabled = true;
-        auth_cfg.basic_username = "admin".to_string();
-        auth_cfg.set_password("correct-horse-battery-staple").unwrap();
+        let auth_cfg = auth::AuthConfig::default();
 
         let config = ServerConfig {
             notes_dir,
             db_path,
             backup_dir,
-            port: 18940,
+            port: 18945,
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth_cfg,
@@ -610,62 +688,77 @@ mod tests {
         let server_handle = start_server_with_config(config).expect("Auth server should start");
         let port = server_handle.port();
 
-        // 1. Unauthenticated request to protected API should fail with 401
+        // 1. Initial unauthenticated access fails with 401
         let unauth_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
         assert!(unauth_res.is_err());
-        if let Err(ureq::Error::Status(code, _)) = unauth_res {
-            assert_eq!(code, 401);
-        } else {
-            panic!("Expected 401 Unauthorized");
-        }
 
-        // 2. Health check (ping) should be publicly accessible without auth
-        let ping_res = ureq::get(&format!("http://127.0.0.1:{}/api/ping", port)).call().unwrap();
-        assert_eq!(ping_res.status(), 200);
-
-        // 3. Login with wrong password should fail
-        let bad_login = ureq::post(&format!("http://127.0.0.1:{}/api/auth/login", port))
-            .send_json(json!({ "username": "admin", "password": "wrongpassword" }));
-        assert!(bad_login.is_err());
-
-        // 4. Login with correct password should succeed and return session cookie
-        let login_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/login", port))
-            .send_json(json!({ "username": "admin", "password": "correct-horse-battery-staple" }))
-            .unwrap();
-        assert_eq!(login_res.status(), 200);
-        let cookie_hdr = login_res.header("Set-Cookie").expect("Should set session cookie");
-        assert!(cookie_hdr.contains("notesplusplus_session="));
-
-        let session_cookie = cookie_hdr.split(';').next().unwrap();
-
-        // 5. Authenticated request using cookie should succeed
-        let auth_notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
-            .set("Cookie", session_cookie)
-            .call()
-            .unwrap();
-        assert_eq!(auth_notes_res.status(), 200);
-
-        // 6. Whoami with valid session should return authenticated user
-        let whoami_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/whoami", port))
-            .set("Cookie", session_cookie)
-            .call()
-            .unwrap();
-        let whoami_json: serde_json::Value = whoami_res.into_json().unwrap();
-        assert_eq!(whoami_json["authenticated"], true);
-        assert_eq!(whoami_json["user"], "admin");
-
-        // 7. Logout should clear session
-        let logout_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/logout", port))
-            .set("Cookie", session_cookie)
+        // 2. Client 1 initiates phone authorization challenge
+        let init_res1 = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
             .send_json(json!({}))
             .unwrap();
-        assert_eq!(logout_res.status(), 200);
+        assert_eq!(init_res1.status(), 200);
+        let init_json1: serde_json::Value = init_res1.into_json().unwrap();
+        assert_eq!(init_json1["ok"], true);
+        let c1_id = init_json1["challenge_id"].as_str().unwrap().to_string();
+        let c1_code = init_json1["verification_code"].as_str().unwrap().to_string();
+        assert!(!c1_id.is_empty());
+        assert_eq!(c1_code.len(), 4);
 
-        // 8. Subsequent request after logout should fail with 401
-        let post_logout_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
-            .set("Cookie", session_cookie)
-            .call();
-        assert!(post_logout_res.is_err());
+        // Verify pending challenge is set on the server context
+        assert_eq!(
+            server_handle.context().pending_auth_challenge.lock().unwrap().as_deref(),
+            Some(c1_id.as_str())
+        );
+
+        // 3. Client 1 polls status -> status: "pending"
+        let poll1 = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c1_id))
+            .call()
+            .unwrap();
+        let poll_json1: serde_json::Value = poll1.into_json().unwrap();
+        assert_eq!(poll_json1["status"], "pending");
+
+        // 4. Client 2 (or a repeated burst of requests) initiates another challenge
+        let init_res2 = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .send_json(json!({}))
+            .unwrap();
+        assert_eq!(init_res2.status(), 200);
+        let init_json2: serde_json::Value = init_res2.into_json().unwrap();
+        assert_eq!(init_json2["ok"], true);
+        let c2_id = init_json2["challenge_id"].as_str().unwrap().to_string();
+        let c2_code = init_json2["verification_code"].as_str().unwrap().to_string();
+        assert_ne!(c1_id, c2_id);
+        assert_eq!(c2_code.len(), 4);
+
+        // Server context's pending challenge should now point to Challenge 2 (superseding Challenge 1)
+        assert_eq!(
+            server_handle.context().pending_auth_challenge.lock().unwrap().as_deref(),
+            Some(c2_id.as_str())
+        );
+
+        // 5. Phone accepts the currently displayed Challenge 2
+        server_handle.context().auth_challenges.approve_challenge(&c2_id);
+        server_handle.context().clear_auth_challenge();
+
+        // 6. Client 2 polls status -> approved, gets session cookie
+        let poll2 = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c2_id))
+            .call()
+            .unwrap();
+        let session_cookie = poll2
+            .header("Set-Cookie")
+            .expect("Should set session cookie")
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let poll_json2: serde_json::Value = poll2.into_json().unwrap();
+        assert_eq!(poll_json2["status"], "approved");
+
+        // 7. Client 2 uses cookie to access protected notes API
+        let notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+            .set("Cookie", &session_cookie)
+            .call()
+            .unwrap();
+        assert_eq!(notes_res.status(), 200);
 
         server_handle.stop();
     }
@@ -807,5 +900,102 @@ mod tests {
         drop_rejected_connection(stream);
         let client_sock = client_thread.join().unwrap();
         assert!(client_sock.is_ok());
+    }
+
+    #[test]
+    fn test_link_page_widget_web_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains Link buttons and Link Dialog modal overlay
+        assert!(INDEX_HTML.contains("openLinkDialog"));
+        assert!(INDEX_HTML.contains("link-modal-overlay"));
+        assert!(INDEX_HTML.contains("link-search-box"));
+        assert!(INDEX_HTML.contains("link-pages-list"));
+        assert!(INDEX_HTML.contains("linkDisplayText"));
+        assert!(INDEX_HTML.contains("formattedLinkPreview"));
+        assert!(INDEX_HTML.contains("confirmLinkInsert"));
+
+        // 2. Verify app.js contains link dialog state, computeds, and shortcut handlers
+        assert!(APP_JS.contains("openLinkModal"));
+        assert!(APP_JS.contains("linkSearchQuery"));
+        assert!(APP_JS.contains("filteredLinkPages"));
+        assert!(APP_JS.contains("formattedLinkPreview"));
+        assert!(APP_JS.contains("openLinkDialog"));
+        assert!(APP_JS.contains("confirmLinkInsert"));
+        assert!(APP_JS.contains("handleLinkKeydown"));
+        assert!(APP_JS.contains("selectLinkTarget"));
+        assert!(APP_JS.contains("isExternalUrl"));
+        assert!(APP_JS.contains("computedCustomFilename"));
+
+        // 3. Verify style.css contains link modal classes
+        assert!(STYLE_CSS.contains(".link-modal-card"));
+        assert!(STYLE_CSS.contains(".link-search-box"));
+        assert!(STYLE_CSS.contains(".link-pages-list"));
+        assert!(STYLE_CSS.contains(".link-page-item"));
+        assert!(STYLE_CSS.contains(".link-preview-container"));
+    }
+
+    #[test]
+    fn test_ai_model_selection_web_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains provider and model selection, and system prompt configuration
+        assert!(INDEX_HTML.contains("ai-model-select"));
+        assert!(INDEX_HTML.contains("availableModels"));
+        assert!(INDEX_HTML.contains("fetchAvailableModels"));
+        assert!(INDEX_HTML.contains("onModelSelect"));
+        assert!(INDEX_HTML.contains("aiConfig.provider"));
+        assert!(INDEX_HTML.contains("aiConfig.system_prompt"));
+
+        // Verify index.html does NOT leak server address, api key, token inputs, or self-signed cert option
+        assert!(!INDEX_HTML.contains("aiConfig.endpoint"));
+        assert!(!INDEX_HTML.contains("aiConfig.apiKey"));
+        assert!(!INDEX_HTML.contains("Endpoint URL"));
+        assert!(!INDEX_HTML.contains("API Key"));
+        assert!(!INDEX_HTML.contains("allow_self_signed"));
+        assert!(!INDEX_HTML.contains("Accept Self-Signed"));
+
+        // 2. Verify app.js contains provider, model fetching, system prompt state & methods
+        assert!(APP_JS.contains("availableModels"));
+        assert!(APP_JS.contains("fetchAvailableModels"));
+        assert!(APP_JS.contains("onProviderChange"));
+        assert!(APP_JS.contains("onModelSelect"));
+        assert!(APP_JS.contains("/api/ai/models"));
+        assert!(APP_JS.contains("isCurrentModelInList"));
+        assert!(APP_JS.contains("aiConfig.value.system_prompt"));
+        assert!(APP_JS.contains("aiConfig.value.provider"));
+
+        // Verify app.js does not expose or send server endpoints, tokens, or self-signed cert flags
+        assert!(!APP_JS.contains("aiConfig.value.endpoint"));
+        assert!(!APP_JS.contains("aiConfig.value.apiKey"));
+        assert!(!APP_JS.contains("allow_self_signed"));
+
+        // 3. Verify style.css contains styling for the model select
+        assert!(STYLE_CSS.contains(".ai-model-select"));
+    }
+
+    #[test]
+    fn test_list_all_notes_json_metadata_and_filtering() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        fs::write(notes_dir.join("architecture.adoc"), "= System Architecture\nHigh level architecture diagram and components.").unwrap();
+        fs::write(notes_dir.join("meeting-notes.adoc"), "= Meeting Notes\nDiscussion on deployment and release roadmap.").unwrap();
+
+        // Without query: returns all notes
+        let all_json = list_all_notes_json(&notes_dir, None);
+        let all_notes: Vec<serde_json::Value> = serde_json::from_str(&all_json).unwrap();
+        assert_eq!(all_notes.len(), 2);
+        assert_eq!(all_notes[0]["filename"], "meeting-notes.adoc");
+        assert_eq!(all_notes[0]["title"], "Meeting Notes");
+        assert!(all_notes[0]["snippet"].as_str().unwrap().contains("Discussion"));
+
+        // With query matching title/snippet
+        let filtered_json = list_all_notes_json(&notes_dir, Some("Architecture"));
+        let filtered_notes: Vec<serde_json::Value> = serde_json::from_str(&filtered_json).unwrap();
+        assert_eq!(filtered_notes.len(), 1);
+        assert_eq!(filtered_notes[0]["filename"], "architecture.adoc");
+        assert_eq!(filtered_notes[0]["title"], "System Architecture");
     }
 }
