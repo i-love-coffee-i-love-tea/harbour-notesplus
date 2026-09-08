@@ -181,6 +181,7 @@ createApp({
     const saveStatusText = ref('Saved');
     const saveStatusClass = ref('saved');
     const showExportMenu = ref(false);
+    const showAccountMenu = ref(false);
 
     // Authentication State
     const isAuthenticated = ref(false);
@@ -1711,6 +1712,14 @@ createApp({
       window.addEventListener('keydown', handleGlobalKeyDown);
       document.addEventListener('fullscreenchange', onFullscreenChange);
       document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.export-dropdown')) {
+          showExportMenu.value = false;
+        }
+        if (!e.target.closest('.account-dropdown-wrapper')) {
+          showAccountMenu.value = false;
+        }
+      });
       window.addEventListener('hashchange', () => {
         const req = getRequestedNote();
         if (req && req !== currentFilename.value) {
@@ -1785,6 +1794,7 @@ createApp({
       saveStatusText,
       saveStatusClass,
       showExportMenu,
+      showAccountMenu,
       inPlaceBlocks,
       editingBlockIndex,
       activeBlockText,

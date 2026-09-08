@@ -85,7 +85,7 @@
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            <span>New</span>
+            <span class="btn-label">New</span>
           </button>
         </div>
       </div>
@@ -97,7 +97,7 @@
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <path d="M12 3v18"></path>
             </svg>
-            <span>Split</span>
+            <span class="tab-label">Split</span>
           </button>
           <button type="button" :class="{ active: viewMode === 'inplace' }" @click="switchToInPlaceMode" title="Block-by-Block In-Place Editing">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -106,14 +106,14 @@
               <rect x="14" y="14" width="7" height="7"></rect>
               <rect x="3" y="14" width="7" height="7"></rect>
             </svg>
-            <span>Blocks</span>
+            <span class="tab-label">Blocks</span>
           </button>
           <button type="button" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'" title="Full Rendered Document Preview">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
-            <span>Preview</span>
+            <span class="tab-label">Preview</span>
           </button>
           <button type="button" :class="{ active: viewMode === 'present' }" @click="enterPresentationMode" title="Start Presentation Mode (Slides)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -121,52 +121,23 @@
               <line x1="8" y1="21" x2="16" y2="21"></line>
               <line x1="12" y1="17" x2="12" y2="21"></line>
             </svg>
-            <span>Present</span>
+            <span class="tab-label">Present</span>
           </button>
         </div>
       </div>
 
       <div class="nav-right">
-        <div class="nav-group nav-right-group">
-          <!-- Connection Status -->
-          <div class="nav-group-item status-chip connection-chip" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }" :title="isPhoneReachable ? 'Connected to Notes++ on phone' : 'Phone is not reachable'">
-            <span class="status-dot"></span>
-            <span class="status-label">{{ isPhoneReachable ? 'Connected' : 'Offline' }}</span>
-          </div>
-
-          <!-- Save Status -->
-          <div class="nav-group-item status-chip save-chip" :class="saveStatusClass" :title="'Save status: ' + saveStatusText">
-            <span class="status-dot"></span>
-            <span class="status-label">{{ saveStatusText }}</span>
-          </div>
-
-          <!-- User Profile (when authenticated) -->
-          <div v-if="isAuthenticated && authUser" class="nav-group-item status-chip user-chip" :title="'Logged in as ' + authUser">
-            <svg class="chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            <span class="user-name">{{ authUser }}</span>
-          </div>
-
-          <!-- Session Remaining Time (when authenticated) -->
-          <div v-if="isAuthenticated && sessionRemainingText" class="nav-group-item status-chip session-chip" :title="'Session expires in ' + sessionRemainingFullText">
-            <svg class="chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            <span class="session-label">Expires:</span>
-            <span class="session-time">{{ sessionRemainingText }}</span>
-          </div>
-
-          <!-- Save Document Action -->
-          <button type="button" @click="saveCurrentNote" class="nav-group-item btn-group-action btn-save" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : 'Save document (Ctrl+S)'">
+        <!-- Action buttons group -->
+        <div class="nav-group nav-actions-group">
+          <!-- Save Document Action with Integrated Status Indicator -->
+          <button type="button" @click="saveCurrentNote" class="nav-group-item btn-group-action btn-save" :class="saveStatusClass" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : ('Save document (Ctrl+S) — ' + saveStatusText)">
+            <span class="status-dot save-dot" :class="saveStatusClass"></span>
             <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
               <polyline points="17 21 17 13 7 13 7 21"></polyline>
               <polyline points="7 3 7 8 15 8"></polyline>
             </svg>
-            <span>{{ isSaving ? 'Saving...' : 'Save' }}</span>
+            <span class="btn-label">{{ isSaving ? 'Saving...' : 'Save' }}</span>
           </button>
 
           <!-- Export Dropdown -->
@@ -177,7 +148,7 @@
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-              <span>Export</span>
+              <span class="btn-label">Export</span>
               <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"></polyline>
               </svg>
@@ -193,19 +164,93 @@
             <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
             </svg>
-            <span>Assistant</span>
+            <span class="btn-label">Assistant</span>
             <span v-if="pendingAction" class="pulse-dot"></span>
           </button>
+        </div>
 
-          <!-- Logout Action Button -->
-          <button v-if="isAuthenticated" type="button" @click="logout" class="nav-group-item btn-group-action btn-logout" title="Sign out / Logout">
-            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <polyline points="16 17 21 12 16 7"></polyline>
-              <line x1="21" y1="12" x2="9" y2="12"></line>
+        <!-- Account / Session & System Dropdown Widget -->
+        <div class="nav-group nav-account-group account-dropdown-wrapper">
+          <button type="button" @click="showAccountMenu = !showAccountMenu" class="btn-group-action btn-account" :title="'Account & Session: ' + (authUser || 'Anonymous') + (sessionRemainingText ? ' (Expires: ' + sessionRemainingText + ')' : '')">
+            <!-- Connection Status Dot -->
+            <span class="status-dot connection-dot" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }"></span>
+            
+            <!-- User Icon & Name -->
+            <svg class="btn-icon user-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
             </svg>
-            <span>Logout</span>
+            <span v-if="authUser" class="account-name">{{ authUser }}</span>
+
+            <!-- Session Remaining Badge (Desktop / Medium) -->
+            <div v-if="isAuthenticated && sessionRemainingText" class="session-chip" :title="'Session expires in ' + sessionRemainingFullText">
+              <svg class="chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <span class="session-label">Expires:</span>
+              <span class="session-time">{{ sessionRemainingText }}</span>
+            </div>
+
+            <svg class="chevron-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
           </button>
+
+          <!-- Account Dropdown Menu Card -->
+          <div v-if="showAccountMenu" class="dropdown-menu account-dropdown-menu">
+            <div class="account-dropdown-header">
+              <div class="account-avatar">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+              </div>
+              <div class="account-details">
+                <div class="account-username">{{ authUser || 'web-user' }}</div>
+                <div class="account-status-sub">Authenticated via Code</div>
+              </div>
+            </div>
+
+            <div class="account-dropdown-section">
+              <!-- Connection info row -->
+              <div class="account-info-row">
+                <span class="status-dot connection-dot" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }"></span>
+                <span class="info-label">Phone Connection:</span>
+                <span class="info-val" :class="{ 'text-success': isPhoneReachable, 'text-danger': !isPhoneReachable }">
+                  {{ isPhoneReachable ? 'Online (Sailfish OS)' : 'Offline' }}
+                </span>
+              </div>
+
+              <!-- Session timer row -->
+              <div v-if="isAuthenticated && sessionRemainingText" class="account-info-row">
+                <svg class="info-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span class="info-label">Session Remaining:</span>
+                <span class="info-val session-time font-mono">{{ sessionRemainingFullText || sessionRemainingText }}</span>
+              </div>
+
+              <!-- Document save state row -->
+              <div class="account-info-row">
+                <span class="status-dot save-dot" :class="saveStatusClass"></span>
+                <span class="info-label">Document:</span>
+                <span class="info-val">{{ saveStatusText }}</span>
+              </div>
+            </div>
+
+            <div class="account-dropdown-footer">
+              <button v-if="isAuthenticated" type="button" @click="logout" class="btn-dropdown-logout btn-logout" title="Sign out / Logout">
+                <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                  <polyline points="16 17 21 12 16 7"></polyline>
+                  <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>

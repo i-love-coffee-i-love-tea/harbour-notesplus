@@ -1352,4 +1352,27 @@ mod tests {
         assert!(STYLE_CSS.contains(".session-chip"));
         assert!(STYLE_CSS.contains(".session-time"));
     }
+
+    #[test]
+    fn test_web_ui_responsive_header_and_account_dropdown_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains structured nav groups and account dropdown
+        assert!(INDEX_HTML.contains("nav-actions-group"));
+        assert!(INDEX_HTML.contains("nav-account-group"));
+        assert!(INDEX_HTML.contains("account-dropdown-menu"));
+        assert!(INDEX_HTML.contains("account-dropdown-wrapper"));
+        assert!(INDEX_HTML.contains("view-mode-tabs"));
+        assert!(INDEX_HTML.contains("btn-account"));
+
+        // 2. Verify app.js exports showAccountMenu
+        assert!(APP_JS.contains("showAccountMenu"));
+
+        // 3. Verify style.css contains account dropdown and responsive queries
+        assert!(STYLE_CSS.contains(".account-dropdown-menu"));
+        assert!(STYLE_CSS.contains(".btn-account"));
+        assert!(STYLE_CSS.contains("@media (max-width: 1080px)"));
+        assert!(STYLE_CSS.contains("@media (max-width: 860px)"));
+        assert!(STYLE_CSS.contains("@media (max-width: 640px)"));
+    }
 }
