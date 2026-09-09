@@ -75,27 +75,27 @@ Page {
         }
     }
 
+    // Dsnote-style property binding: QML re-evaluates this when the NOTIFY
+    // signal (transcription_completed) fires, so no signal parameter needed.
+    property string pendingTranscription: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.last_transcription : ""
+    onPendingTranscriptionChanged: {
+        if (assistantPage.status !== PageStatus.Active) return
+        var trans = pendingTranscription
+        if (trans && trans.trim().length > 0) {
+            var clean = trans.trim()
+            if (promptField.text.length > 0) {
+                promptField.text = promptField.text + " " + clean
+            } else {
+                promptField.text = clean
+            }
+            assistantPage.scrollToBottom()
+        } else if (assistantPage.isSpeechTranscribing === false && trans !== undefined) {
+            // Only show "no speech" when transcription just completed with empty result
+        }
+    }
+
     Connections {
         target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
-        onTranscription_completed: {
-            var trans = ""
-            if (typeof text !== "undefined" && text) {
-                trans = text
-            } else if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.last_transcription) {
-                trans = speechBridge.last_transcription
-            }
-            if (trans && trans.trim().length > 0) {
-                var clean = trans.trim()
-                if (promptField.text.length > 0) {
-                    promptField.text = promptField.text + " " + clean
-                } else {
-                    promptField.text = clean
-                }
-                assistantPage.scrollToBottom()
-            } else {
-                remorsePopup.execute(qsTr("No speech recognized. Please speak closer to microphone."), function() {})
-            }
-        }
         onError_occurred: {
             var errMsg = (typeof message !== "undefined" && message) ? message :
                          ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")
@@ -633,34 +633,43 @@ Page {
                 }
 
                 // Input Area
-                Row {
+                Column {
                     width: parent.width - Theme.horizontalPageMargin * 2
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: Theme.paddingSmall
 
-                    TextField {
+                    TextArea {
                         id: promptField
-                        width: parent.width - sendBtn.width - (micBtnContainer.visible ? (micBtnContainer.width + Theme.paddingSmall) : 0) - Theme.paddingSmall
+                        width: parent.width
+                        height: Math.max(Theme.itemSizeLarge, implicitHeight)
                         placeholderText: contextFilename.length > 0 ? qsTr("Ask assistant or run template on note...") : qsTr("Ask assistant or enter text for templates...")
                         label: qsTr("Prompt")
                         enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing
-                        EnterKey.enabled: text.length > 0
-                        EnterKey.iconSource: "image://theme/icon-m-send"
-                        EnterKey.onClicked: {
-                            if (text.length > 0) {
-                                assistantPage.applyConfig()
-                                agentBridge.send_prompt(text)
-                                text = ""
-                            }
-                        }
                     }
 
-                    Item {
-                        id: micBtnContainer
-                        width: micBtn.width
-                        height: micBtn.height
-                        anchors.verticalCenter: promptField.verticalCenter
-                        visible: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
+                    Row {
+                        width: parent.width
+                        layoutDirection: Qt.RightToLeft
+                        spacing: Theme.paddingSmall
+
+                        IconButton {
+                            id: sendBtn
+                            icon.source: "image://theme/icon-m-send"
+                            enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing && promptField.text.length > 0
+                            onClicked: {
+                                if (promptField.text.length > 0) {
+                                    assistantPage.applyConfig()
+                                    agentBridge.send_prompt(promptField.text)
+                                    promptField.text = ""
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: micBtnContainer
+                            width: micBtn.width
+                            height: micBtn.height
+                            visible: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
 
                         // Dynamic audio volume halo reacting directly to live microphone voice input
                         Rectangle {
@@ -707,19 +716,6 @@ Page {
                             }
                         }
                     }
-
-                    IconButton {
-                        id: sendBtn
-                        icon.source: "image://theme/icon-m-send"
-                        enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing && promptField.text.length > 0
-                        anchors.verticalCenter: promptField.verticalCenter
-                        onClicked: {
-                            if (promptField.text.length > 0) {
-                                assistantPage.applyConfig()
-                                agentBridge.send_prompt(promptField.text)
-                                promptField.text = ""
-                            }
-                        }
                     }
                 }
             }

@@ -312,7 +312,13 @@ impl SpeechBridge {
         if self.is_transcribing {
             return;
         }
+        self.is_transcribing = true;
+        self.error_message = String::new();
+        self.transcribing_changed();
+        self.begin_transcription(path);
+    }
 
+    fn begin_transcription(&mut self, path: String) {
         let trimmed_path = path.trim();
         let trimmed_path = if trimmed_path.starts_with("file://") {
             &trimmed_path[7..]
@@ -321,16 +327,22 @@ impl SpeechBridge {
         };
         if trimmed_path.is_empty() {
             let err = "Audio path is empty".to_string();
+            eprintln!("[STT] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
+            self.is_transcribing = false;
+            self.transcribing_changed();
             return;
         }
 
         let audio_path = PathBuf::from(trimmed_path);
         if !audio_path.is_file() {
             let err = format!("Audio file not found: {}", trimmed_path);
+            eprintln!("[STT] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
+            self.is_transcribing = false;
+            self.transcribing_changed();
             return;
         }
 
@@ -348,8 +360,11 @@ impl SpeechBridge {
                 None => {
                     let err =
                         "No speech model installed. Please download a model first.".to_string();
+                    eprintln!("[STT] begin_transcription: {}", err);
                     self.error_message = err.clone();
                     self.error_occurred(err);
+                    self.is_transcribing = false;
+                    self.transcribing_changed();
                     return;
                 }
             }
@@ -361,14 +376,18 @@ impl SpeechBridge {
                 "Model file for '{}' not found on disk. Please re-download the model.",
                 model_id
             );
+            eprintln!("[STT] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
+            self.is_transcribing = false;
+            self.transcribing_changed();
             return;
         }
 
-        self.is_transcribing = true;
-        self.error_message = String::new();
-        self.transcribing_changed();
+        eprintln!(
+            "[STT] begin_transcription: spawning thread for model={}, audio={}",
+            model_id, trimmed_path
+        );
 
         if let Ok(mut r) = self.transcribe_worker_result.lock() {
             *r = None;
@@ -470,8 +489,20 @@ impl SpeechBridge {
 
             match res {
                 Ok(text) => {
-                    self.last_transcription = text.clone();
-                    self.transcription_completed(text);
+                    let cleaned = text
+                        .replace("[BLANK_AUDIO]", "")
+                        .replace("[MUSIC]", "")
+                        .trim()
+                        .to_string();
+                    eprintln!("[STT] Transcription completed: '{}' (cleaned: '{}')", text, cleaned);
+                    if cleaned.is_empty() {
+                        // whisper returned only a placeholder — treat as no speech
+                        self.last_transcription = String::new();
+                        self.transcription_completed(String::new());
+                    } else {
+                        self.last_transcription = cleaned.clone();
+                        self.transcription_completed(cleaned);
+                    }
                 }
                 Err(err) => {
                     self.error_message = err.clone();
@@ -560,11 +591,20 @@ impl SpeechBridge {
     }
 
     pub fn stop_recording_and_transcribe(&mut self) {
+        eprintln!("[STT] stop_recording_and_transcribe called");
+        // Set transcribing flag before stopping recording so the poll timer
+        // never sees both is_recording and is_transcribing as false.
+        self.is_transcribing = true;
+        self.error_message = String::new();
+        self.transcribing_changed();
         let path = self.stop_recording();
+        eprintln!("[STT] stop_recording returned path: '{}'", path);
         if path.is_empty() {
+            self.is_transcribing = false;
+            self.transcribing_changed();
             return;
         }
-        self.transcribe_file(path);
+        self.begin_transcription(path);
     }
 
     pub fn cancel_recording(&mut self) {

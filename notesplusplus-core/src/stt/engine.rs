@@ -393,8 +393,9 @@ impl WhisperEngine {
             return Ok(String::new());
         }
 
-        // Silence detection: if average energy is below threshold, skip inference entirely
-        // and return an empty string (whisper.cpp would otherwise hallucinate on pure silence).
+        // Silence detection: skip inference on truly dead audio to avoid whisper
+        // hallucinating on silence. Only guard against all-zero buffers; let whisper
+        // handle quiet-but-real speech itself.
         let energy: f32 = samples.iter().map(|s| s * s).sum::<f32>() / (samples.len() as f32);
         log::info!(
             "WhisperEngine: processing {} samples ({:.2}s), energy={:.8}",
@@ -402,8 +403,8 @@ impl WhisperEngine {
             samples.len() as f32 / 16000.0,
             energy
         );
-        if energy < 1e-8 {
-            log::info!("WhisperEngine: near-zero audio energy ({:.10} < 1e-8); skipping inference", energy);
+        if samples.iter().all(|&s| s == 0.0) {
+            log::info!("WhisperEngine: all-zero audio buffer; skipping inference");
             return Ok(String::new());
         }
 
@@ -627,6 +628,29 @@ mod tests {
         let invalid_wav = b"RIFF....NOT_A_WAV";
         let result = decode_wav_bytes(invalid_wav);
         assert!(result.is_err());
+    }
+
+    /// Verify that the jfk.wav fixture decodes correctly and passes our
+    /// silence detection — proving the audio would reach whisper inference.
+    #[test]
+    fn test_jfk_fixture_decodes_and_passes_silence_gate() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/stt/jfk.wav");
+        let samples = decode_wav_file(&fixture).expect("jfk.wav should decode");
+
+        // ~11 seconds at 16 kHz
+        assert!(samples.len() > 160_000, "too few samples: {}", samples.len());
+        assert!(samples.len() < 200_000, "too many samples: {}", samples.len());
+
+        // Must not be silent — energy well above the old 1e-8 threshold
+        let energy: f32 = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
+        assert!(energy > 1e-6, "energy too low ({:.2e}), silence gate would reject", energy);
+
+        // The new all-zero check must also pass
+        assert!(!samples.iter().all(|&s| s == 0.0), "all-zero check would reject");
+
+        // Peak-normalisation sanity: max amplitude should be in audible range
+        let max_abs = samples.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+        assert!(max_abs > 0.001, "max amplitude too low: {}", max_abs);
     }
 
     /// Opt-in, real-model smoke test. Not run by default: it requires a genuine
