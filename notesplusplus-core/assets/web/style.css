@@ -383,7 +383,7 @@ html, body {
   position: relative;
 }
 .nav-group .btn-ai.is-open {
-  background-color: var(--accent-light);
+  border-bottom: 2px solid var(--primary);
   color: var(--primary);
   font-weight: 600;
 }
@@ -786,7 +786,7 @@ button:disabled {
 .btn-add-block-large {
   padding: 10px 20px;
   font-size: 0.92rem;
-  background-color: var(--accent-light);
+  background-color: transparent;
   color: var(--primary);
   border: 1px dashed var(--primary);
 }
@@ -843,16 +843,16 @@ button:disabled {
 .ai-backend-badge {
   font-size: 0.7rem;
   font-weight: 500;
-  background-color: var(--accent-light);
-  color: var(--primary);
+  background-color: var(--bg-main);
+  color: var(--text-secondary);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
 }
 .ai-model-select {
   font-size: 0.75rem;
   font-weight: 500;
-  background-color: var(--accent-light);
-  color: var(--primary);
+  background-color: var(--bg-main);
+  color: var(--text-primary);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
@@ -1288,10 +1288,17 @@ button:disabled {
 .btn-send-ai {
   padding: 8px 14px;
   background-color: var(--primary);
-  color: #fff;
+  color: #ffffff;
   border-color: var(--primary);
   border-radius: var(--radius-md);
   font-size: 1rem;
+}
+.btn-send-ai:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+}
+.btn-send-ai:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Modal Overlay */
