@@ -6,7 +6,6 @@ import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 Item {
     id: tocDelegateItem
     property var blockData: ({})
-    property var allBlocks: []
     property int blockIndex: -1
     property bool isTocCollapsed: false
     property bool interactive: true
@@ -89,19 +88,7 @@ Item {
                     if (tocDelegateItem.blockData && tocDelegateItem.blockData.headings && tocDelegateItem.blockData.headings.length > 0) {
                         return tocDelegateItem.blockData.headings
                     }
-                    var headings = []
-                    var blocks = tocDelegateItem.allBlocks || []
-                    for (var i = 0; i < blocks.length; i++) {
-                        var b = blocks[i]
-                        if (b && b.type === "heading" && b.level >= 1 && b.level <= 5) {
-                            headings.push({
-                                level: b.level,
-                                text: BlockHtmlUtils.spansToPlainText(b.spans || []),
-                                index: i
-                            })
-                        }
-                    }
-                    return headings
+                    return []
                 }
 
                 property int minLevel: {

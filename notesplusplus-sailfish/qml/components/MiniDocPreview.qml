@@ -108,7 +108,6 @@ Item {
                     delegate: BlockDelegate {
                         width: contentColumn.width
                         blockData: modelData
-                        allBlocks: miniDocPreview.parsedBlocks
                         blockIndex: index
                         interactive: false
                         isTocCollapsed: {

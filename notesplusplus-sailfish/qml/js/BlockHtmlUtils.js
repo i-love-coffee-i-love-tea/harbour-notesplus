@@ -2,11 +2,20 @@
 
 function escapeHtml(text) {
     if (!text) return ""
-    return ("" + text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    var s = "" + text
+    if (s.indexOf("&") === -1 && s.indexOf("<") === -1 && s.indexOf(">") === -1) {
+        return s
+    }
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 function spansToPlainText(spans) {
-    if (!spans) return ""
+    if (!spans || spans.length === 0) return ""
+    if (spans.length === 1 && spans[0]) {
+        var first = spans[0]
+        if (first.value !== undefined) return first.value
+        if (first.display !== undefined) return first.display
+    }
     var txt = ""
     for (var i = 0; i < spans.length; i++) {
         var s = spans[i]
@@ -103,7 +112,15 @@ function spanToHtml(span, themeColors, notesDir, allowExternal) {
 }
 
 function spansToHtml(spans, themeColors, notesDir, allowExternal) {
-    if (!spans) return ""
+    if (!spans || spans.length === 0) return ""
+
+    if (spans.length === 1 && spans[0]) {
+        var first = spans[0]
+        if (first.type === "text" && first.value !== undefined) {
+            return escapeHtml(first.value)
+        }
+    }
+
     var html = ""
     for (var i = 0; i < spans.length; i++) {
         html += spanToHtml(spans[i], themeColors, notesDir, allowExternal)

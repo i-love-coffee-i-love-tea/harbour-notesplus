@@ -8,7 +8,6 @@ Item {
 
     property var blockData: ({})
     property var localBlockData: blockData
-    property var allBlocks: []
     property int blockIndex: -1
     property bool isTocCollapsed: false
     property bool interactive: true
@@ -17,9 +16,12 @@ Item {
     property bool isEditing: false
     property string editingRawText: ""
 
-    property bool isMatchedBySearch: {
-        if (!interactive || !searchTerm || searchTerm.length === 0 || !blockData) return false
+    property bool isMatchedBySearch: (interactive && searchTerm && searchTerm.length > 0 && blockData) ? checkSearchMatch() : false
+
+    function checkSearchMatch() {
+        if (!blockData) return false
         var q = searchTerm.toLowerCase().trim()
+        if (q.length === 0) return false
         var terms = q.split(/\s+/).filter(function(t) { return t.length > 0 })
         if (terms.length === 0) return false
         var textToSearch = ""
@@ -222,7 +224,6 @@ Item {
         id: tocComponent
         TocDelegate {
             blockData: delegate.blockData
-            allBlocks: delegate.allBlocks
             blockIndex: delegate.blockIndex
             isTocCollapsed: delegate.isTocCollapsed
             interactive: delegate.interactive

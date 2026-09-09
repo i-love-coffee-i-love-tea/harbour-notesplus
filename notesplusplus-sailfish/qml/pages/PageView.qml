@@ -134,6 +134,7 @@ Page {
         id: listView
         anchors.fill: parent
         clip: true
+        cacheBuffer: 1600
         model: bridge.blocks_version >= 0 ? bridge.current_blocks : []
 
         PullDownMenu {
@@ -197,7 +198,7 @@ Page {
         footer: Item {
             id: listFooter
             width: listView.width
-            height: pageView.isAddingNewBlock ? (newBlockEditor.height + Theme.paddingLarge * 2) : Math.max(Theme.itemSizeExtraLarge * 2, listView.height - listView.contentHeight + Theme.itemSizeLarge)
+            height: pageView.isAddingNewBlock ? (newBlockEditor.height + Theme.paddingLarge * 2) : (Theme.itemSizeExtraLarge * 2)
 
             MouseArea {
                 anchors.fill: parent
@@ -252,7 +253,6 @@ Page {
         delegate: BlockDelegate {
             width: listView.width
             blockData: (pageView.parsedBlocks && pageView.parsedBlocks[index]) ? pageView.parsedBlocks[index] : (modelData ? JSON.parse(modelData) : ({}))
-            allBlocks: pageView.parsedBlocks
             blockIndex: index
             searchTerm: pageView.searchTerm
             isEditing: pageView.editingBlockIndex === index
