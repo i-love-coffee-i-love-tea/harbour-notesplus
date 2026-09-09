@@ -556,48 +556,64 @@
 
       <!-- Chat / Import Tabs -->
       <div class="ai-tabs">
-        <button type="button" :class="['ai-tab', { active: aiTab === 'chat' }]" @click="aiTab = 'chat'">💬 Chat</button>
-        <button type="button" :class="['ai-tab', { active: aiTab === 'import' }]" @click="aiTab = 'import'">📥 Import</button>
+        <button type="button" :class="['ai-tab', { active: aiTab === 'chat' }]" @click="aiTab = 'chat'">
+          <svg class="ai-tab-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Chat
+        </button>
+        <button type="button" :class="['ai-tab', { active: aiTab === 'import' }]" @click="aiTab = 'import'">
+          <svg class="ai-tab-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><polyline points="14 2 14 8 20 8"/><path d="M2 15h10"/><path d="m9 12 3 3 3-3"/></svg>
+          Import
+        </button>
       </div>
 
       <!-- Quick Template Action Chips (Chat tab only) -->
       <div v-if="aiTab === 'chat'" class="ai-quick-templates">
         <button type="button" @click="triggerTemplate('summarize')" :disabled="isAiBusy" title="Summarize active document">
-          📝 Summarize
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+          Summarize
         </button>
         <button type="button" @click="triggerTemplate('fix_grammar')" :disabled="isAiBusy" title="Fix grammar and polish AsciiDoc">
-          ✨ Polish
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>
+          Polish
         </button>
         <button type="button" @click="triggerTemplate('add_admonition')" :disabled="isAiBusy" title="Add helpful notes and warnings">
-          💡 Add Tips
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+          Add Tips
         </button>
         <button type="button" @click="triggerTemplate('format_table')" :disabled="isAiBusy" title="Convert unstructured data to table">
-          📊 Table
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
+          Table
         </button>
         <button type="button" @click="triggerTemplate('continue_writing')" :disabled="isAiBusy" title="Continue writing next section">
-          ✍️ Continue
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
+          Continue
         </button>
       </div>
 
       <!-- Import Assistant Panel (Import tab only) -->
       <div v-if="aiTab === 'import'" class="ai-import-panel">
         <div class="import-source-header">
+          <svg class="import-section-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           <span class="import-section-title">Source Content</span>
           <div class="import-source-actions">
             <button type="button" class="btn-import-source" @click="toggleUrlInput" :class="{ active: showUrlInput }" title="Fetch text from web URL">
-              🌐 Fetch URL
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+              Fetch URL
             </button>
             <button type="button" class="btn-import-source" @click="triggerFilePicker" title="Choose local file (.txt, .md, .adoc, etc.)">
-              📁 Choose File
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+              Choose File
             </button>
             <button type="button" class="btn-import-source" @click="toggleFileInput" :class="{ active: showFileInput }" title="Load file path from server">
-              📄 Path
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
+              Path
             </button>
             <button type="button" class="btn-import-source" @click="pasteClipboard" title="Paste from clipboard">
-              📋 Paste
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+              Paste
             </button>
             <button v-if="importSourceText" type="button" class="btn-import-source btn-clear" @click="clearImportSource" title="Clear content">
-              🧹
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
           </div>
         </div>
@@ -614,7 +630,7 @@
         <!-- Expandable URL Input Section -->
         <div v-if="showUrlInput" class="import-input-card">
           <div class="import-input-card-header">
-            <strong>🌐 Fetch from URL</strong>
+            <strong><svg style="vertical-align: text-bottom; margin-right: 4px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>Fetch from URL</strong>
             <button type="button" class="btn-close-mini" @click="showUrlInput = false">✕</button>
           </div>
           <div class="import-input-row">
@@ -631,7 +647,7 @@
               :disabled="isFetchingUrl || !importUrl.trim()" 
               class="btn-small-primary"
             >
-              {{ isFetchingUrl ? '⏳ Fetching...' : 'Fetch' }}
+              {{ isFetchingUrl ? 'Fetching...' : 'Fetch' }}
             </button>
           </div>
           <div v-if="urlFetchError" class="import-error-banner">
@@ -642,7 +658,7 @@
         <!-- Expandable Server File Path Input Section -->
         <div v-if="showFileInput" class="import-input-card">
           <div class="import-input-card-header">
-            <strong>📄 Load Server File Path</strong>
+            <strong><svg style="vertical-align: text-bottom; margin-right: 4px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>Load Server File Path</strong>
             <button type="button" class="btn-close-mini" @click="showFileInput = false">✕</button>
           </div>
           <div class="import-input-row">
@@ -659,7 +675,7 @@
               :disabled="isLoadingFile || !importFilePath.trim()" 
               class="btn-small-primary"
             >
-              {{ isLoadingFile ? '⏳ Loading...' : 'Load' }}
+              {{ isLoadingFile ? 'Loading...' : 'Load' }}
             </button>
           </div>
           <div v-if="fileFetchError" class="import-error-banner">
@@ -684,7 +700,7 @@
             ></textarea>
           </label>
           <div v-if="isDraggingFile" class="drag-drop-overlay">
-            📂 Drop text or markdown file here to import
+            <svg style="vertical-align: text-bottom; margin-right: 4px;" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>Drop text or markdown file here to import
           </div>
         </div>
 
@@ -702,7 +718,7 @@
           <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" class="import-text-input">
         </label>
         <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-small-primary btn-import-submit">
-          {{ isAiBusy ? '⏳ Converting...' : '🚀 Convert & Import as Note' }}
+          <svg style="vertical-align: text-bottom; margin-right: 3px;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>{{ isAiBusy ? 'Converting...' : 'Convert & Import as Note' }}
         </button>
         <div v-if="aiError" class="chat-error-alert" style="margin-top: 8px;">
           {{ aiError }}
@@ -779,7 +795,8 @@
           rows="2"
         ></textarea>
         <button type="button" @click.prevent="sendUserPrompt()" :disabled="isAiBusy || !aiPromptInput.trim()" class="btn-send-ai">
-          {{ isAiBusy ? '⏳' : '➤' }}
+          <svg v-if="isAiBusy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </button>
       </div>
     </aside>
@@ -811,7 +828,7 @@
           <span style="background: var(--bg-card); padding: 0 8px; font-size: 0.75rem; color: var(--text-muted); position: relative; top: -9px;">OR</span>
         </div>
         <button type="button" @click="openImportFromNewModal" class="btn-group-action" style="width: 100%; justify-content: center; padding: 7px 12px; font-size: 0.82rem;">
-          🌐 📁 Import from URL or File...
+          <svg style="vertical-align: text-bottom; margin-right: 3px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg><svg style="vertical-align: text-bottom; margin-right: 3px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>Import from URL or File...
         </button>
       </div>
     </div>
@@ -847,7 +864,7 @@
               @dblclick="confirmLinkInsert"
             >
               <div class="link-page-title-row">
-                <span class="link-page-icon">📄</span>
+                <span class="link-page-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></span>
                 <span class="link-page-title">{{ page.title }}</span>
                 <span class="link-page-filename">{{ page.filename }}</span>
               </div>
@@ -863,7 +880,10 @@
               @dblclick="confirmLinkInsert"
             >
               <div class="link-page-title-row">
-                <span class="link-page-icon">{{ isExternalUrl ? '🔗' : '➕' }}</span>
+                <span class="link-page-icon">
+                  <svg v-if="isExternalUrl" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                </span>
                 <span class="link-page-title">{{ isExternalUrl ? 'Use External URL: ' + linkSearchQuery.trim() : 'Link to / Create: ' + computedCustomFilename }}</span>
               </div>
             </div>
