@@ -83,14 +83,20 @@ Page {
         var trans = pendingTranscription
         if (trans && trans.trim().length > 0) {
             var clean = trans.trim()
-            if (promptField.text.length > 0) {
-                promptField.text = promptField.text + " " + clean
+            if (currentTab === 0) {
+                if (promptField.text.length > 0) {
+                    promptField.text = promptField.text + " " + clean
+                } else {
+                    promptField.text = clean
+                }
             } else {
-                promptField.text = clean
+                if (sourceTextArea.text.length > 0) {
+                    sourceTextArea.text = sourceTextArea.text + " " + clean
+                } else {
+                    sourceTextArea.text = clean
+                }
             }
             assistantPage.scrollToBottom()
-        } else if (assistantPage.isSpeechTranscribing === false && trans !== undefined) {
-            // Only show "no speech" when transcription just completed with empty result
         }
     }
 
@@ -763,6 +769,31 @@ Page {
                         enabled: !agentBridge.agent_busy
                         onClicked: {
                             assistantPage.showFileInput = !assistantPage.showFileInput
+                        }
+                    }
+
+                    IconButton {
+                        visible: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
+                        icon.source: assistantPage.isSpeechRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                        highlighted: assistantPage.isSpeechRecording
+                        enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing
+                        onClicked: {
+                            if (typeof speechBridge === "undefined" || !speechBridge) {
+                                remorsePopup.execute(qsTr("Speech recognition is unavailable."), function() {})
+                                return
+                            }
+                            if (speechBridge.is_recording) {
+                                speechBridge.stop_recording_and_transcribe()
+                            } else {
+                                if (!speechBridge.has_installed_models) {
+                                    remorsePopup.execute(qsTr("No speech model installed. Please download a model."), function() {})
+                                    pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                                    return
+                                }
+                                if (!speechBridge.start_recording()) {
+                                    return
+                                }
+                            }
                         }
                     }
                 }
