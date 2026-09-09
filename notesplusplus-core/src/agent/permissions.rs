@@ -10,6 +10,7 @@ pub struct PermissionConfig {
     pub auto_allow_read: bool,
     pub auto_allow_create: bool,
     pub require_confirm_edit: bool,
+    pub allow_fetch_url: bool,
 }
 
 impl Default for PermissionConfig {
@@ -18,6 +19,7 @@ impl Default for PermissionConfig {
             auto_allow_read: true,
             auto_allow_create: true,
             require_confirm_edit: true,
+            allow_fetch_url: true,
         }
     }
 }
@@ -65,11 +67,18 @@ impl PermissionManager {
     ) -> PermissionDecision {
         let name = tool_call.function.name.as_str();
         match name {
-            "read_note" | "list_notes" | "search_notes" | "fetch_url" => {
+            "read_note" | "list_notes" | "search_notes" => {
                 if self.config.auto_allow_read {
                     PermissionDecision::Allowed
                 } else {
                     PermissionDecision::Denied("Read operations are currently disabled by user configuration.".to_string())
+                }
+            }
+            "fetch_url" => {
+                if self.config.allow_fetch_url {
+                    PermissionDecision::Allowed
+                } else {
+                    PermissionDecision::Denied("Web requests are currently disabled by user configuration.".to_string())
                 }
             }
             "create_note" => {

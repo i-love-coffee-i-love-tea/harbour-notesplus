@@ -10,6 +10,8 @@ pub mod html;
 pub mod search;
 pub mod server;
 pub mod agent;
+pub mod stt;
 
 pub use constants::*;
 pub use paths::AppPaths;
+pub use stt::*;

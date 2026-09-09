@@ -270,6 +270,7 @@ name = "harbour-notesplusplus"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "log",
  "notesplusplus-core",
  "qmetaobject",
@@ -538,6 +539,7 @@ dependencies = [
 name = "notesplusplus-core"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "chrono",
  "libc",
  "log",

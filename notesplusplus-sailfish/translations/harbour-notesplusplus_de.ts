@@ -207,6 +207,26 @@
         <source>🚀 Convert &amp; Import as Note</source>
         <translation>🚀 Konvertieren &amp; als Notiz importieren</translation>
     </message>
+    <message>
+        <source>Manage Speech Models</source>
+        <translation>Sprachmodelle verwalten</translation>
+    </message>
+    <message>
+        <source>No speech model installed. Please download a model.</source>
+        <translation>Kein Sprachmodell installiert. Bitte laden Sie ein Modell herunter.</translation>
+    </message>
+    <message>
+        <source>Speech recognition is unavailable.</source>
+        <translation>Spracherkennung ist nicht verfügbar.</translation>
+    </message>
+    <message>
+        <source>Recording audio... Tap mic to stop and transcribe</source>
+        <translation>Audioaufnahme... Mikrofon tippen zum Stoppen und Transkribieren</translation>
+    </message>
+    <message>
+        <source>Transcribing speech with offline Whisper...</source>
+        <translation>Transkribiere Sprache mit Offline-Whisper...</translation>
+    </message>
 </context>
 <context>
     <name>MainPage</name>
@@ -595,6 +615,105 @@
     <message>
         <source>Xiaomi MiMoCode / OpenAI API</source>
         <translation>Xiaomi MiMoCode / OpenAI-API</translation>
+    </message>
+    <message>
+        <source>Active Model</source>
+        <translation>Aktives Modell</translation>
+    </message>
+    <message>
+        <source>Dictate prompts and transcribe speech offline using on-device Whisper models</source>
+        <translation>Prompts diktieren und Sprache offline mit On-Device-Whisper-Modellen transkribieren</translation>
+    </message>
+    <message>
+        <source>Enable Speech Recognition</source>
+        <translation>Spracherkennung aktivieren</translation>
+    </message>
+    <message>
+        <source>Manage Speech Models</source>
+        <translation>Sprachmodelle verwalten</translation>
+    </message>
+    <message>
+        <source>None (No model installed)</source>
+        <translation>Keines (Kein Modell installiert)</translation>
+    </message>
+    <message>
+        <source>Speech Recognition (Offline STT)</source>
+        <translation>Spracherkennung (Offline STT)</translation>
+    </message>
+</context>
+<context>
+    <name>ModelDownloadDialog</name>
+    <message>
+        <source>Speech Models</source>
+        <translation>Sprachmodelle</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Fertig</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Schließen</translation>
+    </message>
+    <message>
+        <source>Offline Speech Recognition</source>
+        <translation>Offline-Spracherkennung</translation>
+    </message>
+    <message>
+        <source>Speech recognition runs 100% offline on your device using Whisper models. Downloaded models are stored locally. Whisper Tiny (~75 MB) or Base (~142 MB) are recommended for fast performance.</source>
+        <translation>Die Spracherkennung läuft 100% offline auf Ihrem Gerät mit Whisper-Modellen. Heruntergeladene Modelle werden lokal gespeichert. Whisper Tiny (~75 MB) oder Base (~142 MB) werden für schnelle Leistung empfohlen.</translation>
+    </message>
+    <message>
+        <source>Available Whisper Models</source>
+        <translation>Verfügbare Whisper-Modelle</translation>
+    </message>
+    <message>
+        <source>ACTIVE</source>
+        <translation>AKTIV</translation>
+    </message>
+    <message>
+        <source>Multilingual</source>
+        <translation>Mehrsprachig</translation>
+    </message>
+    <message>
+        <source>English only</source>
+        <translation>Nur Englisch</translation>
+    </message>
+    <message>
+        <source>Installed</source>
+        <translation>Installiert</translation>
+    </message>
+    <message>
+        <source>Not downloaded</source>
+        <translation>Nicht heruntergeladen</translation>
+    </message>
+    <message>
+        <source>Downloading model...</source>
+        <translation>Modell wird heruntergeladen...</translation>
+    </message>
+    <message>
+        <source>Cancel Download</source>
+        <translation>Download abbrechen</translation>
+    </message>
+    <message>
+        <source>Set Active</source>
+        <translation>Als aktiv setzen</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Löschen</translation>
+    </message>
+    <message>
+        <source>Deleted %1</source>
+        <translation>%1 gelöscht</translation>
+    </message>
+    <message>
+        <source>Download (%1)</source>
+        <translation>Herunterladen (%1)</translation>
+    </message>
+    <message>
+        <source>No speech models available.</source>
+        <translation>Keine Sprachmodelle verfügbar.</translation>
     </message>
 </context>
 </TS>

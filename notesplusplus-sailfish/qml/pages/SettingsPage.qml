@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import harbour.notesplusplus 1.0
 import "../components"
 
 Page {
@@ -7,6 +8,101 @@ Page {
     allowedOrientations: Orientation.All
 
     property int currentTab: 0
+    property var serverModels: []
+    property bool modelsLoaded: false
+    property var sttModelsList: []
+
+    function formatSize(bytes) {
+        if (!bytes || bytes <= 0) return ""
+        var mb = bytes / (1024 * 1024)
+        return mb.toFixed(0) + " MB"
+    }
+
+    function refreshSttModels() {
+        if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.available_models_json) {
+            try {
+                sttModelsList = JSON.parse(speechBridge.available_models_json) || []
+            } catch (e) {
+                sttModelsList = []
+            }
+        } else {
+            sttModelsList = []
+        }
+    }
+    property var displayModels: {
+        var list = serverModels || []
+        var current = (typeof app !== "undefined" && app.aiModel) ? app.aiModel : ""
+        if (current.length > 0) {
+            var found = false
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].id === current) { found = true; break }
+            }
+            if (!found) {
+                return [{id: current, name: current + " (not on server)"}].concat(list)
+            }
+        }
+        return list
+    }
+
+    function refreshModels() {
+        if (typeof app === "undefined" || !app) return
+        modelBridge.configure(
+            app.aiProvider === "mimocode" ? "mimocode" : "ollama",
+            app.aiEndpoint,
+            app.aiModel,
+            app.aiApiKey || "",
+            app.aiTimeout || 90,
+            true, true, true,
+            app.aiAllowSelfSigned || false,
+            true
+        )
+        modelBridge.fetch_models()
+        modelPollTimer.start()
+    }
+
+    function parseModelsAndUpdate() {
+        if (!modelBridge.poll_models()) return
+        modelPollTimer.stop()
+        try {
+            var list = JSON.parse(modelBridge.available_models)
+            serverModels = list
+            modelsLoaded = true
+        } catch (e) {
+            serverModels = []
+            modelsLoaded = true
+        }
+    }
+
+    AgentBridge {
+        id: modelBridge
+    }
+
+    Timer {
+        id: modelPollTimer
+        interval: 200
+        repeat: true
+        onTriggered: settingsPage.parseModelsAndUpdate()
+    }
+
+    onCurrentTabChanged: {
+        if (currentTab === 1 && !modelsLoaded) {
+            refreshModels()
+        }
+        if (currentTab === 2) {
+            if (typeof speechBridge !== "undefined" && speechBridge) {
+                speechBridge.refresh_models()
+            }
+            refreshSttModels()
+        }
+    }
+
+    Connections {
+        target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
+        onModels_changed: refreshSttModels()
+        onDownloading_changed: refreshSttModels()
+        onActive_model_changed: refreshSttModels()
+        onDownload_completed: refreshSttModels()
+    }
 
     SilicaFlickable {
         anchors.fill: parent
@@ -29,26 +125,34 @@ Page {
 
                 Button {
                     text: qsTr("Display")
-                    preferredWidth: (parent.width - Theme.paddingSmall * 2) / 3
+                    preferredWidth: Math.floor((parent.width - Theme.paddingSmall * 3) / 4)
                     color: currentTab === 0 ? Theme.highlightColor : Theme.primaryColor
                     backgroundColor: currentTab === 0 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
                     onClicked: currentTab = 0
                 }
 
                 Button {
-                    text: qsTr("AI Assistant")
-                    preferredWidth: (parent.width - Theme.paddingSmall * 2) / 3
+                    text: qsTr("Assistant")
+                    preferredWidth: Math.floor((parent.width - Theme.paddingSmall * 3) / 4)
                     color: currentTab === 1 ? Theme.highlightColor : Theme.primaryColor
                     backgroundColor: currentTab === 1 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
                     onClicked: currentTab = 1
                 }
 
                 Button {
-                    text: qsTr("Services")
-                    preferredWidth: (parent.width - Theme.paddingSmall * 2) / 3
+                    text: qsTr("STT")
+                    preferredWidth: Math.floor((parent.width - Theme.paddingSmall * 3) / 4)
                     color: currentTab === 2 ? Theme.highlightColor : Theme.primaryColor
                     backgroundColor: currentTab === 2 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
                     onClicked: currentTab = 2
+                }
+
+                Button {
+                    text: qsTr("Services")
+                    preferredWidth: parent.width - Theme.paddingSmall * 3 - Math.floor((parent.width - Theme.paddingSmall * 3) / 4) * 3
+                    color: currentTab === 3 ? Theme.highlightColor : Theme.primaryColor
+                    backgroundColor: currentTab === 3 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
+                    onClicked: currentTab = 3
                 }
             }
 
@@ -299,7 +403,7 @@ Page {
                 }
             }
 
-            // ==================== TAB 1: AI ASSISTANT ====================
+            // ==================== TAB 1: ASSISTANT ====================
             Column {
                 id: aiTabCol
                 width: parent.width
@@ -307,7 +411,7 @@ Page {
                 visible: currentTab === 1
 
                 SectionHeader {
-                    text: qsTr("AI Assistant (Ollama / MiMoCode)")
+                    text: qsTr("Provider")
                 }
 
                 TextSwitch {
@@ -319,6 +423,21 @@ Page {
                         if (typeof app !== "undefined" && app && app.setAiEnabled) {
                             app.setAiEnabled(checked)
                         }
+                    }
+                }
+
+                BackgroundItem {
+                    width: parent.width
+                    onClicked: pageStack.push(Qt.resolvedUrl("AiCapabilitiesPage.qml"))
+
+                    Label {
+                        x: Theme.horizontalPageMargin
+                        width: parent.width - Theme.horizontalPageMargin * 2
+                        text: qsTr("What can the AI do with my notes?")
+                        color: parent.highlighted ? Theme.highlightColor : Theme.highlightColor
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.underline: true
+                        wrapMode: Text.Wrap
                     }
                 }
 
@@ -340,16 +459,20 @@ Page {
                                         endpointField.text = app.defaultAiEndpoint
                                         app.setAiEndpoint(app.defaultAiEndpoint)
                                     }
+                                    settingsPage.modelsLoaded = false
+                                    settingsPage.refreshModels()
                                 }
                             }
                             MenuItem {
-                                text: qsTr("Xiaomi MiMoCode / OpenAI API")
+                                text: qsTr("Xiaomi MiMoCode / OpenAI Compatible API")
                                 onClicked: {
                                     app.setAiProvider("mimocode")
                                     if (endpointField.text === app.defaultAiEndpoint) {
                                         endpointField.text = "https://api.mimocode.com"
                                         app.setAiEndpoint("https://api.mimocode.com")
                                     }
+                                    settingsPage.modelsLoaded = false
+                                    settingsPage.refreshModels()
                                 }
                             }
                         }
@@ -377,20 +500,6 @@ Page {
                         onCheckedChanged: {
                             if (typeof app !== "undefined" && app && app.setAiAllowSelfSigned) {
                                 app.setAiAllowSelfSigned(checked)
-                            }
-                        }
-                    }
-
-                    TextField {
-                        id: modelField
-                        width: parent.width
-                        label: qsTr("Model Name")
-                        labelVisible: true
-                        placeholderText: qsTr("e.g. llama3.2, qwen2.5, mistral")
-                        text: app.aiModel
-                        onTextChanged: {
-                            if (typeof app !== "undefined" && app && app.setAiModel) {
-                                app.setAiModel(text)
                             }
                         }
                     }
@@ -423,6 +532,71 @@ Page {
                             }
                         }
                     }
+                }
+
+                SectionHeader {
+                    text: qsTr("Model")
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Theme.paddingMedium
+                    visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
+
+                    ComboBox {
+                        id: modelCombo
+                        width: parent.width
+                        label: qsTr("Model")
+                        currentIndex: {
+                            var models = settingsPage.displayModels
+                            var current = (typeof app !== "undefined" && app.aiModel) ? app.aiModel : ""
+                            for (var i = 0; i < models.length; i++) {
+                                if (models[i].id === current) return i
+                            }
+                            return models.length > 0 ? 0 : -1
+                        }
+                        menu: ContextMenu {
+                            Repeater {
+                                model: settingsPage.displayModels
+                                MenuItem {
+                                    text: modelData.id || modelData.name
+                                }
+                            }
+                        }
+                        onCurrentIndexChanged: {
+                            var models = settingsPage.displayModels
+                            if (currentIndex >= 0 && currentIndex < models.length) {
+                                var selectedId = models[currentIndex].id
+                                if (typeof app !== "undefined" && app && app.setAiModel && selectedId !== app.aiModel) {
+                                    app.setAiModel(selectedId)
+                                }
+                            }
+                        }
+                        description: modelBridge.models_loading
+                            ? qsTr("Fetching models from server...")
+                            : (settingsPage.displayModels.length === 0 ? qsTr("No models found — check endpoint") : "")
+                    }
+
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: Theme.paddingMedium
+
+                        Button {
+                            text: qsTr("Refresh Models")
+                            enabled: !modelBridge.models_loading
+                            onClicked: settingsPage.refreshModels()
+                        }
+                    }
+                }
+
+                SectionHeader {
+                    text: qsTr("Tool Permissions")
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Theme.paddingMedium
+                    visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
 
                     TextSwitch {
                         width: parent.width
@@ -460,22 +634,287 @@ Page {
                         }
                     }
 
-                    Button {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "Open AI Assistant"
-                        onClicked: {
-                            app.openAssistant("", "")
+                    TextSwitch {
+                        width: parent.width
+                        text: qsTr("Allow Web Requests")
+                        description: qsTr("Allow the assistant to fetch content from URLs you mention in your messages")
+                        checked: app.aiAllowFetchUrl
+                        onCheckedChanged: {
+                            if (typeof app !== "undefined" && app && app.setAiAllowFetchUrl) {
+                                app.setAiAllowFetchUrl(checked)
+                            }
                         }
                     }
                 }
             }
 
-            // ==================== TAB 2: SERVICES & BACKUP ====================
+            // ==================== TAB 2: STT ====================
+            Column {
+                id: sttTabCol
+                width: parent.width
+                spacing: Theme.paddingMedium
+                visible: currentTab === 2
+
+                SectionHeader {
+                    text: qsTr("Speech Recognition (Offline STT)")
+                }
+
+                TextSwitch {
+                    width: parent.width
+                    text: qsTr("Enable Speech Recognition")
+                    description: qsTr("Dictate prompts and transcribe speech offline using on-device Whisper models")
+                    checked: (typeof app !== "undefined" && app && app.sttEnabled !== undefined) ? app.sttEnabled : true
+                    onCheckedChanged: {
+                        if (typeof app !== "undefined" && app && app.setSttEnabled) {
+                            app.setSttEnabled(checked)
+                        }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Theme.paddingMedium
+                    visible: (typeof app !== "undefined" && app && app.sttEnabled !== undefined) ? app.sttEnabled : true
+
+                    // Info Card
+                    Rectangle {
+                        width: parent.width - Theme.horizontalPageMargin * 2
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        height: sttInfoCol.height + Theme.paddingMedium * 2
+                        color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
+                        border.color: Theme.rgba(Theme.highlightColor, 0.3)
+                        border.width: 1
+                        radius: Theme.paddingSmall
+
+                        Column {
+                            id: sttInfoCol
+                            anchors {
+                                left: parent.left
+                                right: parent.right
+                                top: parent.top
+                                margins: Theme.paddingMedium
+                            }
+                            spacing: Theme.paddingSmall
+
+                            Label {
+                                width: parent.width
+                                text: qsTr("Offline Speech Recognition")
+                                color: Theme.highlightColor
+                                font.bold: true
+                                font.pixelSize: Theme.fontSizeMedium
+                            }
+
+                            Label {
+                                width: parent.width
+                                text: qsTr("Speech recognition runs 100% offline on your device using Whisper models. Downloaded models are stored locally. Whisper Tiny (~75 MB) or Base (~142 MB) are recommended for fast performance.")
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.fontSizeExtraSmall
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+
+                    SectionHeader {
+                        text: qsTr("Available Whisper Models")
+                    }
+
+                    // Model List
+                    Repeater {
+                        model: sttModelsList
+
+                        delegate: BackgroundItem {
+                            id: modelDelegate
+                            width: parent.width
+                            height: sttItemColumn.height + Theme.paddingMedium * 2
+
+                            readonly property var modelItem: modelData
+                            readonly property bool isCurrentDownloading: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_downloading && speechBridge.downloading_model_id === modelItem.id
+                            readonly property bool isModelActive: (typeof speechBridge !== "undefined" && speechBridge && speechBridge.active_model_id === modelItem.id) || (modelItem.is_active === true)
+                            readonly property bool isModelInstalled: modelItem.is_installed === true
+
+                            Column {
+                                id: sttItemColumn
+                                anchors {
+                                    left: parent.left
+                                    right: parent.right
+                                    top: parent.top
+                                    leftMargin: Theme.horizontalPageMargin
+                                    rightMargin: Theme.horizontalPageMargin
+                                    topMargin: Theme.paddingSmall
+                                }
+                                spacing: Theme.paddingSmall
+
+                                // Header row with Name and Badges
+                                Row {
+                                    width: parent.width
+                                    spacing: Theme.paddingSmall
+
+                                    Label {
+                                        text: modelItem.name || modelItem.id
+                                        color: isModelActive ? Theme.highlightColor : Theme.primaryColor
+                                        font.bold: true
+                                        font.pixelSize: Theme.fontSizeMedium
+                                    }
+
+                                    Rectangle {
+                                        visible: isModelActive
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: sttActiveLabel.width + Theme.paddingSmall
+                                        height: sttActiveLabel.height + Theme.paddingSmall / 2
+                                        color: Theme.rgba(Theme.highlightColor, 0.25)
+                                        border.color: Theme.highlightColor
+                                        border.width: 1
+                                        radius: 4
+
+                                        Label {
+                                            id: sttActiveLabel
+                                            anchors.centerIn: parent
+                                            text: qsTr("ACTIVE")
+                                            color: Theme.highlightColor
+                                            font.bold: true
+                                            font.pixelSize: Theme.fontSizeTiny
+                                        }
+                                    }
+                                }
+
+                                // Meta row: Language & Size
+                                Row {
+                                    width: parent.width
+                                    spacing: Theme.paddingMedium
+
+                                    Label {
+                                        text: modelItem.is_multilingual ? qsTr("Multilingual") : qsTr("English only")
+                                        color: Theme.secondaryColor
+                                        font.pixelSize: Theme.fontSizeExtraSmall
+                                    }
+
+                                    Label {
+                                        text: formatSize(modelItem.size_bytes)
+                                        color: Theme.secondaryColor
+                                        font.pixelSize: Theme.fontSizeExtraSmall
+                                    }
+
+                                    Label {
+                                        text: isModelInstalled ? qsTr("Installed") : qsTr("Not downloaded")
+                                        color: isModelInstalled ? Theme.highlightColor : Theme.secondaryColor
+                                        font.pixelSize: Theme.fontSizeExtraSmall
+                                    }
+                                }
+
+                                // Description
+                                Label {
+                                    width: parent.width
+                                    text: modelItem.description || ""
+                                    color: Theme.secondaryColor
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    wrapMode: Text.Wrap
+                                }
+
+                                // Active Download Progress
+                                Column {
+                                    width: parent.width
+                                    visible: isCurrentDownloading
+                                    spacing: Theme.paddingSmall
+
+                                    ProgressBar {
+                                        width: parent.width
+                                        minimumValue: 0
+                                        maximumValue: 100
+                                        value: typeof speechBridge !== "undefined" && speechBridge ? speechBridge.download_progress : 0
+                                        label: qsTr("Downloading model...")
+                                        valueText: Math.round(value) + "%"
+                                    }
+
+                                    Button {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: qsTr("Cancel Download")
+                                        preferredWidth: Theme.buttonWidthSmall
+                                        onClicked: {
+                                            if (typeof speechBridge !== "undefined" && speechBridge) {
+                                                speechBridge.cancel_download()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Installed Actions
+                                Row {
+                                    visible: isModelInstalled && !isCurrentDownloading
+                                    spacing: Theme.paddingMedium
+                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                    Button {
+                                        text: qsTr("Set Active")
+                                        visible: !isModelActive
+                                        preferredWidth: Theme.buttonWidthSmall
+                                        onClicked: {
+                                            if (typeof speechBridge !== "undefined" && speechBridge) {
+                                                speechBridge.set_active_model(modelItem.id)
+                                            }
+                                            if (typeof app !== "undefined" && app && app.setSttModel) {
+                                                app.setSttModel(modelItem.id)
+                                            }
+                                        }
+                                    }
+
+                                    Button {
+                                        text: qsTr("Delete")
+                                        preferredWidth: Theme.buttonWidthSmall
+                                        color: Theme.highlightColor
+                                        onClicked: {
+                                            if (typeof speechBridge !== "undefined" && speechBridge) {
+                                                speechBridge.delete_model(modelItem.id)
+                                                remorsePopup.execute(qsTr("Deleted %1").arg(modelItem.name), function() {})
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Not Installed Actions
+                                Row {
+                                    visible: !isModelInstalled && !isCurrentDownloading
+                                    anchors.horizontalCenter: parent.horizontalCenter
+
+                                    Button {
+                                        text: qsTr("Download (%1)").arg(formatSize(modelItem.size_bytes))
+                                        preferredWidth: Theme.buttonWidthMedium
+                                        enabled: !(typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_downloading)
+                                        onClicked: {
+                                            if (typeof speechBridge !== "undefined" && speechBridge) {
+                                                speechBridge.download_model(modelItem.id)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Bottom separator
+                                Separator {
+                                    width: parent.width
+                                    color: Theme.rgba(Theme.primaryColor, 0.1)
+                                }
+                            }
+                        }
+                    }
+
+                    // Empty state if no models in catalog
+                    Label {
+                        visible: sttModelsList.length === 0
+                        width: parent.width - Theme.horizontalPageMargin * 2
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        horizontalAlignment: Text.AlignHCenter
+                        text: qsTr("No speech models available.")
+                        color: Theme.secondaryColor
+                        font.pixelSize: Theme.fontSizeSmall
+                    }
+                }
+            }
+
+            // ==================== TAB 3: SERVICES & BACKUP ====================
             Column {
                 id: servicesTabCol
                 width: parent.width
                 spacing: Theme.paddingMedium
-                visible: currentTab === 2
+                visible: currentTab === 3
 
                 SectionHeader {
                     text: qsTr("Web Server")

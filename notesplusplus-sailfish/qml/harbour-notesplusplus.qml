@@ -133,9 +133,27 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: aiAllowFetchUrlConf
+        key: "/apps/harbour-notesplusplus/ai_allow_fetch_url"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
         id: aiAllowSelfSignedConf
         key: "/apps/harbour-notesplusplus/ai_allow_self_signed"
         defaultValue: false
+    }
+
+    ConfigurationValue {
+        id: sttEnabledConf
+        key: "/apps/harbour-notesplusplus/stt_enabled"
+        defaultValue: true
+    }
+
+    ConfigurationValue {
+        id: sttModelConf
+        key: "/apps/harbour-notesplusplus/stt_model"
+        defaultValue: ""
     }
 
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
@@ -150,6 +168,8 @@ ApplicationWindow {
     property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
     property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
+    property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
+    property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""
 
     property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
     property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : app.defaultAiEndpoint
@@ -159,6 +179,7 @@ ApplicationWindow {
     property bool aiAutoAllowRead: aiAutoAllowReadConf.value !== undefined ? aiAutoAllowReadConf.value : true
     property bool aiAutoAllowCreate: aiAutoAllowCreateConf.value !== undefined ? aiAutoAllowCreateConf.value : true
     property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
+    property bool aiAllowFetchUrl: aiAllowFetchUrlConf.value !== undefined ? aiAllowFetchUrlConf.value : true
     property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
 
     function setFontScale(scale) {
@@ -225,7 +246,8 @@ ApplicationWindow {
                 app.aiAutoAllowRead !== undefined ? app.aiAutoAllowRead : true,
                 app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
                 app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true,
-                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false
+                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false,
+                app.aiAllowFetchUrl !== undefined ? app.aiAllowFetchUrl : true
             )
         }
     }
@@ -283,9 +305,25 @@ ApplicationWindow {
         syncAiConfig()
     }
 
+    function setAiAllowFetchUrl(val) {
+        aiAllowFetchUrlConf.value = val
+        syncAiConfig()
+    }
+
     function setAiAllowSelfSigned(val) {
         aiAllowSelfSignedConf.value = val
         syncAiConfig()
+    }
+
+    function setSttEnabled(val) {
+        sttEnabledConf.value = val
+    }
+
+    function setSttModel(modelId) {
+        sttModelConf.value = modelId
+        if (typeof speechBridge !== "undefined" && speechBridge && typeof speechBridge.set_active_model === "function") {
+            speechBridge.set_active_model(modelId)
+        }
     }
 
     function openAssistant(contextFilename, contextContent) {
@@ -329,6 +367,9 @@ ApplicationWindow {
 
     Component.onCompleted: {
         syncAiConfig()
+        if (app.sttModel && app.sttModel.length > 0 && typeof speechBridge !== "undefined" && speechBridge) {
+            speechBridge.set_active_model(app.sttModel)
+        }
         bridge.set_drop_comments(app.dropComments)
         bridge.set_reject_public_networks(app.rejectPublicNetworks)
         bridge.set_session_expiry_hours(app.sessionExpiryHours)
@@ -410,6 +451,24 @@ ApplicationWindow {
         }
     }
 
+    SpeechBridge {
+        id: speechBridge
+
+        onActive_model_changed: {
+            if (active_model_id && active_model_id.length > 0 && active_model_id !== app.sttModel) {
+                sttModelConf.value = active_model_id
+            }
+        }
+    }
+
+    Timer {
+        id: speechPollTimer
+        interval: 50
+        running: typeof speechBridge !== "undefined" && speechBridge && (speechBridge.is_downloading || speechBridge.is_transcribing || speechBridge.is_recording)
+        repeat: true
+        onTriggered: speechBridge.poll_worker()
+    }
+
     initialPage: Component { MainPage {} }
     cover: Component { CoverPage {} }
 
@@ -419,29 +478,39 @@ ApplicationWindow {
 
         function show() {
             notification.opacity = 1.0
-            hideTimer.start()
+            hideTimer.restart()
         }
 
         anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Theme.itemSizeExtraSmall
-        color: Theme.highlightBackgroundColor
+        anchors.topMargin: Theme.paddingLarge
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - Theme.horizontalPageMargin * 2, notificationLabel.implicitWidth + Theme.paddingLarge * 2)
+        height: Math.max(Theme.itemSizeExtraSmall, notificationLabel.implicitHeight + Theme.paddingSmall * 2)
+        color: Qt.tint(
+                   Theme.rgba(Theme.overlayBackgroundColor, Theme.opacityOverlay),
+                   Theme.rgba(Theme.highlightBackgroundColor, Theme.highlightBackgroundOpacity))
+        border.color: Theme.rgba(Theme.highlightColor, 0.4)
+        border.width: 1
+        radius: Theme.paddingSmall
         opacity: 0.0
-        z: 100
+        z: 1000
 
-        Behavior on opacity { FadeAnimator {} }
+        Behavior on opacity { FadeAnimation {} }
 
         Label {
             id: notificationLabel
-            anchors.centerIn: parent
+            anchors.fill: parent
+            anchors.margins: Theme.paddingSmall
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.Wrap
             color: Theme.primaryColor
             font.pixelSize: Theme.fontSizeExtraSmall
         }
 
         Timer {
             id: hideTimer
-            interval: 3000
+            interval: 3500
             onTriggered: notification.opacity = 0.0
         }
 

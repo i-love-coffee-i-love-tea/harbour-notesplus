@@ -14,9 +14,29 @@ Page {
     property bool hasContextOrInput: (contextContent.length > 0) || (promptField.text && promptField.text.trim().length > 0)
     property bool showUrlInput: false
     property bool showFileInput: false
+    // Speech capture state comes from SpeechBridge (native 16 kHz mono WAV recorder).
+    property bool isSpeechRecording: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
+    property bool isSpeechTranscribing: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_transcribing
+    property real liveAudioLevel: (typeof speechBridge !== "undefined" && speechBridge && assistantPage.isSpeechRecording) ? speechBridge.audio_level : 0.0
+    property var liveWaveform: {
+        if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.waveform_json && assistantPage.isSpeechRecording) {
+            try {
+                return JSON.parse(speechBridge.waveform_json) || [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            } catch (e) {
+                return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            }
+        }
+        return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    }
 
     function scrollToBottom() {
         scrollTimer.restart()
+    }
+
+    function cancelActiveRecording() {
+        if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording) {
+            speechBridge.cancel_recording()
+        }
     }
 
     Timer {
@@ -49,6 +69,43 @@ Page {
     onStatusChanged: {
         if (status === PageStatus.Active) {
             applyConfig()
+        } else if (status === PageStatus.Deactivating || status === PageStatus.Inactive) {
+            // Leaving the page cancels capture; do not auto-transcribe mid-flight audio.
+            cancelActiveRecording()
+        }
+    }
+
+    Connections {
+        target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
+        onTranscription_completed: {
+            var trans = ""
+            if (typeof text !== "undefined" && text) {
+                trans = text
+            } else if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.last_transcription) {
+                trans = speechBridge.last_transcription
+            }
+            if (trans && trans.trim().length > 0) {
+                var clean = trans.trim()
+                if (promptField.text.length > 0) {
+                    promptField.text = promptField.text + " " + clean
+                } else {
+                    promptField.text = clean
+                }
+                assistantPage.scrollToBottom()
+            } else {
+                remorsePopup.execute(qsTr("No speech recognized. Please speak closer to microphone."), function() {})
+            }
+        }
+        onError_occurred: {
+            var errMsg = (typeof message !== "undefined" && message) ? message :
+                         ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")
+            if (errMsg && errMsg.length > 0) {
+                remorsePopup.execute(errMsg, function() {})
+            }
+            // Ensure recording UI state is cleared on backend errors.
+            if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording) {
+                speechBridge.cancel_recording()
+            }
         }
     }
 
@@ -130,6 +187,12 @@ Page {
             MenuItem {
                 text: qsTr("Settings")
                 onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+            }
+
+            MenuItem {
+                text: qsTr("Manage Speech Models")
+                visible: currentTab === 0
+                onClicked: pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
             }
 
             // Chat-specific actions
@@ -487,6 +550,88 @@ Page {
                     }
                 }
 
+                // Recording / Transcribing Status Indicator
+                Rectangle {
+                    width: parent.width - Theme.horizontalPageMargin * 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: (assistantPage.isSpeechRecording || assistantPage.isSpeechTranscribing) ? Theme.itemSizeExtraSmall : 0
+                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
+                    radius: Theme.paddingSmall
+                    border.color: (assistantPage.isSpeechRecording && assistantPage.liveAudioLevel > 0.06) ?
+                                  Theme.rgba(Theme.highlightColor, 0.6) : Theme.rgba(Theme.highlightColor, 0.3)
+                    border.width: 1
+                    visible: assistantPage.isSpeechRecording || assistantPage.isSpeechTranscribing
+                    clip: true
+
+                    Behavior on height { NumberAnimation { duration: 150 } }
+                    Behavior on border.color { ColorAnimation { duration: 100 } }
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: Theme.paddingMedium
+
+                        BusyIndicator {
+                            size: BusyIndicatorSize.ExtraSmall
+                            running: assistantPage.isSpeechTranscribing
+                            visible: assistantPage.isSpeechTranscribing
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        // Live Multi-Bar Waveform Visualizer
+                        Row {
+                            spacing: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: assistantPage.isSpeechRecording
+
+                            Repeater {
+                                model: 7
+                                Rectangle {
+                                    id: waveBar
+                                    width: 3
+                                    readonly property real barVal: (assistantPage.liveWaveform && assistantPage.liveWaveform.length > index) ? assistantPage.liveWaveform[index] : 0.0
+                                    height: Math.max(4, Math.min(Theme.itemSizeExtraSmall - Theme.paddingMedium, Math.round(barVal * (Theme.itemSizeExtraSmall - Theme.paddingMedium))))
+                                    radius: 1.5
+                                    color: (barVal > 0.06) ? Theme.highlightColor : Theme.secondaryColor
+                                    anchors.verticalCenter: parent.verticalCenter
+
+                                    Behavior on height { NumberAnimation { duration: 50 } }
+                                    Behavior on color { ColorAnimation { duration: 80 } }
+                                }
+                            }
+                        }
+
+                        Label {
+                            text: {
+                                if (assistantPage.isSpeechTranscribing) {
+                                    return qsTr("Transcribing speech with offline Whisper...")
+                                }
+                                if (assistantPage.liveAudioLevel > 0.06) {
+                                    var percent = Math.round(assistantPage.liveAudioLevel * 100)
+                                    return qsTr("Hearing voice (%1%)... Tap mic to finish").arg(percent)
+                                }
+                                return qsTr("Listening... Speak into microphone")
+                            }
+                            color: (assistantPage.isSpeechRecording && assistantPage.liveAudioLevel > 0.06) ?
+                                   Theme.primaryColor : Theme.highlightColor
+                            font.pixelSize: Theme.fontSizeSmall
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Label {
+                            text: qsTr("Cancel")
+                            color: Theme.secondaryHighlightColor
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            visible: assistantPage.isSpeechRecording
+                            anchors.verticalCenter: parent.verticalCenter
+                            MouseArea {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.paddingSmall
+                                onClicked: assistantPage.cancelActiveRecording()
+                            }
+                        }
+                    }
+                }
+
                 // Input Area
                 Row {
                     width: parent.width - Theme.horizontalPageMargin * 2
@@ -495,10 +640,10 @@ Page {
 
                     TextField {
                         id: promptField
-                        width: parent.width - sendBtn.width - Theme.paddingSmall
+                        width: parent.width - sendBtn.width - (micBtnContainer.visible ? (micBtnContainer.width + Theme.paddingSmall) : 0) - Theme.paddingSmall
                         placeholderText: contextFilename.length > 0 ? qsTr("Ask assistant or run template on note...") : qsTr("Ask assistant or enter text for templates...")
                         label: qsTr("Prompt")
-                        enabled: !agentBridge.agent_busy
+                        enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing
                         EnterKey.enabled: text.length > 0
                         EnterKey.iconSource: "image://theme/icon-m-send"
                         EnterKey.onClicked: {
@@ -510,10 +655,63 @@ Page {
                         }
                     }
 
+                    Item {
+                        id: micBtnContainer
+                        width: micBtn.width
+                        height: micBtn.height
+                        anchors.verticalCenter: promptField.verticalCenter
+                        visible: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
+
+                        // Dynamic audio volume halo reacting directly to live microphone voice input
+                        Rectangle {
+                            id: micPulseHalo
+                            anchors.centerIn: parent
+                            width: parent.width + Theme.paddingSmall + Math.round(assistantPage.liveAudioLevel * 28)
+                            height: parent.height + Theme.paddingSmall + Math.round(assistantPage.liveAudioLevel * 28)
+                            radius: width / 2
+                            color: (assistantPage.liveAudioLevel > 0.06) ? "#44ff88" : "#ff4444"
+                            opacity: assistantPage.isSpeechRecording ? Math.min(0.85, 0.25 + assistantPage.liveAudioLevel * 0.6) : 0.0
+                            visible: assistantPage.isSpeechRecording
+
+                            Behavior on width { NumberAnimation { duration: 60 } }
+                            Behavior on height { NumberAnimation { duration: 60 } }
+                            Behavior on opacity { NumberAnimation { duration: 60 } }
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+
+                        IconButton {
+                            id: micBtn
+                            anchors.centerIn: parent
+                            icon.source: assistantPage.isSpeechRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                            highlighted: assistantPage.isSpeechRecording
+                            enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing
+                            onClicked: {
+                                if (typeof speechBridge === "undefined" || !speechBridge) {
+                                    remorsePopup.execute(qsTr("Speech recognition is unavailable."), function() {})
+                                    return
+                                }
+                                if (speechBridge.is_recording) {
+                                    // Stop capture and queue offline Whisper transcription.
+                                    speechBridge.stop_recording_and_transcribe()
+                                } else {
+                                    if (!speechBridge.has_installed_models) {
+                                        remorsePopup.execute(qsTr("No speech model installed. Please download a model."), function() {})
+                                        pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                                        return
+                                    }
+                                    if (!speechBridge.start_recording()) {
+                                        // error_occurred signal already surfaces the reason
+                                        return
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     IconButton {
                         id: sendBtn
                         icon.source: "image://theme/icon-m-send"
-                        enabled: !agentBridge.agent_busy && promptField.text.length > 0
+                        enabled: !agentBridge.agent_busy && !assistantPage.isSpeechTranscribing && promptField.text.length > 0
                         anchors.verticalCenter: promptField.verticalCenter
                         onClicked: {
                             if (promptField.text.length > 0) {

@@ -17,6 +17,9 @@ fn main() {
     let agent_name = CStr::from_bytes_with_nul(b"AgentBridge\0").unwrap();
     qml_register_type::<bridge::AgentBridge>(uri, 1, 0, agent_name);
 
+    let speech_name = CStr::from_bytes_with_nul(b"SpeechBridge\0").unwrap();
+    qml_register_type::<bridge::SpeechBridge>(uri, 1, 0, speech_name);
+
     let qml_file = PathBuf::from("/usr/share/harbour-notesplusplus/qml/harbour-notesplusplus.qml");
     let qml_url = if qml_file.exists() {
         QUrl::from(QString::from("file:///usr/share/harbour-notesplusplus/qml/harbour-notesplusplus.qml"))

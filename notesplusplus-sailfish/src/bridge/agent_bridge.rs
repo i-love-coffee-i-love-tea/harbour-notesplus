@@ -49,6 +49,7 @@ pub struct AgentBridge {
     auto_allow_read: qt_property!(bool; NOTIFY config_changed),
     auto_allow_create: qt_property!(bool; NOTIFY config_changed),
     require_confirm_edit: qt_property!(bool; NOTIFY config_changed),
+    allow_fetch_url: qt_property!(bool; NOTIFY config_changed),
     allow_self_signed: qt_property!(bool; NOTIFY config_changed),
     available_models: qt_property!(String; NOTIFY models_changed),
     models_loading: qt_property!(bool; NOTIFY models_changed),
@@ -67,7 +68,7 @@ pub struct AgentBridge {
     models_changed: qt_signal!(),
 
     // Methods
-    configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool)),
+    configure: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool, allow_fetch: bool)),
     reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
     send_prompt: qt_method!(fn(&mut self, text: String)),
     run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_filename: String, context_content: String)),
@@ -137,6 +138,7 @@ impl Default for AgentBridge {
             auto_allow_read: true,
             auto_allow_create: true,
             require_confirm_edit: true,
+            allow_fetch_url: true,
             allow_self_signed: false,
             busy_changed: Default::default(),
             messages_changed: Default::default(),
@@ -181,6 +183,7 @@ impl AgentBridge {
         auto_create: bool,
         require_edit: bool,
         allow_self_signed: bool,
+        allow_fetch: bool,
     ) {
         self.provider_type = provider.clone();
         self.endpoint_url = url.clone();
@@ -191,6 +194,7 @@ impl AgentBridge {
         self.auto_allow_create = auto_create;
         self.require_confirm_edit = require_edit;
         self.allow_self_signed = allow_self_signed;
+        self.allow_fetch_url = allow_fetch;
 
         let provider_enum = if provider.to_lowercase() == "mimocode" || provider.to_lowercase() == "openai" {
             LlmProvider::OpenAiCompatible
@@ -212,6 +216,7 @@ impl AgentBridge {
             auto_allow_read: auto_read,
             auto_allow_create: auto_create,
             require_confirm_edit: require_edit,
+            allow_fetch_url: allow_fetch,
         };
 
         if let Ok(mut session) = self.session.lock() {

@@ -32,6 +32,14 @@ impl AppPaths {
     pub fn journal_path(&self) -> PathBuf {
         self.notes_dir.join(JOURNAL_FILENAME)
     }
+
+    pub fn models_dir(&self) -> PathBuf {
+        self.data_dir.join("models")
+    }
+
+    pub fn stt_models_dir(&self) -> PathBuf {
+        self.models_dir().join("stt")
+    }
 }
 
 impl Default for AppPaths {
@@ -52,5 +60,7 @@ mod tests {
         assert_eq!(paths.notes_dir, custom.join("notes"));
         assert_eq!(paths.db_path, custom.join("notesplusplus.db"));
         assert_eq!(paths.journal_path(), custom.join("notes").join("journal.adoc"));
+        assert_eq!(paths.models_dir(), custom.join("models"));
+        assert_eq!(paths.stt_models_dir(), custom.join("models").join("stt"));
     }
 }

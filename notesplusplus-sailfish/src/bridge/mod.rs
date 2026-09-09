@@ -11,8 +11,11 @@ mod pages;
 mod journal_bridge;
 mod search_bridge;
 pub mod agent_bridge;
+mod audio_recorder;
+pub mod speech_bridge;
 
 pub use agent_bridge::AgentBridge;
+pub use speech_bridge::SpeechBridge;
 
 /// Pending async result from load_page
 pub(super) struct PendingResult {
@@ -33,6 +36,9 @@ pub struct NotesBridge {
     notes_dir: qt_property!(String; NOTIFY page_changed),
     search_query: qt_property!(String; NOTIFY search_results_changed),
     search_results: qt_property!(QVariantList; NOTIFY search_results_changed),
+    search_loading: qt_property!(bool; NOTIFY loading_changed),
+    current_search_filenames: Vec<String>,
+    current_search_jsons: Vec<String>,
     recent_pages: qt_property!(QVariantList; NOTIFY data_refreshed),
     recent_journal_lines: qt_property!(QVariantList; NOTIFY data_refreshed),
     journal_blocks: qt_property!(QVariantList; NOTIFY data_refreshed),
@@ -75,6 +81,8 @@ pub struct NotesBridge {
     delete_page: qt_method!(fn(&mut self, name: String)),
     do_search: qt_method!(fn(&mut self, query: String)),
     search: qt_method!(fn(&mut self, query: String)),
+    poll_search: qt_method!(fn(&mut self) -> bool),
+    poll_search_previews: qt_method!(fn(&mut self) -> bool),
     get_linkable_pages_json: qt_method!(fn(&mut self, query: String) -> String),
     insert_link_at_cursor: qt_method!(fn(&mut self, block_idx: i32, cursor_pos: i32, target: String)),
     navigate_to_page: qt_method!(fn(&mut self, name: String)),
@@ -89,7 +97,7 @@ pub struct NotesBridge {
     start_web_server: qt_method!(fn(&mut self) -> String),
     stop_web_server: qt_method!(fn(&mut self)),
     toggle_web_server: qt_method!(fn(&mut self) -> bool),
-    configure_ai: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool)),
+    configure_ai: qt_method!(fn(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool, allow_fetch: bool)),
     install_tls_certificate: qt_method!(fn(&mut self, cert_pem_or_path: String, key_pem_or_path: String) -> String),
     reset_tls_certificate: qt_method!(fn(&mut self) -> String),
     is_custom_tls_certificate: qt_method!(fn(&mut self) -> bool),
@@ -109,6 +117,8 @@ pub struct NotesBridge {
     current_blocks_data: Vec<Block>,
     journal_blocks_data: Vec<Block>,
     pending: Arc<Mutex<Option<PendingResult>>>,
+    search_result_slot: Arc<Mutex<Option<Result<Vec<search_bridge::SearchHit>, String>>>>,
+    search_preview_slot: Arc<Mutex<Option<Vec<(String, String)>>>>,
     server_handle: Option<notesplusplus_core::server::HttpServerHandle>,
     llm_config: notesplusplus_core::agent::LlmConfig,
     permission_config: notesplusplus_core::agent::PermissionConfig,
@@ -167,6 +177,8 @@ impl Default for NotesBridge {
             delete_page: Default::default(),
             do_search: Default::default(),
             search: Default::default(),
+            poll_search: Default::default(),
+            poll_search_previews: Default::default(),
             get_linkable_pages_json: Default::default(),
             insert_link_at_cursor: Default::default(),
             navigate_to_page: Default::default(),
@@ -203,6 +215,11 @@ impl Default for NotesBridge {
             current_blocks_data: Vec::new(),
             journal_blocks_data: Vec::new(),
             pending: Arc::new(Mutex::new(None)),
+            search_result_slot: Arc::new(Mutex::new(None)),
+            search_preview_slot: Arc::new(Mutex::new(None)),
+            search_loading: false,
+            current_search_filenames: Vec::new(),
+            current_search_jsons: Vec::new(),
             server_handle: None,
             llm_config: notesplusplus_core::agent::LlmConfig::default(),
             permission_config: notesplusplus_core::agent::PermissionConfig::default(),

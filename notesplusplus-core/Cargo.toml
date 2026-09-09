@@ -2,6 +2,16 @@
 name = "notesplusplus-core"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+
+[features]
+default = ["whisper"]
+# Real offline Whisper STT inference backend (vendored whisper.cpp compiled via `cc`).
+# Disable only for host-only builds that don't need speech-to-text.
+whisper = []
+
+[build-dependencies]
+cc = "1"
 
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }

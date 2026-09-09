@@ -862,6 +862,7 @@ impl NotesBridge {
         auto_create: bool,
         require_edit: bool,
         allow_self_signed: bool,
+        allow_fetch: bool,
     ) {
         let p = match provider.to_lowercase().as_str() {
             "mimocode" | "openai" => notesplusplus_core::agent::LlmProvider::OpenAiCompatible,
@@ -892,6 +893,7 @@ impl NotesBridge {
         self.permission_config.auto_allow_read = auto_read;
         self.permission_config.auto_allow_create = auto_create;
         self.permission_config.require_confirm_edit = require_edit;
+        self.permission_config.allow_fetch_url = allow_fetch;
 
         if let Some(ref handle) = self.server_handle {
             handle.context().update_llm_config(self.llm_config.clone(), Some(self.permission_config.clone()));
@@ -981,8 +983,8 @@ impl NotesBridge {
     }
 
     // QML method wrappers
-    pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool) {
-        self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit, allow_self_signed);
+    pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool, allow_fetch: bool) {
+        self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit, allow_self_signed, allow_fetch);
     }
     pub fn install_tls_certificate(&mut self, cert_pem_or_path: String, key_pem_or_path: String) -> String {
         self.install_tls_certificate_impl(cert_pem_or_path, key_pem_or_path)

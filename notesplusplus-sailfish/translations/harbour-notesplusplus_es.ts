@@ -207,6 +207,26 @@
         <source>🚀 Convert &amp; Import as Note</source>
         <translation>🚀 Convertir e importar como nota</translation>
     </message>
+    <message>
+        <source>Manage Speech Models</source>
+        <translation>Administrar modelos de voz</translation>
+    </message>
+    <message>
+        <source>No speech model installed. Please download a model.</source>
+        <translation>No hay ningún modelo de voz instalado. Descargue un modelo primero.</translation>
+    </message>
+    <message>
+        <source>Speech recognition is unavailable.</source>
+        <translation>El reconocimiento de voz no está disponible.</translation>
+    </message>
+    <message>
+        <source>Recording audio... Tap mic to stop and transcribe</source>
+        <translation>Grabando audio... Toque el micrófono para detener y transcribir</translation>
+    </message>
+    <message>
+        <source>Transcribing speech with offline Whisper...</source>
+        <translation>Transcribiendo voz con Whisper local...</translation>
+    </message>
 </context>
 <context>
     <name>MainPage</name>
@@ -595,6 +615,105 @@
     <message>
         <source>Xiaomi MiMoCode / OpenAI API</source>
         <translation>Xiaomi MiMoCode / API de OpenAI</translation>
+    </message>
+    <message>
+        <source>Active Model</source>
+        <translation>Modelo activo</translation>
+    </message>
+    <message>
+        <source>Dictate prompts and transcribe speech offline using on-device Whisper models</source>
+        <translation>Dictar instrucciones y transcribir voz sin conexión usando modelos Whisper en el dispositivo</translation>
+    </message>
+    <message>
+        <source>Enable Speech Recognition</source>
+        <translation>Habilitar reconocimiento de voz</translation>
+    </message>
+    <message>
+        <source>Manage Speech Models</source>
+        <translation>Administrar modelos de voz</translation>
+    </message>
+    <message>
+        <source>None (No model installed)</source>
+        <translation>Ninguno (Ningún modelo instalado)</translation>
+    </message>
+    <message>
+        <source>Speech Recognition (Offline STT)</source>
+        <translation>Reconocimiento de voz (STT local)</translation>
+    </message>
+</context>
+<context>
+    <name>ModelDownloadDialog</name>
+    <message>
+        <source>Speech Models</source>
+        <translation>Modelos de voz</translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation>Listo</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Cerrar</translation>
+    </message>
+    <message>
+        <source>Offline Speech Recognition</source>
+        <translation>Reconocimiento de voz sin conexión</translation>
+    </message>
+    <message>
+        <source>Speech recognition runs 100% offline on your device using Whisper models. Downloaded models are stored locally. Whisper Tiny (~75 MB) or Base (~142 MB) are recommended for fast performance.</source>
+        <translation>El reconocimiento de voz se ejecuta 100% sin conexión en su dispositivo usando modelos Whisper. Los modelos descargados se almacenan localmente. Se recomienda Whisper Tiny (~75 MB) o Base (~142 MB) para un rendimiento rápido.</translation>
+    </message>
+    <message>
+        <source>Available Whisper Models</source>
+        <translation>Modelos Whisper disponibles</translation>
+    </message>
+    <message>
+        <source>ACTIVE</source>
+        <translation>ACTIVO</translation>
+    </message>
+    <message>
+        <source>Multilingual</source>
+        <translation>Multilingüe</translation>
+    </message>
+    <message>
+        <source>English only</source>
+        <translation>Solo inglés</translation>
+    </message>
+    <message>
+        <source>Installed</source>
+        <translation>Instalado</translation>
+    </message>
+    <message>
+        <source>Not downloaded</source>
+        <translation>No descargado</translation>
+    </message>
+    <message>
+        <source>Downloading model...</source>
+        <translation>Descargando modelo...</translation>
+    </message>
+    <message>
+        <source>Cancel Download</source>
+        <translation>Cancelar descarga</translation>
+    </message>
+    <message>
+        <source>Set Active</source>
+        <translation>Establecer como activo</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>Eliminar</translation>
+    </message>
+    <message>
+        <source>Deleted %1</source>
+        <translation>%1 eliminado</translation>
+    </message>
+    <message>
+        <source>Download (%1)</source>
+        <translation>Descargar (%1)</translation>
+    </message>
+    <message>
+        <source>No speech models available.</source>
+        <translation>No hay modelos de voz disponibles.</translation>
     </message>
 </context>
 </TS>

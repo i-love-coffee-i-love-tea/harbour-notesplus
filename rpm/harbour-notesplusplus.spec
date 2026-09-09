@@ -88,7 +88,7 @@ Exec=%{name}
 Name=Notes++
 
 [X-Sailjail]
-Permissions=UserDirs;Internet;RemovableMedia
+Permissions=UserDirs;Internet;RemovableMedia;Audio;Microphone
 OrganizationName=org.gobuki
 ApplicationName=harbour-notesplusplus
 EOF
