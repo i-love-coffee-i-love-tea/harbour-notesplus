@@ -541,8 +541,14 @@
         </div>
       </div>
 
-      <!-- Quick Template Action Chips -->
-      <div class="ai-quick-templates">
+      <!-- Chat / Import Tabs -->
+      <div class="ai-tabs">
+        <button type="button" :class="['ai-tab', { active: aiTab === 'chat' }]" @click="aiTab = 'chat'">💬 Chat</button>
+        <button type="button" :class="['ai-tab', { active: aiTab === 'import' }]" @click="aiTab = 'import'">📥 Import</button>
+      </div>
+
+      <!-- Quick Template Action Chips (Chat tab only) -->
+      <div v-if="aiTab === 'chat'" class="ai-quick-templates">
         <button type="button" @click="triggerTemplate('summarize')" :disabled="isAiBusy" title="Summarize active document">
           📝 Summarize
         </button>
@@ -557,6 +563,29 @@
         </button>
         <button type="button" @click="triggerTemplate('continue_writing')" :disabled="isAiBusy" title="Continue writing next section">
           ✍️ Continue
+        </button>
+      </div>
+
+      <!-- Import Assistant Panel (Import tab only) -->
+      <div v-if="aiTab === 'import'" class="ai-import-panel">
+        <label>Source Text:
+          <textarea v-model="importSourceText" placeholder="Paste external text, Markdown, notes, emails, transcripts, or articles here..." rows="6" style="width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit;"></textarea>
+        </label>
+        <label>Note Title (Optional):
+          <input v-model="importTitle" placeholder="Auto-detected if left empty" style="width: 100%; box-sizing: border-box;">
+        </label>
+        <label>Conversion Mode:
+          <select v-model="importMode" style="width: 100%; box-sizing: border-box;">
+            <option value="convert_full">Full Document (Complete AsciiDoc)</option>
+            <option value="summarize">Summarize &amp; Structure</option>
+            <option value="action_items">Extract Action Items / Checklists</option>
+          </select>
+        </label>
+        <label>Custom Instructions (Optional):
+          <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" style="width: 100%; box-sizing: border-box;">
+        </label>
+        <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-small-primary" style="width: 100%; margin-top: 8px;">
+          {{ isAiBusy ? '⏳ Converting...' : '🚀 Convert & Import as Note' }}
         </button>
       </div>
 
@@ -591,8 +620,8 @@
         </div>
       </div>
 
-      <!-- Chat History Stream -->
-      <div class="ai-chat-messages" ref="chatMessagesContainer">
+      <!-- Chat History Stream (Chat tab only) -->
+      <div v-if="aiTab === 'chat'" class="ai-chat-messages" ref="chatMessagesContainer">
         <div v-if="messages.length === 0" class="chat-welcome">
           <p><strong>👋 Welcome to Notes++ Assistant!</strong></p>
           <p>I can edit notes, answer questions, format tables, search your library, and summarize documentation directly via your configured Ollama backend.</p>
@@ -620,8 +649,8 @@
         </div>
       </div>
 
-      <!-- Chat Input Area -->
-      <div class="ai-input-container">
+      <!-- Chat Input Area (Chat tab only) -->
+      <div v-if="aiTab === 'chat'" class="ai-input-container">
         <textarea 
           v-model="aiPromptInput" 
           @keydown.enter.exact.prevent="sendUserPrompt()"

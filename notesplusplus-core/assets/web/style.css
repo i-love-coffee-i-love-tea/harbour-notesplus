@@ -885,6 +885,54 @@ button:disabled {
 }
 .settings-actions { display: flex; gap: 8px; margin-top: 4px; }
 
+.ai-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+}
+.ai-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color 0.15s, border-color 0.15s;
+}
+.ai-tab:hover { color: var(--text-primary); }
+.ai-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.ai-import-panel {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.82rem;
+}
+.ai-import-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.ai-import-panel textarea,
+.ai-import-panel input,
+.ai-import-panel select {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  background: var(--bg-main);
+  color: var(--text-primary);
+}
+
 .ai-quick-templates {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);

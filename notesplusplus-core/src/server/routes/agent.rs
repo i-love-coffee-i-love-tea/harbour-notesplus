@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 
 use crate::agent::{
-    build_template_instruction, AgentStepResult, LlmClient, LlmProvider, PermissionManager,
+    build_template_instruction_ex, AgentStepResult, LlmClient, LlmProvider, PermissionManager,
 };
 use crate::constants::MIME_JSON;
 use crate::server::http::{
@@ -180,7 +180,12 @@ pub fn handle_agent_template<W: Write + Send + 'static>(
     let content = json_body.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).unwrap_or("note.adoc");
 
-    let instruction = build_template_instruction(template_id, "", Some(context_filename), Some(content));
+    // Import-specific optional parameters
+    let import_title = json_body.get("target_title").and_then(|v| v.as_str());
+    let import_mode = json_body.get("mode").and_then(|v| v.as_str());
+    let import_custom = json_body.get("custom_instruction").and_then(|v| v.as_str());
+
+    let instruction = build_template_instruction_ex(template_id, "", Some(context_filename), Some(content), import_title, import_mode, import_custom);
 
     send_sse_header(&mut stream, cors_origin);
     let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());

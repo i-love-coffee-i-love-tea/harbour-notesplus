@@ -642,6 +642,13 @@ createApp({
       system_prompt: ''
     });
 
+    // Import Assistant State
+    const aiTab = ref('chat'); // 'chat' or 'import'
+    const importSourceText = ref('');
+    const importTitle = ref('');
+    const importMode = ref('convert_full');
+    const importCustomInstruction = ref('');
+
     const isCurrentModelInList = computed(() => {
       if (!aiConfig.value.model) return false;
       return availableModels.value.some(m => m.id === aiConfig.value.model || m.name === aiConfig.value.model);
@@ -1343,6 +1350,68 @@ createApp({
       await sendUserPrompt(prompt);
     }
 
+    // Import External Text as Note
+    async function importText() {
+      if (isAiBusy.value || !importSourceText.value.trim()) return;
+      openAiDrawer.value = true;
+      isAiBusy.value = true;
+      isAiStreaming.value = true;
+      streamingText.value = '';
+      aiError.value = '';
+
+      const userMsg = `Import: ${importSourceText.value.substring(0, 80)}${importSourceText.value.length > 80 ? '...' : ''}`;
+      messages.value.push({ role: 'user', content: userMsg });
+
+      try {
+        const response = await fetch('/api/ai/template', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            template_id: 'import_convert',
+            content: importSourceText.value,
+            context_filename: importTitle.value ? importTitle.value.replace(/\s+/g, '-').toLowerCase() + '.adoc' : 'imported-note.adoc',
+            target_title: importTitle.value || undefined,
+            mode: importMode.value,
+            custom_instruction: importCustomInstruction.value || undefined
+          })
+        });
+
+        if (!response.ok) {
+          markPhoneUnreachable(new Error(`HTTP ${response.status}`));
+          throw new Error(`HTTP ${response.status}`);
+        }
+        markPhoneReachable();
+
+        let fullAnswer = '';
+
+        await consumeSseStream(
+          response,
+          (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
+          (payload) => {
+            if (payload.type === 'finished') {
+              canUndo.value = payload.can_undo || false;
+              if (payload.last_created_note) loadNotesList();
+            } else if (payload.type === 'pending_confirmation') {
+              pendingAction.value = payload.action;
+            } else if (payload.type === 'error') {
+              aiError.value = payload.error;
+            }
+          }
+        );
+
+        if (fullAnswer) messages.value.push({ role: 'assistant', content: fullAnswer });
+        await loadNotesList();
+        importSourceText.value = '';
+      } catch (err) {
+        aiError.value = `Import Error: ${err.message}`;
+      } finally {
+        isAiBusy.value = false;
+        isAiStreaming.value = false;
+        streamingText.value = '';
+        scrollChatToBottom();
+      }
+    }
+
     // Confirm or Deny Pending Tool Call
     async function confirmAction(approved) {
       if (isAiBusy.value) return;
@@ -1859,6 +1928,12 @@ createApp({
       triggerTemplate,
       confirmAction,
       undoLastAiAction,
+      aiTab,
+      importSourceText,
+      importTitle,
+      importMode,
+      importCustomInstruction,
+      importText,
       insertPrefix,
       wrapSelection,
       insertInPlacePrefix,

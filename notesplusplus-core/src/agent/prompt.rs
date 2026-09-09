@@ -104,6 +104,19 @@ pub fn build_template_instruction(
     active_filename: Option<&str>,
     active_content: Option<&str>,
 ) -> String {
+    build_template_instruction_ex(template_id, user_input, active_filename, active_content, None, None, None)
+}
+
+/// Extended version that accepts optional import parameters.
+pub fn build_template_instruction_ex(
+    template_id: &str,
+    user_input: &str,
+    active_filename: Option<&str>,
+    active_content: Option<&str>,
+    import_title: Option<&str>,
+    import_mode: Option<&str>,
+    import_custom: Option<&str>,
+) -> String {
     let has_input = !user_input.trim().is_empty();
     let base_content = if has_input {
         user_input.trim()
@@ -173,7 +186,8 @@ pub fn build_template_instruction(
             )
         }
         "import_convert" => {
-            build_import_instruction(base_content, None, "convert_full", None)
+            let mode = import_mode.unwrap_or("convert_full");
+            build_import_instruction(base_content, import_title, mode, import_custom)
         }
         _ => {
             if base_content.is_empty() {
