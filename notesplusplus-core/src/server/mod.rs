@@ -1375,4 +1375,159 @@ mod tests {
         assert!(STYLE_CSS.contains("@media (max-width: 860px)"));
         assert!(STYLE_CSS.contains("@media (max-width: 640px)"));
     }
+
+    #[test]
+    fn test_import_from_url_and_file_web_assets() {
+        use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+
+        // 1. Verify index.html contains import actions, URL inputs, server file path inputs, and file picker
+        assert!(INDEX_HTML.contains("Fetch URL"));
+        assert!(INDEX_HTML.contains("Choose File"));
+        assert!(INDEX_HTML.contains("toggleUrlInput"));
+        assert!(INDEX_HTML.contains("triggerFilePicker"));
+        assert!(INDEX_HTML.contains("toggleFileInput"));
+        assert!(INDEX_HTML.contains("fetchUrlContent"));
+        assert!(INDEX_HTML.contains("loadServerFile"));
+        assert!(INDEX_HTML.contains("pasteClipboard"));
+        assert!(INDEX_HTML.contains("fileInputRef"));
+        assert!(INDEX_HTML.contains("showUrlInput"));
+        assert!(INDEX_HTML.contains("showFileInput"));
+        assert!(INDEX_HTML.contains("isDraggingFile"));
+        assert!(INDEX_HTML.contains("import-textarea-wrapper"));
+
+        // 2. Verify app.js defines handlers, state, and API routes
+        assert!(APP_JS.contains("importUrl"));
+        assert!(APP_JS.contains("showUrlInput"));
+        assert!(APP_JS.contains("isFetchingUrl"));
+        assert!(APP_JS.contains("fetchUrlContent"));
+        assert!(APP_JS.contains("onFileSelect"));
+        assert!(APP_JS.contains("onFileDrop"));
+        assert!(APP_JS.contains("loadServerFile"));
+        assert!(APP_JS.contains("pasteClipboard"));
+        assert!(APP_JS.contains("fetchNotesList"));
+        assert!(!APP_JS.contains("loadNotesList"));
+        assert!(APP_JS.contains("/api/ai/fetch_url"));
+        assert!(APP_JS.contains("/api/ai/read_file"));
+
+        // 3. Verify style.css contains import source action and dropzone classes
+        assert!(STYLE_CSS.contains(".import-source-header"));
+        assert!(STYLE_CSS.contains(".import-source-actions"));
+        assert!(STYLE_CSS.contains(".btn-import-source"));
+        assert!(STYLE_CSS.contains(".import-input-card"));
+        assert!(STYLE_CSS.contains(".import-textarea-wrapper"));
+        assert!(STYLE_CSS.contains(".drag-drop-overlay"));
+    }
+
+    #[test]
+    fn test_fetch_url_and_read_file_endpoints() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let notes_subdir = notes_dir.join("notes");
+        let db_path = tmp.path().join("test_import_endpoints.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_subdir).unwrap();
+
+        fs::write(notes_subdir.join("imported-sample.adoc"), "= Sample Imported Note\nThis is a test note for import.").unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18995,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // 1. Initiate challenge
+        let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .call()
+            .unwrap();
+        let init_json: serde_json::Value = init_res.into_json().unwrap();
+        let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
+
+        // 2. Approve challenge
+        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
+            .unwrap();
+        assert_eq!(approve_res.status(), 200);
+
+        // 3. Poll status for session
+        let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+            .call()
+            .unwrap();
+        let set_cookie_hdr = status_res.header("Set-Cookie").unwrap().to_string();
+
+        // 4. Test POST /api/ai/fetch_url with blocked host (localhost)
+        let blocked_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/fetch_url", port))
+            .set("Cookie", &set_cookie_hdr)
+            .set("Content-Type", "application/json")
+            .send_string(r#"{"url": "http://127.0.0.1:8080/test"}"#);
+        match blocked_res {
+            Ok(resp) => {
+                let json: serde_json::Value = resp.into_json().unwrap();
+                assert_eq!(json["ok"], false);
+            }
+            Err(ureq::Error::Status(code, resp)) => {
+                assert_eq!(code, 400);
+                let json: serde_json::Value = resp.into_json().unwrap();
+                assert_eq!(json["ok"], false);
+                assert!(json["error"].as_str().unwrap().contains("blocked"));
+            }
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // 5. Test POST /api/ai/fetch_url with missing URL parameter
+        let empty_url_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/fetch_url", port))
+            .set("Cookie", &set_cookie_hdr)
+            .set("Content-Type", "application/json")
+            .send_string(r#"{"url": ""}"#);
+        match empty_url_res {
+            Ok(resp) => panic!("Expected 400, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 400),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // 6. Test POST /api/ai/read_file with directory traversal (should be forbidden)
+        let traversal_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/read_file", port))
+            .set("Cookie", &set_cookie_hdr)
+            .set("Content-Type", "application/json")
+            .send_string(r#"{"file_path": "../../etc/passwd"}"#);
+        match traversal_res {
+            Ok(resp) => panic!("Expected 403, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 403),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // 7. Test POST /api/ai/read_file with valid file within notes directory
+        let file_path = notes_subdir.join("imported-sample.adoc").to_str().unwrap().to_string();
+        let valid_file_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/read_file", port))
+            .set("Cookie", &set_cookie_hdr)
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"file_path": "{}"}}"#, file_path))
+            .unwrap();
+        assert_eq!(valid_file_res.status(), 200);
+        let valid_json: serde_json::Value = valid_file_res.into_json().unwrap();
+        assert_eq!(valid_json["ok"], true);
+        assert!(valid_json["content"].as_str().unwrap().contains("Sample Imported Note"));
+
+        // 8. Test POST /api/ai/preprocess_html
+        let raw_html = "<html><head><script>alert(1);</script><style>body{color:red;}</style></head><body><h1>Web Title</h1><p>Paragraph with <b>bold</b> text.</p></body></html>";
+        let preprocess_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/preprocess_html", port))
+            .set("Cookie", &set_cookie_hdr)
+            .set("Content-Type", "application/json")
+            .send_string(&serde_json::to_string(&serde_json::json!({ "html": raw_html })).unwrap())
+            .unwrap();
+        assert_eq!(preprocess_res.status(), 200);
+        let prep_json: serde_json::Value = preprocess_res.into_json().unwrap();
+        assert_eq!(prep_json["ok"], true);
+        let content = prep_json["content"].as_str().unwrap();
+        assert!(content.contains("# Web Title"));
+        assert!(content.contains("Paragraph with **bold** text."));
+        assert!(!content.contains("alert(1)"));
+        assert!(!content.contains("body{color:red;}"));
+
+        server_handle.stop();
+    }
 }

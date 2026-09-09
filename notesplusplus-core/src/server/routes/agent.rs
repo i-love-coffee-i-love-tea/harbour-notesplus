@@ -1,10 +1,11 @@
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 
 use crate::agent::{
-    build_template_instruction_ex, AgentStepResult, LlmClient, LlmProvider, PermissionManager,
+    build_template_instruction_ex, fetch_url, AgentStepResult, LlmClient, LlmProvider, PermissionManager,
 };
 use crate::constants::MIME_JSON;
 use crate::server::http::{
@@ -312,6 +313,105 @@ pub fn handle_agent_undo<W: Write>(
         Err(err) => {
             let resp = json!({ "ok": false, "error": err, "can_undo": session_guard.can_undo() });
             send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        }
+    }
+}
+
+pub fn handle_fetch_url<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    cors_origin: &str,
+) {
+    let body_str = String::from_utf8_lossy(&req.body);
+    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let url = json_body.get("url").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if url.is_empty() {
+        let resp = json!({ "ok": false, "error": "URL parameter is required" });
+        send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        return;
+    }
+
+    match fetch_url(url) {
+        Ok(content) => {
+            let resp = json!({ "ok": true, "content": content });
+            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        }
+        Err(err) => {
+            let resp = json!({ "ok": false, "error": err });
+            send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        }
+    }
+}
+
+pub fn handle_preprocess_html<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    cors_origin: &str,
+) {
+    let body_str = String::from_utf8_lossy(&req.body);
+    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let html = json_body.get("html").and_then(|v| v.as_str()).unwrap_or("");
+    let processed = crate::html::preprocess_html(html);
+    let resp = json!({ "ok": true, "content": processed });
+    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+}
+
+pub fn handle_read_file<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    let body_str = String::from_utf8_lossy(&req.body);
+    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let file_path = json_body.get("file_path").and_then(|v| v.as_str()).unwrap_or("").trim();
+    if file_path.is_empty() {
+        let resp = json!({ "ok": false, "error": "file_path parameter is required" });
+        send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        return;
+    }
+    if file_path.contains("..") {
+        let resp = json!({ "ok": false, "error": "Path traversal ('..') is not allowed" });
+        send_response(stream, 403, "Forbidden", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        return;
+    }
+    let expanded = if file_path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            PathBuf::from(home).join(&file_path[2..])
+        } else {
+            PathBuf::from(file_path)
+        }
+    } else {
+        PathBuf::from(file_path)
+    };
+    let notes_subdir = ctx.notes_dir.join("notes");
+    let canonical = match expanded.canonicalize() {
+        Ok(c) => c,
+        Err(e) => {
+            let resp = json!({ "ok": false, "error": format!("Error resolving path: {}", e) });
+            send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+            return;
+        }
+    };
+    if !canonical.starts_with(&notes_subdir) {
+        let resp = json!({ "ok": false, "error": "Access denied: file is outside the notes directory" });
+        send_response(stream, 403, "Forbidden", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        return;
+    }
+    match fs::read_to_string(&canonical) {
+        Ok(content) => {
+            let is_html = canonical.extension().and_then(|e| e.to_str()).map(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm")).unwrap_or(false) || crate::html::preprocess::looks_like_html(&content);
+            let processed = if is_html {
+                crate::html::preprocess_html(&content)
+            } else {
+                content
+            };
+            let resp = json!({ "ok": true, "content": processed });
+            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        }
+        Err(e) => {
+            let resp = json!({ "ok": false, "error": format!("Error reading file: {}", e) });
+            send_response(stream, 500, "Internal Server Error", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
     }
 }

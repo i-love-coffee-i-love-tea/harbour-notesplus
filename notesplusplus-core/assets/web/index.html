@@ -594,7 +594,7 @@
       <div v-if="aiTab === 'import'" class="ai-import-panel">
         <div class="import-source-header">
           <svg class="import-section-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <span class="import-section-title">Source Content</span>
+          <span class="import-section-title">Import from</span>
           <div class="import-source-actions">
             <button type="button" class="btn-import-source" @click="toggleUrlInput" :class="{ active: showUrlInput }" title="Fetch text from web URL">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
@@ -704,9 +704,6 @@
           </div>
         </div>
 
-        <label class="import-label">Note Title (Optional):
-          <input v-model="importTitle" placeholder="Auto-detected if left empty" class="import-text-input">
-        </label>
         <label class="import-label">Conversion Mode:
           <select v-model="importMode" class="import-select">
             <option value="convert_full">Full Document (Complete AsciiDoc)</option>
@@ -714,11 +711,22 @@
             <option value="action_items">Extract Action Items / Checklists</option>
           </select>
         </label>
-        <label class="import-label">Custom Instructions (Optional):
-          <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" class="import-text-input">
-        </label>
-        <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-small-primary btn-import-submit">
-          <svg style="vertical-align: text-bottom; margin-right: 3px;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>{{ isAiBusy ? 'Converting...' : 'Convert & Import as Note' }}
+
+        <!-- Optional Settings (collapsible) -->
+        <details class="import-options-details">
+          <summary>More options</summary>
+          <label class="import-label">Note Title:
+            <input v-model="importTitle" placeholder="Auto-detected if left empty" class="import-text-input">
+          </label>
+          <label class="import-label">Custom Instructions:
+            <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" class="import-text-input">
+          </label>
+        </details>
+
+        <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-import-submit" :class="{ busy: isAiBusy }">
+          <svg v-if="!isAiBusy" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          <svg v-else class="spinner" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          {{ isAiBusy ? 'Converting & Importing...' : 'Convert & Import as Note' }}
         </button>
         <div v-if="aiError" class="chat-error-alert" style="margin-top: 8px;">
           {{ aiError }}

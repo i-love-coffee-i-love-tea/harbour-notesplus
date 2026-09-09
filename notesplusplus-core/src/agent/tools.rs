@@ -177,17 +177,31 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
     if is_blocked_host(&target) {
         return Err(format!("URL '{}' blocked: fetching localhost/private addresses is not allowed", target));
     }
-    match ureq::get(&target).timeout(std::time::Duration::from_secs(15)).call() {
+    match ureq::get(&target).timeout(std::time::Duration::from_secs(20)).call() {
         Ok(resp) => {
-            let text = resp.into_string().unwrap_or_default();
-            if text.len() > 15000 {
-                let mut end = 15000;
-                while end > 0 && !text.is_char_boundary(end) {
+            let content_type = resp.header("Content-Type").unwrap_or("").to_lowercase();
+            let raw_text = resp.into_string().unwrap_or_default();
+
+            let processed = if content_type.contains("html") || crate::html::preprocess::looks_like_html(&raw_text) {
+                crate::html::preprocess_html(&raw_text)
+            } else {
+                raw_text
+            };
+
+            const MAX_FETCH_CHARS: usize = 250_000;
+            if processed.len() > MAX_FETCH_CHARS {
+                let mut end = MAX_FETCH_CHARS;
+                while end > 0 && !processed.is_char_boundary(end) {
                     end -= 1;
                 }
-                Ok(format!("{}... [truncated]", &text[..end]))
+                if let Some(last_nl) = processed[..end].rfind('\n') {
+                    if last_nl > MAX_FETCH_CHARS - 5000 {
+                        end = last_nl;
+                    }
+                }
+                Ok(format!("{}\n\n... [Content truncated at {} characters]", &processed[..end], MAX_FETCH_CHARS))
             } else {
-                Ok(text)
+                Ok(processed)
             }
         }
         Err(e) => Err(format!("Failed to fetch URL '{}': {}", target, e)),

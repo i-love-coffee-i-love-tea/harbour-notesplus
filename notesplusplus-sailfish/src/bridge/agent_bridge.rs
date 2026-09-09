@@ -360,7 +360,14 @@ impl AgentBridge {
             return "Error: access denied — file is outside the notes directory".to_string();
         }
         match std::fs::read_to_string(&canonical) {
-            Ok(content) => content,
+            Ok(content) => {
+                let is_html = canonical.extension().and_then(|e| e.to_str()).map(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm")).unwrap_or(false) || notesplusplus_core::html::preprocess::looks_like_html(&content);
+                if is_html {
+                    notesplusplus_core::html::preprocess_html(&content)
+                } else {
+                    content
+                }
+            }
             Err(e) => format!("Error reading file: {}", e),
         }
     }

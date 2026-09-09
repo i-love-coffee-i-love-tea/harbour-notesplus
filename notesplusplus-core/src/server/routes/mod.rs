@@ -201,6 +201,21 @@ pub fn handle_http_client(mut stream: StreamWrapper, ctx: ServerContext) {
         return;
     }
 
+    if (clean_path == "api/ai/fetch_url" || clean_path == "api/agent/fetch_url" || clean_path == "api/fetch_url") && req.method == "POST" {
+        agent::handle_fetch_url(&mut stream, &req, &cors_origin);
+        return;
+    }
+
+    if (clean_path == "api/ai/preprocess_html" || clean_path == "api/agent/preprocess_html" || clean_path == "api/preprocess_html") && req.method == "POST" {
+        agent::handle_preprocess_html(&mut stream, &req, &cors_origin);
+        return;
+    }
+
+    if (clean_path == "api/ai/read_file" || clean_path == "api/agent/read_file" || clean_path == "api/read_file") && req.method == "POST" {
+        agent::handle_read_file(&mut stream, &req, &ctx, &cors_origin);
+        return;
+    }
+
     // 11. Page URLs
     if clean_path.starts_with("page/") || clean_path.starts_with("notes/") || clean_path.starts_with("edit/") {
         pages::handle_page_url(&mut stream, &req, clean_path, &ctx, &cors_origin);

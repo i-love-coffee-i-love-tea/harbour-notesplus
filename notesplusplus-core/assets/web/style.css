@@ -895,6 +895,7 @@ button:disabled {
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 500;
@@ -925,6 +926,60 @@ button:disabled {
   gap: 10px;
   border-bottom: 1px solid var(--border-color);
   font-size: 0.82rem;
+}
+.import-options-details {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.import-options-details summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 2px 0;
+}
+.import-options-details summary:hover {
+  color: var(--text-primary);
+}
+.import-options-details[open] summary {
+  margin-bottom: 4px;
+}
+.btn-import-submit {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  background-color: var(--accent, #4a9eff);
+  color: #fff;
+}
+.btn-import-submit:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.btn-import-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-import-submit.busy {
+  background-color: var(--text-secondary);
+}
+.btn-import-submit .spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .ai-import-panel label.import-label,
 .ai-import-panel label {
