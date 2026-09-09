@@ -159,10 +159,23 @@
             </div>
           </div>
 
+          <!-- Import External Text -->
+          <button type="button" @click="toggleAiDrawerImport" class="nav-group-item btn-group-action" title="Import External Text as Note">
+            <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <path d="M2 15h10"></path>
+              <path d="m9 12 3 3 3-3"></path>
+            </svg>
+            <span class="btn-label">Import</span>
+          </button>
+
           <!-- AI Assistant Drawer Toggle -->
           <button type="button" @click="toggleAiDrawer" class="nav-group-item btn-group-action btn-ai" :class="{ 'has-pending': pendingAction, 'is-open': openAiDrawer }" title="Toggle AI Assistant">
             <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+              <path d="M20 3v4"></path>
+              <path d="M22 5h-4"></path>
             </svg>
             <span class="btn-label">Assistant</span>
             <span v-if="pendingAction" class="pulse-dot"></span>
@@ -568,25 +581,132 @@
 
       <!-- Import Assistant Panel (Import tab only) -->
       <div v-if="aiTab === 'import'" class="ai-import-panel">
-        <label>Source Text:
-          <textarea v-model="importSourceText" placeholder="Paste external text, Markdown, notes, emails, transcripts, or articles here..." rows="6" style="width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit;"></textarea>
+        <div class="import-source-header">
+          <span class="import-section-title">Source Content</span>
+          <div class="import-source-actions">
+            <button type="button" class="btn-import-source" @click="toggleUrlInput" :class="{ active: showUrlInput }" title="Fetch text from web URL">
+              🌐 Fetch URL
+            </button>
+            <button type="button" class="btn-import-source" @click="triggerFilePicker" title="Choose local file (.txt, .md, .adoc, etc.)">
+              📁 Choose File
+            </button>
+            <button type="button" class="btn-import-source" @click="toggleFileInput" :class="{ active: showFileInput }" title="Load file path from server">
+              📄 Path
+            </button>
+            <button type="button" class="btn-import-source" @click="pasteClipboard" title="Paste from clipboard">
+              📋 Paste
+            </button>
+            <button v-if="importSourceText" type="button" class="btn-import-source btn-clear" @click="clearImportSource" title="Clear content">
+              🧹
+            </button>
+          </div>
+        </div>
+
+        <!-- Hidden Native File Input for Browser File Picker -->
+        <input 
+          type="file" 
+          ref="fileInputRef" 
+          @change="onFileSelect" 
+          accept=".txt,.md,.markdown,.adoc,.asciidoc,.html,.htm,.json,.rst,.csv,text/*" 
+          style="display: none;"
+        >
+
+        <!-- Expandable URL Input Section -->
+        <div v-if="showUrlInput" class="import-input-card">
+          <div class="import-input-card-header">
+            <strong>🌐 Fetch from URL</strong>
+            <button type="button" class="btn-close-mini" @click="showUrlInput = false">✕</button>
+          </div>
+          <div class="import-input-row">
+            <input 
+              v-model="importUrl" 
+              placeholder="https://example.com/article" 
+              @keydown.enter.prevent="fetchUrlContent"
+              :disabled="isFetchingUrl"
+              class="import-text-input"
+            >
+            <button 
+              type="button" 
+              @click="fetchUrlContent" 
+              :disabled="isFetchingUrl || !importUrl.trim()" 
+              class="btn-small-primary"
+            >
+              {{ isFetchingUrl ? '⏳ Fetching...' : 'Fetch' }}
+            </button>
+          </div>
+          <div v-if="urlFetchError" class="import-error-banner">
+            {{ urlFetchError }}
+          </div>
+        </div>
+
+        <!-- Expandable Server File Path Input Section -->
+        <div v-if="showFileInput" class="import-input-card">
+          <div class="import-input-card-header">
+            <strong>📄 Load Server File Path</strong>
+            <button type="button" class="btn-close-mini" @click="showFileInput = false">✕</button>
+          </div>
+          <div class="import-input-row">
+            <input 
+              v-model="importFilePath" 
+              placeholder="~/Documents/notes.txt or /path/to/notes.md" 
+              @keydown.enter.prevent="loadServerFile"
+              :disabled="isLoadingFile"
+              class="import-text-input"
+            >
+            <button 
+              type="button" 
+              @click="loadServerFile" 
+              :disabled="isLoadingFile || !importFilePath.trim()" 
+              class="btn-small-primary"
+            >
+              {{ isLoadingFile ? '⏳ Loading...' : 'Load' }}
+            </button>
+          </div>
+          <div v-if="fileFetchError" class="import-error-banner">
+            {{ fileFetchError }}
+          </div>
+        </div>
+
+        <!-- Source Textarea with Drag and Drop -->
+        <div 
+          class="import-textarea-wrapper"
+          :class="{ 'drag-over': isDraggingFile }"
+          @dragover.prevent="isDraggingFile = true"
+          @dragleave.prevent="isDraggingFile = false"
+          @drop.prevent="onFileDrop"
+        >
+          <label class="import-label">Source Text:
+            <textarea 
+              v-model="importSourceText" 
+              placeholder="Paste external text, Markdown, notes, emails, or drop a file here..." 
+              rows="6" 
+              class="import-textarea"
+            ></textarea>
+          </label>
+          <div v-if="isDraggingFile" class="drag-drop-overlay">
+            📂 Drop text or markdown file here to import
+          </div>
+        </div>
+
+        <label class="import-label">Note Title (Optional):
+          <input v-model="importTitle" placeholder="Auto-detected if left empty" class="import-text-input">
         </label>
-        <label>Note Title (Optional):
-          <input v-model="importTitle" placeholder="Auto-detected if left empty" style="width: 100%; box-sizing: border-box;">
-        </label>
-        <label>Conversion Mode:
-          <select v-model="importMode" style="width: 100%; box-sizing: border-box;">
+        <label class="import-label">Conversion Mode:
+          <select v-model="importMode" class="import-select">
             <option value="convert_full">Full Document (Complete AsciiDoc)</option>
             <option value="summarize">Summarize &amp; Structure</option>
             <option value="action_items">Extract Action Items / Checklists</option>
           </select>
         </label>
-        <label>Custom Instructions (Optional):
-          <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" style="width: 100%; box-sizing: border-box;">
+        <label class="import-label">Custom Instructions (Optional):
+          <input v-model="importCustomInstruction" placeholder="e.g. Add syntax highlighting, keep concise" class="import-text-input">
         </label>
-        <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-small-primary" style="width: 100%; margin-top: 8px;">
+        <button type="button" @click="importText" :disabled="isAiBusy || !importSourceText.trim()" class="btn-small-primary btn-import-submit">
           {{ isAiBusy ? '⏳ Converting...' : '🚀 Convert & Import as Note' }}
         </button>
+        <div v-if="aiError" class="chat-error-alert" style="margin-top: 8px;">
+          {{ aiError }}
+        </div>
       </div>
 
       <!-- Undo Banner if Snapshot available -->
@@ -687,6 +807,12 @@
           <button @click="createNote" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>
           <button @click="openNewNoteModal = false" class="btn-cancel">Cancel</button>
         </div>
+        <div class="modal-divider" style="margin: 14px 0 10px 0; border-top: 1px solid var(--border-color); text-align: center; position: relative;">
+          <span style="background: var(--bg-card); padding: 0 8px; font-size: 0.75rem; color: var(--text-muted); position: relative; top: -9px;">OR</span>
+        </div>
+        <button type="button" @click="openImportFromNewModal" class="btn-group-action" style="width: 100%; justify-content: center; padding: 7px 12px; font-size: 0.82rem;">
+          🌐 📁 Import from URL or File...
+        </button>
       </div>
     </div>
 
