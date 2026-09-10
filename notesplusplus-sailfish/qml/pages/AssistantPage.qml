@@ -61,7 +61,8 @@ Page {
                 app.aiAutoAllowRead !== undefined ? app.aiAutoAllowRead : true,
                 app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
                 app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true,
-                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false
+                app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false,
+                app.aiAllowFetchUrl !== undefined ? app.aiAllowFetchUrl : true
             )
         }
     }
@@ -168,6 +169,16 @@ Page {
             assistantPage.scrollToBottom()
         }
 
+        onFetch_completed: {
+            sourceTextArea.text = result
+            assistantPage.showUrlInput = false
+            assistantPage.showFileInput = false
+        }
+
+        onFetch_error: {
+            remorsePopup.execute(message, function() {})
+        }
+
         onUndo_completed: {
             bridge.load_main_page_data()
             remorsePopup.execute(message, function() {})
@@ -177,7 +188,7 @@ Page {
     Timer {
         id: pollTimer
         interval: 50
-        running: agentBridge.agent_busy
+        running: agentBridge.agent_busy || agentBridge.is_fetching
         repeat: true
         onTriggered: {
             agentBridge.poll_worker()
@@ -826,16 +837,10 @@ Page {
                             id: fetchBtn
                             text: qsTr("Fetch")
                             preferredWidth: Theme.buttonWidthExtraSmall
-                            enabled: urlField.text.trim().length > 0 && !agentBridge.agent_busy
+                            enabled: urlField.text.trim().length > 0 && !agentBridge.agent_busy && !agentBridge.is_fetching
                             anchors.verticalCenter: urlField.verticalCenter
                             onClicked: {
-                                var content = agentBridge.fetch_url_content(urlField.text)
-                                if (content.indexOf("Error") === 0) {
-                                    remorsePopup.execute(content, function() {})
-                                } else {
-                                    sourceTextArea.text = content
-                                    assistantPage.showUrlInput = false
-                                }
+                                agentBridge.fetch_url_content(urlField.text)
                             }
                         }
                     }
@@ -868,16 +873,10 @@ Page {
                             id: readFileBtn
                             text: qsTr("Load")
                             preferredWidth: Theme.buttonWidthExtraSmall
-                            enabled: filePathField.text.trim().length > 0 && !agentBridge.agent_busy
+                            enabled: filePathField.text.trim().length > 0 && !agentBridge.agent_busy && !agentBridge.is_fetching
                             anchors.verticalCenter: filePathField.verticalCenter
                             onClicked: {
-                                var content = agentBridge.read_local_file(filePathField.text)
-                                if (content.indexOf("Error") === 0) {
-                                    remorsePopup.execute(content, function() {})
-                                } else {
-                                    sourceTextArea.text = content
-                                    assistantPage.showFileInput = false
-                                }
+                                agentBridge.read_local_file(filePathField.text)
                             }
                         }
                     }

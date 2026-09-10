@@ -23,6 +23,12 @@ pub(super) struct PendingResult {
     pub error: Option<String>,
 }
 
+/// Result of background main-page preview computation.
+struct MainPageData {
+    /// Pre-built JSON strings for each recent page (one JSON object per page)
+    recent_page_jsons: Vec<String>,
+}
+
 /// QML bridge exposing Notes++ functionality to the UI.
 #[derive(QObject)]
 pub struct NotesBridge {
@@ -90,6 +96,7 @@ pub struct NotesBridge {
     set_drop_comments: qt_method!(fn(&mut self, drop: bool)),
     set_reject_public_networks: qt_method!(fn(&mut self, reject: bool)),
     load_main_page_data: qt_method!(fn(&mut self)),
+    poll_main_page_data: qt_method!(fn(&mut self) -> bool),
     poll_results: qt_method!(fn(&mut self) -> bool),
     export_html: qt_method!(fn(&mut self, page_name: String) -> String),
     export_all_html: qt_method!(fn(&mut self) -> String),
@@ -119,6 +126,7 @@ pub struct NotesBridge {
     pending: Arc<Mutex<Option<PendingResult>>>,
     search_result_slot: Arc<Mutex<Option<Result<Vec<search_bridge::SearchHit>, String>>>>,
     search_preview_slot: Arc<Mutex<Option<Vec<(String, String)>>>>,
+    pending_main_page: Arc<Mutex<Option<MainPageData>>>,
     server_handle: Option<notesplusplus_core::server::HttpServerHandle>,
     llm_config: notesplusplus_core::agent::LlmConfig,
     permission_config: notesplusplus_core::agent::PermissionConfig,
@@ -186,6 +194,7 @@ impl Default for NotesBridge {
             set_drop_comments: Default::default(),
             set_reject_public_networks: Default::default(),
             load_main_page_data: Default::default(),
+            poll_main_page_data: Default::default(),
             poll_results: Default::default(),
             export_html: Default::default(),
             export_all_html: Default::default(),
@@ -217,6 +226,7 @@ impl Default for NotesBridge {
             pending: Arc::new(Mutex::new(None)),
             search_result_slot: Arc::new(Mutex::new(None)),
             search_preview_slot: Arc::new(Mutex::new(None)),
+            pending_main_page: Arc::new(Mutex::new(None)),
             search_loading: false,
             current_search_filenames: Vec::new(),
             current_search_jsons: Vec::new(),
@@ -250,7 +260,7 @@ impl NotesBridge {
             let _ = std::fs::create_dir_all(&notes_path);
             let _ = std::fs::create_dir_all(&notes_subdir);
             let _ = std::fs::create_dir_all(data_dir.join("exports"));
-            eprintln!("[startup] dirs created in {:?}", t0.elapsed());
+            eprintln!("[debug] dirs created in {:?}", t0.elapsed());
 
             let db_path = data_dir.join(notesplusplus_core::constants::DB_FILENAME);
             match rusqlite::Connection::open(&db_path) {
@@ -260,17 +270,17 @@ impl NotesBridge {
                         let _ = tx.send(Err(format!("DB init error: {}", e)));
                         return;
                     }
-                    eprintln!("[startup] init_schema in {:?}", t.elapsed());
+                    eprintln!("[debug] init_schema in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
                     let _ = page::copy_examples(&conn, &notes_subdir, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"));
-                    eprintln!("[startup] copy_examples in {:?}", t.elapsed());
+                    eprintln!("[debug] copy_examples in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
                     let _ = page::sync_and_index_pages(&conn, &notes_subdir);
-                    eprintln!("[startup] sync_and_index_pages in {:?}", t.elapsed());
+                    eprintln!("[debug] sync_and_index_pages in {:?}", t.elapsed());
 
-                    eprintln!("[startup] background init total: {:?}", t0.elapsed());
+                    eprintln!("[debug] background init total: {:?}", t0.elapsed());
                     let _ = tx.send(Ok(conn));
                 }
                 Err(e) => {

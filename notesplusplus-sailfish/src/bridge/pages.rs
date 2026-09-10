@@ -3,6 +3,40 @@ use std::path::PathBuf;
 
 use notesplusplus_core::block::Block;
 use notesplusplus_core::constants::JOURNAL_FILENAME;
+
+/// Navigate to a block within `blocks[idx]` using a dot-separated `item_path`
+/// and toggle its checkbox state. Returns `true` if a checkbox was toggled.
+fn toggle_check_in_blocks(blocks: &mut [Block], idx: usize, item_path: &str) -> bool {
+    if idx >= blocks.len() { return false; }
+    let mut curr = Some(&mut blocks[idx]);
+    if !item_path.is_empty() {
+        for part in item_path.split('.') {
+            if let Ok(child_idx) = part.parse::<usize>() {
+                curr = match curr {
+                    Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                    Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                    _ => None,
+                };
+            } else {
+                return false;
+            }
+        }
+    }
+    if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
+        if let Some(c) = checked {
+            *checked = Some(!*c);
+            if raw.contains("[ ] ") {
+                *raw = raw.replacen("[ ] ", "[x] ", 1);
+            } else if raw.contains("[x] ") {
+                *raw = raw.replacen("[x] ", "[ ] ", 1);
+            } else if raw.contains("[X] ") {
+                *raw = raw.replacen("[X] ", "[ ] ", 1);
+            }
+            return true;
+        }
+    }
+    false
+}
 use notesplusplus_core::db;
 use notesplusplus_core::journal;
 use notesplusplus_core::page;
@@ -10,7 +44,7 @@ use notesplusplus_core::parser;
 use notesplusplus_core::search as search_mod;
 use notesplusplus_core::agent::DEFAULT_OLLAMA_ENDPOINT;
 
-use super::{NotesBridge, PendingResult};
+use super::{NotesBridge, MainPageData, PendingResult};
 
 impl NotesBridge {
     fn resolve_page_filename(&self, name_or_title: &str) -> String {
@@ -239,33 +273,7 @@ impl NotesBridge {
         let path = self.notes_path.join("notes").join(&filename);
 
         if idx < self.journal_blocks_data.len() {
-            let mut curr = Some(&mut self.journal_blocks_data[idx]);
-            if !item_path.is_empty() {
-                for part in item_path.split('.') {
-                    if let Ok(child_idx) = part.parse::<usize>() {
-                        curr = match curr {
-                            Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            _ => None,
-                        };
-                    } else {
-                        curr = None;
-                        break;
-                    }
-                }
-            }
-            if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
-                if let Some(c) = checked {
-                    *checked = Some(!*c);
-                    if raw.contains("[ ] ") {
-                        *raw = raw.replacen("[ ] ", "[x] ", 1);
-                    } else if raw.contains("[x] ") {
-                        *raw = raw.replacen("[x] ", "[ ] ", 1);
-                    } else if raw.contains("[X] ") {
-                        *raw = raw.replacen("[X] ", "[ ] ", 1);
-                    }
-                }
-            }
+            toggle_check_in_blocks(&mut self.journal_blocks_data, idx, &item_path);
         }
 
         let content = match std::fs::read_to_string(&path) {
@@ -274,43 +282,16 @@ impl NotesBridge {
         };
 
         let mut blocks = parser::parse_blocks(&content);
-        if idx < blocks.len() {
-            let mut curr = Some(&mut blocks[idx]);
-            if !item_path.is_empty() {
-                for part in item_path.split('.') {
-                    if let Ok(child_idx) = part.parse::<usize>() {
-                        curr = match curr {
-                            Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            _ => None,
-                        };
-                    } else {
-                        curr = None;
-                        break;
-                    }
+        if toggle_check_in_blocks(&mut blocks, idx, &item_path) {
+            let new_content = parser::blocks_to_adoc(&blocks);
+            let _ = std::fs::write(&path, &new_content);
+            if let Some(conn) = self.conn() {
+                if let Ok(Some(info)) = page::get_page(conn, &filename) {
+                    let _ = db::update_fts_content(conn, info.id, &new_content);
                 }
             }
-            if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
-                if let Some(c) = checked {
-                    *checked = Some(!*c);
-                    if raw.contains("[ ] ") {
-                        *raw = raw.replacen("[ ] ", "[x] ", 1);
-                    } else if raw.contains("[x] ") {
-                        *raw = raw.replacen("[x] ", "[ ] ", 1);
-                    } else if raw.contains("[X] ") {
-                        *raw = raw.replacen("[X] ", "[ ] ", 1);
-                    }
-                }
-                let new_content = parser::blocks_to_adoc(&blocks);
-                let _ = std::fs::write(&path, &new_content);
-                if let Some(conn) = self.conn() {
-                    if let Ok(Some(info)) = page::get_page(conn, &filename) {
-                        let _ = db::update_fts_content(conn, info.id, &new_content);
-                    }
-                }
-                self.page_saved();
-                self.load_main_page_data_impl();
-            }
+            self.page_saved();
+            self.load_main_page_data_impl();
         }
     }
 
@@ -392,35 +373,8 @@ impl NotesBridge {
         };
         let path = self.notes_path.join("notes").join(&filename);
 
-        // Update in-memory block data cache synchronously without resetting page model
         if idx < self.current_blocks_data.len() {
-            let mut curr = Some(&mut self.current_blocks_data[idx]);
-            if !item_path.is_empty() {
-                for part in item_path.split('.') {
-                    if let Ok(child_idx) = part.parse::<usize>() {
-                        curr = match curr {
-                            Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                            _ => None,
-                        };
-                    } else {
-                        curr = None;
-                        break;
-                    }
-                }
-            }
-            if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
-                if let Some(c) = checked {
-                    *checked = Some(!*c);
-                    if raw.contains("[ ] ") {
-                        *raw = raw.replacen("[ ] ", "[x] ", 1);
-                    } else if raw.contains("[x] ") {
-                        *raw = raw.replacen("[x] ", "[ ] ", 1);
-                    } else if raw.contains("[X] ") {
-                        *raw = raw.replacen("[X] ", "[ ] ", 1);
-                    }
-                }
-            }
+            toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
             self.current_blocks = Self::blocks_to_qvariantlist(&self.current_blocks_data);
         }
 
@@ -537,42 +491,9 @@ impl NotesBridge {
         if !self.poll_init() {
             return;
         }
-        eprintln!("[startup] init ready, starting data load at {:?}", t_start.elapsed());
-        let conn = match self.conn() {
-            Some(c) => c,
-            None => return,
-        };
+        eprintln!("[debug] init ready, starting data load at {:?}", t_start.elapsed());
 
-        let t = std::time::Instant::now();
-        match page::recent_pages(conn, 10) {
-            Ok(pages) => {
-                eprintln!("[startup] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
-                let mut list = QVariantList::default();
-                for p in &pages {
-                    let t_preview = std::time::Instant::now();
-                    let preview_values = page::get_page_preview_values_with_options(&self.notes_path.join("notes"), &p.filename, 8, self.drop_comments);
-                    let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
-                    eprintln!("[startup]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
-
-                    let mut map = serde_json::Map::new();
-                    map.insert("name".into(), serde_json::Value::String(p.title.clone()));
-                    map.insert("filename".into(), serde_json::Value::String(p.filename.clone()));
-                    map.insert("created_at".into(), serde_json::Value::String(p.created_at.clone()));
-                    map.insert("updated_at".into(), serde_json::Value::String(p.updated_at.clone()));
-                    map.insert("block_count".into(), serde_json::Value::Number(p.block_count.into()));
-                    map.insert("preview_blocks".into(), serde_json::Value::Array(preview_values));
-                    map.insert("preview_blocks_json".into(), serde_json::Value::String(preview_json_str));
-
-                    let json_str = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
-                    list.push(QString::from(json_str).into());
-                }
-                self.recent_pages = list;
-            }
-            Err(e) => {
-                eprintln!("[startup] Failed to load recent pages: {}", e);
-            }
-        }
-
+        // Journal data (fast, keep synchronous)
         let _ = journal::init_journal(&self.notes_path.join("notes"));
         self.journal_blocks = QVariantList::default();
         self.journal_blocks_data = Vec::new();
@@ -586,12 +507,91 @@ impl NotesBridge {
                 self.recent_journal_lines = list;
             }
             Err(e) => {
-                eprintln!("[startup] Failed to load journal lines: {}", e);
+                eprintln!("[debug] Failed to load journal lines: {}", e);
             }
         }
 
-        eprintln!("[startup] load_main_page_data total: {:?}", t_start.elapsed());
+        // Recent pages: fast DB query on main thread, then offload slow preview
+        // generation to a background thread.
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let t = std::time::Instant::now();
+        match page::recent_pages(conn, 10) {
+            Ok(pages) => {
+                eprintln!("[debug] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
+
+                let notes_dir = self.notes_path.join("notes");
+                let drop_comments = self.drop_comments;
+                let pending = self.pending_main_page.clone();
+
+                std::thread::spawn(move || {
+                    let mut page_jsons = Vec::new();
+                    for p in &pages {
+                        let t_preview = std::time::Instant::now();
+                        let preview_values = page::get_page_preview_values_with_options(&notes_dir, &p.filename, 8, drop_comments);
+                        let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
+                        eprintln!("[debug]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
+
+                        let mut map = serde_json::Map::new();
+                        map.insert("name".into(), serde_json::Value::String(p.title.clone()));
+                        map.insert("filename".into(), serde_json::Value::String(p.filename.clone()));
+                        map.insert("created_at".into(), serde_json::Value::String(p.created_at.clone()));
+                        map.insert("updated_at".into(), serde_json::Value::String(p.updated_at.clone()));
+                        map.insert("block_count".into(), serde_json::Value::Number(p.block_count.into()));
+                        map.insert("preview_blocks".into(), serde_json::Value::Array(preview_values));
+                        map.insert("preview_blocks_json".into(), serde_json::Value::String(preview_json_str));
+
+                        let json_str = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
+                        page_jsons.push(json_str);
+                    }
+
+                    if let Ok(mut slot) = pending.lock() {
+                        *slot = Some(MainPageData { recent_page_jsons: page_jsons });
+                    }
+                    eprintln!("[debug] background preview generation done");
+                });
+            }
+            Err(e) => {
+                eprintln!("[debug] Failed to load recent pages: {}", e);
+            }
+        }
+
+        eprintln!("[debug] load_main_page_data total: {:?}", t_start.elapsed());
         self.data_refreshed();
+    }
+
+    /// Poll for background main-page preview data. Returns true if data was
+    /// consumed and properties updated.
+    fn poll_main_page_data_impl(&mut self) -> bool {
+        let has_result = if let Ok(guard) = self.pending_main_page.lock() {
+            guard.is_some()
+        } else {
+            false
+        };
+
+        if !has_result {
+            return false;
+        }
+
+        let data = match self.pending_main_page.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(_) => return false,
+        };
+
+        if let Some(data) = data {
+            let mut list = QVariantList::default();
+            for json_str in data.recent_page_jsons {
+                list.push(QString::from(json_str).into());
+            }
+            self.recent_pages = list;
+            self.data_refreshed();
+            return true;
+        }
+
+        false
     }
 
     fn export_html_impl(&mut self, page_name: String) -> String {
@@ -1028,6 +1028,7 @@ impl NotesBridge {
     pub fn set_drop_comments(&mut self, drop: bool) { self.set_drop_comments_impl(drop); }
     pub fn set_reject_public_networks(&mut self, reject: bool) { self.set_reject_public_networks_impl(reject); }
     pub fn load_main_page_data(&mut self) { self.load_main_page_data_impl(); }
+    pub fn poll_main_page_data(&mut self) -> bool { self.poll_main_page_data_impl() }
     pub fn export_html(&mut self, page_name: String) -> String { self.export_html_impl(page_name) }
     pub fn export_all_html(&mut self) -> String { self.export_all_html_impl() }
     pub fn open_in_browser(&mut self, page_name: String) { self.open_in_browser_impl(page_name); }

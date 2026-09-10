@@ -40,6 +40,7 @@ pub struct AgentBridge {
     last_created_note: qt_property!(String; NOTIFY last_created_note_changed),
     error_message: qt_property!(String; NOTIFY error_occurred),
     streaming_text: qt_property!(String; NOTIFY streaming_text_changed),
+    is_fetching: qt_property!(bool; NOTIFY fetching_changed),
 
     // Configuration properties
     provider_type: qt_property!(String; NOTIFY config_changed),
@@ -65,6 +66,9 @@ pub struct AgentBridge {
     response_finished: qt_signal!(content: String),
     undo_completed: qt_signal!(message: String),
     streaming_text_changed: qt_signal!(),
+    fetching_changed: qt_signal!(),
+    fetch_completed: qt_signal!(result: String),
+    fetch_error: qt_signal!(message: String),
     models_changed: qt_signal!(),
 
     // Methods
@@ -73,8 +77,8 @@ pub struct AgentBridge {
     send_prompt: qt_method!(fn(&mut self, text: String)),
     run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_filename: String, context_content: String)),
     import_text: qt_method!(fn(&mut self, source_text: String, target_title: String, mode: String, custom_instruction: String)),
-    fetch_url_content: qt_method!(fn(&mut self, url: String) -> String),
-    read_local_file: qt_method!(fn(&mut self, file_path: String) -> String),
+    fetch_url_content: qt_method!(fn(&mut self, url: String)),
+    read_local_file: qt_method!(fn(&mut self, file_path: String)),
     confirm_action: qt_method!(fn(&mut self, approved: bool)),
     undo_last_action: qt_method!(fn(&mut self)),
     poll_worker: qt_method!(fn(&mut self) -> bool),
@@ -87,6 +91,7 @@ pub struct AgentBridge {
     worker_result: Arc<Mutex<Option<WorkerOutput>>>,
     streaming_buffer: Arc<Mutex<String>>,
     models_result: Arc<Mutex<Option<Result<Vec<ModelInfo>, String>>>>,
+    fetch_worker_result: Arc<Mutex<Option<Result<String, String>>>>,
 }
 
 impl Default for AgentBridge {
@@ -128,6 +133,7 @@ impl Default for AgentBridge {
             last_created_note: String::new(),
             error_message: String::new(),
             streaming_text: String::new(),
+            is_fetching: false,
             available_models: String::new(),
             models_loading: false,
             provider_type: "ollama".to_string(),
@@ -150,6 +156,9 @@ impl Default for AgentBridge {
             response_finished: Default::default(),
             undo_completed: Default::default(),
             streaming_text_changed: Default::default(),
+            fetching_changed: Default::default(),
+            fetch_completed: Default::default(),
+            fetch_error: Default::default(),
             models_changed: Default::default(),
             configure: Default::default(),
             reset_session: Default::default(),
@@ -167,6 +176,7 @@ impl Default for AgentBridge {
             worker_result: Arc::new(Mutex::new(None)),
             streaming_buffer: Arc::new(Mutex::new(String::new())),
             models_result: Arc::new(Mutex::new(None)),
+            fetch_worker_result: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -326,50 +336,88 @@ impl AgentBridge {
         self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
     }
 
-    pub fn fetch_url_content(&mut self, url: String) -> String {
-        match fetch_url(&url) {
-            Ok(text) => text,
-            Err(e) => format!("Error fetching URL: {}", e),
+    pub fn fetch_url_content(&mut self, url: String) {
+        if self.is_fetching {
+            return;
         }
+        self.is_fetching = true;
+        self.fetching_changed();
+
+        if let Ok(mut r) = self.fetch_worker_result.lock() {
+            *r = None;
+        }
+
+        let result_arc = Arc::clone(&self.fetch_worker_result);
+        thread::spawn(move || {
+            let result = fetch_url(&url).map_err(|e| format!("Error fetching URL: {}", e));
+            if let Ok(mut guard) = result_arc.lock() {
+                *guard = Some(result);
+            }
+        });
     }
 
-    pub fn read_local_file(&mut self, file_path: String) -> String {
-        let p = file_path.trim();
+    pub fn read_local_file(&mut self, file_path: String) {
+        let p = file_path.trim().to_string();
         if p.is_empty() {
-            return String::new();
+            return;
         }
         if p.contains("..") {
-            return "Error: path traversal ('..') is not allowed".to_string();
+            self.fetch_error("Error: path traversal ('..') is not allowed".to_string());
+            return;
         }
-        let expanded = if p.starts_with("~/") {
-            if let Ok(home) = std::env::var("HOME") {
-                PathBuf::from(home).join(&p[2..])
-            } else {
-                PathBuf::from(p)
-            }
-        } else {
-            PathBuf::from(p)
-        };
-        let notes_dir = notesplusplus_core::paths::AppPaths::new().notes_dir;
-        let notes_subdir = notes_dir.join("notes");
-        let canonical = match expanded.canonicalize() {
-            Ok(c) => c,
-            Err(e) => return format!("Error resolving path: {}", e),
-        };
-        if !canonical.starts_with(&notes_subdir) {
-            return "Error: access denied — file is outside the notes directory".to_string();
+        if self.is_fetching {
+            return;
         }
-        match std::fs::read_to_string(&canonical) {
-            Ok(content) => {
-                let is_html = canonical.extension().and_then(|e| e.to_str()).map(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm")).unwrap_or(false) || notesplusplus_core::html::preprocess::looks_like_html(&content);
-                if is_html {
-                    notesplusplus_core::html::preprocess_html(&content)
+        self.is_fetching = true;
+        self.fetching_changed();
+
+        if let Ok(mut r) = self.fetch_worker_result.lock() {
+            *r = None;
+        }
+
+        let result_arc = Arc::clone(&self.fetch_worker_result);
+        thread::spawn(move || {
+            let expanded = if p.starts_with("~/") {
+                if let Ok(home) = std::env::var("HOME") {
+                    PathBuf::from(home).join(&p[2..])
                 } else {
-                    content
+                    PathBuf::from(&p)
                 }
+            } else {
+                PathBuf::from(&p)
+            };
+            let notes_dir = notesplusplus_core::paths::AppPaths::new().notes_dir;
+            let notes_subdir = notes_dir.join("notes");
+            let canonical = match expanded.canonicalize() {
+                Ok(c) => c,
+                Err(e) => {
+                    if let Ok(mut guard) = result_arc.lock() {
+                        *guard = Some(Err(format!("Error resolving path: {}", e)));
+                    }
+                    return;
+                }
+            };
+            if !canonical.starts_with(&notes_subdir) {
+                if let Ok(mut guard) = result_arc.lock() {
+                    *guard = Some(Err("Error: access denied — file is outside the notes directory".to_string()));
+                }
+                return;
             }
-            Err(e) => format!("Error reading file: {}", e),
-        }
+            let result = match std::fs::read_to_string(&canonical) {
+                Ok(content) => {
+                    let is_html = canonical.extension().and_then(|e| e.to_str()).map(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm")).unwrap_or(false) || notesplusplus_core::html::preprocess::looks_like_html(&content);
+                    if is_html {
+                        Ok(notesplusplus_core::html::preprocess_html(&content))
+                    } else {
+                        Ok(content)
+                    }
+                }
+                Err(e) => Err(format!("Error reading file: {}", e)),
+            };
+            if let Ok(mut guard) = result_arc.lock() {
+                *guard = Some(result);
+            }
+        });
     }
 
     pub fn confirm_action(&mut self, approved: bool) {
@@ -491,6 +539,21 @@ impl AgentBridge {
 
     /// Polled by QML Timer while busy. Returns true when worker has finished.
     pub fn poll_worker(&mut self) -> bool {
+        // Poll fetch_worker_result (independent of agent_busy)
+        if self.is_fetching {
+            if let Ok(mut guard) = self.fetch_worker_result.lock() {
+                if let Some(result) = guard.take() {
+                    self.is_fetching = false;
+                    self.fetching_changed();
+                    match result {
+                        Ok(content) => self.fetch_completed(content),
+                        Err(msg) => self.fetch_error(msg),
+                    }
+                    return true;
+                }
+            }
+        }
+
         if !self.agent_busy {
             return false;
         }
@@ -504,7 +567,14 @@ impl AgentBridge {
 
         let output_opt = match self.worker_result.lock() {
             Ok(mut r) => r.take(),
-            Err(_) => None,
+            Err(e) => {
+                eprintln!("[debug:agent] worker_result lock poisoned: {}", e);
+                self.agent_busy = false;
+                self.busy_changed();
+                self.error_message = format!("Internal error: {}", e);
+                self.error_occurred(self.error_message.clone());
+                return false;
+            }
         };
 
         if let Some(output) = output_opt {

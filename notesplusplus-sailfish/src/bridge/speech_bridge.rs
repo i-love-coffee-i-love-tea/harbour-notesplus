@@ -327,7 +327,7 @@ impl SpeechBridge {
         };
         if trimmed_path.is_empty() {
             let err = "Audio path is empty".to_string();
-            eprintln!("[STT] begin_transcription: {}", err);
+            eprintln!("[debug:stt] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
             self.is_transcribing = false;
@@ -338,7 +338,7 @@ impl SpeechBridge {
         let audio_path = PathBuf::from(trimmed_path);
         if !audio_path.is_file() {
             let err = format!("Audio file not found: {}", trimmed_path);
-            eprintln!("[STT] begin_transcription: {}", err);
+            eprintln!("[debug:stt] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
             self.is_transcribing = false;
@@ -360,7 +360,7 @@ impl SpeechBridge {
                 None => {
                     let err =
                         "No speech model installed. Please download a model first.".to_string();
-                    eprintln!("[STT] begin_transcription: {}", err);
+                    eprintln!("[debug:stt] begin_transcription: {}", err);
                     self.error_message = err.clone();
                     self.error_occurred(err);
                     self.is_transcribing = false;
@@ -376,7 +376,7 @@ impl SpeechBridge {
                 "Model file for '{}' not found on disk. Please re-download the model.",
                 model_id
             );
-            eprintln!("[STT] begin_transcription: {}", err);
+            eprintln!("[debug:stt] begin_transcription: {}", err);
             self.error_message = err.clone();
             self.error_occurred(err);
             self.is_transcribing = false;
@@ -494,7 +494,7 @@ impl SpeechBridge {
                         .replace("[MUSIC]", "")
                         .trim()
                         .to_string();
-                    eprintln!("[STT] Transcription completed: '{}' (cleaned: '{}')", text, cleaned);
+                    eprintln!("[debug:stt] Transcription completed: '{}' (cleaned: '{}')", text, cleaned);
                     if cleaned.is_empty() {
                         // whisper returned only a placeholder — treat as no speech
                         self.last_transcription = String::new();
@@ -591,14 +591,14 @@ impl SpeechBridge {
     }
 
     pub fn stop_recording_and_transcribe(&mut self) {
-        eprintln!("[STT] stop_recording_and_transcribe called");
+        eprintln!("[debug:stt] stop_recording_and_transcribe called");
         // Set transcribing flag before stopping recording so the poll timer
         // never sees both is_recording and is_transcribing as false.
         self.is_transcribing = true;
         self.error_message = String::new();
         self.transcribing_changed();
         let path = self.stop_recording();
-        eprintln!("[STT] stop_recording returned path: '{}'", path);
+        eprintln!("[debug:stt] stop_recording returned path: '{}'", path);
         if path.is_empty() {
             self.is_transcribing = false;
             self.transcribing_changed();

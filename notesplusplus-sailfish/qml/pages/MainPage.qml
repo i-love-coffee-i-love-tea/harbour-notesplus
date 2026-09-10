@@ -13,6 +13,16 @@ Page {
     }
 
     Timer {
+        id: mainPageDataPoll
+        interval: 50
+        running: mainPage.status === PageStatus.Active
+        repeat: true
+        onTriggered: {
+            bridge.poll_main_page_data()
+        }
+    }
+
+    Timer {
         id: searchPoll
         interval: 100
         repeat: true

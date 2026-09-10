@@ -521,7 +521,7 @@ Page {
                     Slider {
                         width: parent.width
                         minimumValue: 15
-                        maximumValue: 300
+                        maximumValue: 1200
                         stepSize: 15
                         value: (typeof app !== "undefined" && app && app.aiTimeout !== undefined) ? app.aiTimeout : 90
                         label: qsTr("Request Timeout")
