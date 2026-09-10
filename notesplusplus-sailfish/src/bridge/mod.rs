@@ -133,6 +133,7 @@ pub struct NotesBridge {
     auth_config: notesplusplus_core::server::auth::AuthConfig,
     conn_receiver: Option<mpsc::Receiver<Result<rusqlite::Connection, String>>>,
     pending_theme_colors: std::collections::HashMap<String, String>,
+    qt_theme: notesplusplus_core::html::qt_html::QtThemeColors,
 }
 
 impl Default for NotesBridge {
@@ -236,6 +237,7 @@ impl Default for NotesBridge {
             auth_config: notesplusplus_core::server::auth::AuthConfig::default(),
             conn_receiver: None,
             pending_theme_colors: std::collections::HashMap::new(),
+            qt_theme: notesplusplus_core::html::qt_html::QtThemeColors::default(),
         }
     }
 }
@@ -345,6 +347,59 @@ impl NotesBridge {
                 if let serde_json::Value::Object(ref mut map) = json {
                     map.insert("headings".into(), serde_json::Value::Array(headings_vec.clone()));
                 }
+            }
+            let qv = QString::from(serde_json::to_string(&json).unwrap_or_default());
+            list.push(qv.into());
+        }
+        list
+    }
+
+    /// Like `blocks_to_qvariantlist` but adds a pre-rendered `"html"` field to each block
+    /// that has a Rust-side HTML representation. Blocks without HTML (Code, Image, Toc, etc.)
+    /// are passed through unchanged — QML delegates fall back to JS rendering for those.
+    pub(super) fn blocks_to_qvariantlist_with_html(
+        blocks: &[Block],
+        theme: &notesplusplus_core::html::qt_html::QtThemeColors,
+        options: &notesplusplus_core::html::qt_html::QtRenderOptions,
+    ) -> QVariantList {
+        let mut headings_vec = Vec::new();
+        for (idx, block) in blocks.iter().enumerate() {
+            if let Block::Heading { level, spans, .. } = block {
+                if *level >= 1 && *level <= 5 {
+                    let text = spans.iter().map(|s| s.plain_text()).collect::<Vec<_>>().join("");
+                    let mut h_map = serde_json::Map::new();
+                    h_map.insert("level".into(), serde_json::Value::Number((*level).into()));
+                    h_map.insert("text".into(), serde_json::Value::String(text));
+                    h_map.insert("index".into(), serde_json::Value::Number(idx.into()));
+                    headings_vec.push(serde_json::Value::Object(h_map));
+                }
+            }
+        }
+
+        let mut list = QVariantList::default();
+        for (idx, block) in blocks.iter().enumerate() {
+            let mut json = block.to_qvariant_map();
+            if let Block::Toc { .. } = block {
+                if let serde_json::Value::Object(ref mut map) = json {
+                    map.insert("headings".into(), serde_json::Value::Array(headings_vec.clone()));
+                }
+            }
+            // Add pre-rendered HTML for blocks that the Rust renderer handles
+            match block {
+                Block::Heading { .. } | Block::Paragraph { .. } |
+                Block::OrderedListItem { .. } | Block::UnorderedListItem { .. } |
+                Block::DescriptionListItem { .. } | Block::CalloutListItem { .. } |
+                Block::CodeBlock { .. } | Block::LiteralBlock { .. } |
+                Block::Blockquote { .. } | Block::Verse { .. } |
+                Block::Admonition { .. } | Block::Sidebar { .. } |
+                Block::Example { .. } | Block::Open { .. } |
+                Block::Table { .. } | Block::Image { .. } => {
+                    let html = notesplusplus_core::html::qt_html::render_qt_block(block, idx, theme, options);
+                    if let serde_json::Value::Object(ref mut map) = json {
+                        map.insert("html".into(), serde_json::Value::String(html));
+                    }
+                }
+                _ => {}
             }
             let qv = QString::from(serde_json::to_string(&json).unwrap_or_default());
             list.push(qv.into());

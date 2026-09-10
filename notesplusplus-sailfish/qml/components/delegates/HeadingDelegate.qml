@@ -7,6 +7,7 @@ InlineText {
     property var blockData: ({})
     property int level: (blockData && blockData.level) ? blockData.level : 1
 
+    preRenderedHtml: (blockData && blockData.html) ? blockData.html : ""
     spans: (blockData && blockData.spans) ? blockData.spans : []
     color: Theme.highlightColor
     font.family: app.resolvedFontFamily()

@@ -21,7 +21,12 @@ impl NotesBridge {
             }
 
             if let Some(blocks) = result.blocks {
-                self.current_blocks = Self::blocks_to_qvariantlist(&blocks);
+                let options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                    notes_dir: Some(self.notes_path.to_string_lossy().to_string()),
+                    allow_external_images: true,
+                    search_terms: Vec::new(),
+                };
+                self.current_blocks = Self::blocks_to_qvariantlist_with_html(&blocks, &self.qt_theme, &options);
                 self.current_blocks_data = blocks;
                 self.blocks_version += 1;
                 self.page_changed();

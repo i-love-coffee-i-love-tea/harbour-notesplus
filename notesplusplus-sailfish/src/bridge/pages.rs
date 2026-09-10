@@ -368,7 +368,12 @@ impl NotesBridge {
 
         if idx < self.current_blocks_data.len() {
             toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
-            self.current_blocks = Self::blocks_to_qvariantlist(&self.current_blocks_data);
+            let options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                notes_dir: Some(self.notes_path.to_string_lossy().to_string()),
+                allow_external_images: true,
+                search_terms: Vec::new(),
+            };
+            self.current_blocks = Self::blocks_to_qvariantlist_with_html(&self.current_blocks_data, &self.qt_theme, &options);
         }
 
         let content = match std::fs::read_to_string(&path) {
@@ -782,6 +787,7 @@ impl NotesBridge {
 
     fn set_theme_impl(&mut self, colors_json: String) {
         if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&colors_json) {
+            self.qt_theme = notesplusplus_core::html::qt_html::QtThemeColors::from_map(&map);
             self.pending_theme_colors = map.clone();
             if let Some(ref handle) = self.server_handle {
                 handle.context().set_theme_colors(map);

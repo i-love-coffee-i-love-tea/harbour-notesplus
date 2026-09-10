@@ -5,6 +5,7 @@ import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 Label {
     id: inlineText
     property var spans: undefined
+    property string preRenderedHtml: ""
     property string searchTerm: ""
     property int blockIndex: -1
     signal xrefActivated(string target)
@@ -18,7 +19,12 @@ Label {
     linkColor: Theme.highlightColor
     font.family: app.resolvedFontFamily()
     opacity: pressed ? 0.5 : 1.0
-    text: (spans !== undefined && spans !== null) ? applySearchHighlight(renderSpans(spans)) : ""
+    text: {
+        if (preRenderedHtml && preRenderedHtml.length > 0) {
+            return applySearchHighlight(preRenderedHtml)
+        }
+        return (spans !== undefined && spans !== null) ? applySearchHighlight(renderSpans(spans)) : ""
+    }
 
     function applySearchHighlight(html) {
         if (!searchTerm || searchTerm.length === 0) return html

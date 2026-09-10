@@ -28,6 +28,14 @@ Item {
         id: standardListItem
         visible: listDelegateItem.isStandardList
         text: {
+            // Use Rust pre-rendered HTML if available
+            if (blockData && blockData.html && listDelegateItem.isStandardList) {
+                var html = blockData.html
+                if (listDelegateItem.searchTerm && listDelegateItem.searchTerm.length > 0) {
+                    html = BlockHtmlUtils.highlightSearchTerms(html, listDelegateItem.searchTerm)
+                }
+                return html
+            }
             var html = (listDelegateItem.isStandardList && listDelegateItem.renderCounter >= 0) ? BlockHtmlUtils.blocksToHtml([localBlockData], (localBlockData && localBlockData.level) ? localBlockData.level : 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true) : ""
             if (listDelegateItem.searchTerm && listDelegateItem.searchTerm.length > 0 && html.length > 0) {
                 html = BlockHtmlUtils.highlightSearchTerms(html, listDelegateItem.searchTerm)

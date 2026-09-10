@@ -6,6 +6,7 @@ InlineText {
     id: paragraph
     property var blockData: ({})
 
+    preRenderedHtml: (blockData && blockData.html) ? blockData.html : ""
     spans: (blockData && blockData.spans) ? blockData.spans : []
     anchors.left: parent ? parent.left : undefined
     anchors.right: parent ? parent.right : undefined
