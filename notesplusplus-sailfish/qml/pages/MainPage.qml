@@ -272,6 +272,18 @@ Page {
                 }
             }
 
+            // No search results empty state
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - Theme.horizontalPageMargin * 2
+                visible: searchField.text.length > 0 && parsedSearchResults.length === 0
+                text: qsTr("No results found for \"%1\"").arg(searchField.text)
+                color: Theme.secondaryColor
+                font.pixelSize: Theme.fontSizeSmall
+                font.italic: true
+                wrapMode: Text.Wrap
+            }
+
             // Journal section
             SectionHeader {
                 text: qsTr("Journal")
@@ -435,6 +447,31 @@ Page {
                         pageName: itemData.name
                     })
                     bridge.load_page(itemData.name)
+                }
+            }
+
+            // Empty wiki guidance
+            Column {
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Theme.paddingMedium
+                visible: searchField.text.length === 0 && parsedRecentPages.length === 0
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Welcome to Notes++")
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeLarge
+                    font.bold: true
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Pull down to create your first page, or start a journal entry below. Pages use AsciiDoc markup for rich formatting, code blocks, and cross-links.")
+                    color: Theme.secondaryColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.Wrap
                 }
             }
         }

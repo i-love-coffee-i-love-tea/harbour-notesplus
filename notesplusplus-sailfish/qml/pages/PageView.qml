@@ -9,6 +9,8 @@ Page {
 
     property string pageName: bridge.current_page_name
     property string searchTerm: ""
+    property string findInPageTerm: ""
+    property bool showFindBar: false
     property int targetBlockIndex: -1
     property bool hasScrolledToSearchTerm: false
     property int editingBlockIndex: -1
@@ -140,6 +142,17 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Find in Page")
+                onClicked: {
+                    pageView.showFindBar = !pageView.showFindBar
+                    if (pageView.showFindBar) {
+                        findField.forceActiveFocus()
+                    } else {
+                        pageView.findInPageTerm = ""
+                    }
+                }
+            }
+            MenuItem {
                 text: qsTr("Ask AI Assistant")
                 visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {
@@ -192,8 +205,56 @@ Page {
             }
         }
 
-        header: PageHeader {
-            title: pageName
+        header: Column {
+            width: listView.width
+
+            PageHeader {
+                title: pageName
+            }
+
+            // Find-in-Page search bar
+            Row {
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Theme.paddingSmall
+                visible: pageView.showFindBar
+
+                SearchField {
+                    id: findField
+                    width: parent.width - closeFindBtn.width - Theme.paddingSmall
+                    placeholderText: qsTr("Find in page...")
+                    onTextChanged: {
+                        pageView.findInPageTerm = text
+                        if (text.length > 0) {
+                            var idx = pageView.findBlockIndexForSearch(text)
+                            if (idx >= 0) {
+                                scrollTimer.targetIdx = idx
+                                scrollTimer.start()
+                            }
+                        }
+                    }
+                    EnterKey.onClicked: {
+                        // Jump to next match
+                        if (pageView.findInPageTerm.length > 0) {
+                            var idx = pageView.findBlockIndexForSearch(pageView.findInPageTerm)
+                            if (idx >= 0) {
+                                listView.positionViewAtIndex(idx, ListView.Beginning)
+                            }
+                        }
+                    }
+                }
+
+                IconButton {
+                    id: closeFindBtn
+                    icon.source: "image://theme/icon-m-close"
+                    anchors.verticalCenter: parent.verticalCenter
+                    onClicked: {
+                        pageView.showFindBar = false
+                        pageView.findInPageTerm = ""
+                        findField.text = ""
+                    }
+                }
+            }
         }
 
         footer: Item {
@@ -255,7 +316,7 @@ Page {
             width: listView.width
             blockData: (pageView.parsedBlocks && pageView.parsedBlocks[index]) ? pageView.parsedBlocks[index] : (modelData ? JSON.parse(modelData) : ({}))
             blockIndex: index
-            searchTerm: pageView.searchTerm
+            searchTerm: pageView.findInPageTerm || pageView.searchTerm
             isEditing: pageView.editingBlockIndex === index
             editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""
             isTocCollapsed: pageView.isTocCollapsed(index, (blockData && blockData.headings) ? blockData.headings.length : 0)

@@ -12,6 +12,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  version-check:
+    name: Version Consistency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check version consistency
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          SPEC_VERSION=$(grep '^Version:' rpm/harbour-notesplusplus.spec | awk '{print $2}')
+          APPDATA_VERSION=$(grep -oP 'version="\K[^"]+' rpm/harbour-notesplusplus.appdata.xml | head -1)
+          echo "Cargo workspace version: $CARGO_VERSION"
+          echo "Spec version: $SPEC_VERSION"
+          echo "AppData version: $APPDATA_VERSION"
+          if [ "$CARGO_VERSION" != "$SPEC_VERSION" ] || [ "$CARGO_VERSION" != "$APPDATA_VERSION" ]; then
+            echo "ERROR: Version mismatch! Cargo=$CARGO_VERSION, Spec=$SPEC_VERSION, AppData=$APPDATA_VERSION"
+            exit 1
+          fi
+
   test:
     name: Run Unit Tests
     runs-on: ubuntu-latest

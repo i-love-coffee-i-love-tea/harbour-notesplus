@@ -266,7 +266,7 @@ pub fn send_response_full<W: Write>(
         extra.push_str(&format!("{}: {}\r\n", k, sanitized));
     }
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n{}{}\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
         status_code,
         status_text,
         content_type,
@@ -401,6 +401,52 @@ pub fn get_local_ip_addresses() -> Vec<String> {
     }
 
     ips
+}
+
+/// Returns a list of available network interfaces as `(ip_address, interface_name)` pairs.
+/// Always includes "0.0.0.0" (All interfaces) as the first entry.
+pub fn get_network_interfaces() -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut interfaces = Vec::new();
+
+    // Always offer "all interfaces" first
+    interfaces.push(("0.0.0.0".to_string(), "All interfaces".to_string()));
+    seen.insert("0.0.0.0".to_string());
+
+    // Parse /proc/net/arp to get IPs with their interface names
+    if let Ok(arp) = fs::read_to_string("/proc/net/arp") {
+        for line in arp.lines().skip(1) {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 6 {
+                let ip = fields[0];
+                let iface = fields[5];
+                if (ip.starts_with("192.168.") || ip.starts_with("10.") || ip.starts_with("172."))
+                    && seen.insert(ip.to_string())
+                {
+                    interfaces.push((ip.to_string(), format!("{} ({})", iface, ip)));
+                }
+            }
+        }
+    }
+
+    // Also discover the primary route interface via UDP probe
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                let ip_str = addr.ip().to_string();
+                if ip_str != "0.0.0.0" && ip_str != "127.0.0.1" && seen.insert(ip_str.clone()) {
+                    interfaces.push((ip_str.clone(), format!("Default route ({})", ip_str)));
+                }
+            }
+        }
+    }
+
+    // Add loopback
+    if seen.insert("127.0.0.1".to_string()) {
+        interfaces.push(("127.0.0.1".to_string(), "Localhost only".to_string()));
+    }
+
+    interfaces
 }
 
 /// Checks if an IP address belongs to a private, loopback, or local link network.

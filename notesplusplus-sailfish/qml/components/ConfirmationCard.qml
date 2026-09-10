@@ -32,7 +32,7 @@ Rectangle {
             }
 
             Label {
-                text: actionData ? ("Proposed Edit: " + (actionData.filename || "")) : "Action Confirmation"
+                text: actionData ? (qsTr("Proposed Edit: ") + (actionData.filename || "")) : qsTr("Action Confirmation")
                 font.bold: true
                 font.pixelSize: Theme.fontSizeMedium
                 color: Theme.highlightColor
@@ -62,7 +62,7 @@ Rectangle {
             spacing: Theme.paddingLarge
 
             Button {
-                text: "Reject"
+                text: qsTr("Reject")
                 preferredWidth: Theme.buttonWidthSmall
                 onClicked: {
                     confirmationCardRoot.confirmed(false)
@@ -70,7 +70,7 @@ Rectangle {
             }
 
             Button {
-                text: "Approve & Apply"
+                text: qsTr("Approve & Apply")
                 color: Theme.highlightColor
                 preferredWidth: Theme.buttonWidthSmall
                 onClicked: {

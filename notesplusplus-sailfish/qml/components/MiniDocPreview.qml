@@ -95,7 +95,7 @@ Item {
                     width: parent.width - Theme.horizontalPageMargin * 2
                     x: Theme.horizontalPageMargin
                     visible: parsedBlocks.length === 0 && snippet.length === 0
-                    text: "Empty document"
+                    text: qsTr("Empty document")
                     font.italic: true
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.secondaryColor

@@ -9,6 +9,7 @@ Item {
     property var localBlockData: blockData
     property int blockIndex: -1
     property int renderCounter: 0
+    property string searchTerm: ""
 
     property string itemType: (blockData && blockData.type) ? blockData.type : "unordered_list_item"
     property bool isDescriptionList: itemType === "description_list_item"
@@ -26,7 +27,13 @@ Item {
     InlineText {
         id: standardListItem
         visible: listDelegateItem.isStandardList
-        text: (listDelegateItem.isStandardList && listDelegateItem.renderCounter >= 0) ? BlockHtmlUtils.blocksToHtml([localBlockData], (localBlockData && localBlockData.level) ? localBlockData.level : 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true) : ""
+        text: {
+            var html = (listDelegateItem.isStandardList && listDelegateItem.renderCounter >= 0) ? BlockHtmlUtils.blocksToHtml([localBlockData], (localBlockData && localBlockData.level) ? localBlockData.level : 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true) : ""
+            if (listDelegateItem.searchTerm && listDelegateItem.searchTerm.length > 0 && html.length > 0) {
+                html = BlockHtmlUtils.highlightSearchTerms(html, listDelegateItem.searchTerm)
+            }
+            return html
+        }
         font.family: app.resolvedFontFamily()
         font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
         anchors.left: parent ? parent.left : undefined

@@ -8,7 +8,10 @@ impl NotesBridge {
             Err(_) => return false,
         };
 
-        if let Some(result) = pending.take() {
+        let taken = pending.take();
+        drop(pending);
+
+        if let Some(result) = taken {
             self.is_loading = false;
             self.loading_changed();
 

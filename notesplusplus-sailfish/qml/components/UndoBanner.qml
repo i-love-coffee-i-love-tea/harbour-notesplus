@@ -25,7 +25,7 @@ Rectangle {
         }
 
         Label {
-            text: "Note modified by AI"
+            text: qsTr("Note modified by AI")
             font.pixelSize: Theme.fontSizeExtraSmall
             color: Theme.primaryColor
             anchors.verticalCenter: parent.verticalCenter
@@ -35,7 +35,7 @@ Rectangle {
 
         Button {
             id: undoButton
-            text: "Undo"
+            text: qsTr("Undo")
             preferredWidth: Theme.buttonWidthExtraSmall
             anchors.verticalCenter: parent.verticalCenter
             onClicked: {

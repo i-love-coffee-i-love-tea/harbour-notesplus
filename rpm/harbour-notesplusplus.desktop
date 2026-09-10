@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+X-Nemo-Application-Type=silica-qt5
+Icon=harbour-notesplusplus
+Exec=harbour-notesplusplus
+Name=Notes++
+Comment=AsciiDoc notes app with wiki-style navigation, search, and AI assistant
+Categories=Office;TextEditor;
+
+[X-Sailjail]
+Permissions=UserDirs;Internet;RemovableMedia;Audio;Microphone
+OrganizationName=org.gobuki
+ApplicationName=harbour-notesplusplus

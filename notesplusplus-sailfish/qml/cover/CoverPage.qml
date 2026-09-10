@@ -16,7 +16,7 @@ CoverBackground {
         }
 
         Label {
-            text: bridge.current_page_name || "No page open"
+            text: bridge.current_page_name || qsTr("No page open")
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryColor
             anchors.horizontalCenter: parent.horizontalCenter
@@ -24,7 +24,7 @@ CoverBackground {
         }
 
         Label {
-            text: "Web: " + bridge.web_server_url
+            text: qsTr("Web: ") + bridge.web_server_url
             font.pixelSize: Theme.fontSizeExtraSmall
             color: Theme.secondaryHighlightColor
             anchors.horizontalCenter: parent.horizontalCenter

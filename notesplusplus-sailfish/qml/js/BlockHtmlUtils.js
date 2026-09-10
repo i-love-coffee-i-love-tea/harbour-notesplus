@@ -25,6 +25,32 @@ function stripAndApplyPrefix(text, prefix) {
     return stripped.map(function(line) { return prefix + line; }).join('\n');
 }
 
+function highlightSearchTerms(html, term) {
+    if (!term || term.length === 0 || !html || html.length === 0) return html
+    var terms = term.toLowerCase().trim().split(/\s+/).filter(function(t) { return t.length > 0 })
+    if (terms.length === 0) return html
+
+    var result = html
+    for (var ti = 0; ti < terms.length; ti++) {
+        var t = terms[ti]
+        if (t.length === 0) continue
+        // Split on HTML tags to avoid highlighting inside tag attributes
+        var parts = result.split(/(<[^>]+>)/)
+        var rebuilt = ""
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i].charAt(0) === '<') {
+                rebuilt += parts[i]
+            } else {
+                // Case-insensitive replace of search term with highlighted version
+                var re = new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ")", "gi")
+                rebuilt += parts[i].replace(re, '<mark style="background:#ffeb3b;color:#000;padding:0 1px;border-radius:2px;">$1</mark>')
+            }
+        }
+        result = rebuilt
+    }
+    return result
+}
+
 function escapeHtml(text) {
     if (!text) return ""
     var s = "" + text

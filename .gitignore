@@ -6,3 +6,6 @@ RPMS/
 .mimocode/
 .junie/
 *.bak
+
+# Compiled translations (generated at build time by lrelease)
+*.qm

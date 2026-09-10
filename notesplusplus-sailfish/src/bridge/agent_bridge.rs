@@ -566,18 +566,33 @@ impl AgentBridge {
             }
         }
 
-        let output_opt = match self.worker_result.lock() {
-            Ok(mut r) => r.take(),
-            Err(e) => {
-                eprintln!("[debug:agent] worker_result lock poisoned: {}", e);
-                self.agent_busy = false;
-                self.busy_changed();
-                self.report_error(format!("Internal error: {}", e));
-                return false;
+        // Extract result from mutex in a scoped block to release the lock before &mut self usage
+        enum LockResult {
+            Output(WorkerOutput),
+            Error(String),
+            None,
+        }
+        let lock_result = {
+            match self.worker_result.lock() {
+                Ok(mut guard) => {
+                    match guard.take() {
+                        Some(output) => LockResult::Output(output),
+                        None => LockResult::None,
+                    }
+                }
+                Err(e) => LockResult::Error(format!("Internal error: {}", e)),
             }
         };
 
-        if let Some(output) = output_opt {
+        if let LockResult::Error(msg) = lock_result {
+            eprintln!("[debug:agent] worker_result lock poisoned");
+            self.agent_busy = false;
+            self.busy_changed();
+            self.report_error(msg);
+            return false;
+        }
+
+        if let LockResult::Output(output) = lock_result {
             self.messages_json = output.messages_json;
             self.can_undo = output.can_undo;
             self.last_snapshot_id = output.last_snapshot_id.unwrap_or_default();
@@ -667,22 +682,25 @@ impl AgentBridge {
         };
 
         if has_result {
-            if let Ok(mut guard) = self.models_result.lock() {
-                if let Some(result) = guard.take() {
-                    match result {
-                        Ok(models) => {
-                            self.available_models = serde_json::to_string(&models)
-                                .unwrap_or_else(|_| "[]".to_string());
-                        }
-                        Err(e) => {
-                            self.report_error(format!("Failed to fetch models: {}", e));
-                            self.available_models = "[]".to_string();
-                        }
+            let taken = if let Ok(mut guard) = self.models_result.lock() {
+                guard.take()
+            } else {
+                None
+            };
+            if let Some(result) = taken {
+                match result {
+                    Ok(models) => {
+                        self.available_models = serde_json::to_string(&models)
+                            .unwrap_or_else(|_| "[]".to_string());
                     }
-                    self.models_loading = false;
-                    self.models_changed();
-                    return true;
+                    Err(e) => {
+                        self.report_error(format!("Failed to fetch models: {}", e));
+                        self.available_models = "[]".to_string();
+                    }
                 }
+                self.models_loading = false;
+                self.models_changed();
+                return true;
             }
         }
         false

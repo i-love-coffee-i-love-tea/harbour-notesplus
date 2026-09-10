@@ -123,7 +123,8 @@ pub fn handle_pages_api<W: Write>(
     let conn = match Connection::open(&ctx.db_path) {
         Ok(c) => c,
         Err(e) => {
-            send_json_error(stream, 500, "Internal Server Error", &format!("Database error: {}", e), cors_origin);
+            log::error!("Database connection failed: {}", e);
+            send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
             return;
         }
     };
@@ -193,7 +194,8 @@ pub fn handle_page_detail_api<W: Write>(
                     send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
                 }
                 Err(e) => {
-                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
+                    log::error!("Failed to read page file: {}", e);
+                    send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                 }
             }
         }
@@ -216,7 +218,8 @@ pub fn handle_page_detail_api<W: Write>(
                             blocks.splice(idx..end_idx, new_blocks);
                             let new_content = parser::blocks_to_adoc(&blocks);
                             if let Err(e) = fs::write(&file_path, &new_content) {
-                                send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write page: {}", e), cors_origin);
+                                log::error!("Failed to write page: {}", e);
+                                send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                                 return;
                             }
                             if let Ok(conn) = Connection::open(&ctx.db_path) {
@@ -228,7 +231,8 @@ pub fn handle_page_detail_api<W: Write>(
                         }
                     }
                     Err(e) => {
-                        send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
+                        log::error!("Failed to read page file: {}", e);
+                        send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                         return;
                     }
                 }
@@ -251,7 +255,8 @@ pub fn handle_page_detail_api<W: Write>(
                     send_json_ok(stream, &resp, cors_origin);
                 }
                 Err(e) => {
-                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write page: {}", e), cors_origin);
+                    log::error!("Failed to write page: {}", e);
+                    send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                 }
             }
         }
@@ -345,7 +350,8 @@ pub fn handle_notes_api<W: Write>(
                 };
 
                 if let Err(e) = fs::write(&file_path, &initial_content) {
-                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to create note: {}", e), cors_origin);
+                    log::error!("Failed to create note: {}", e);
+                    send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
                 }
 
@@ -460,7 +466,8 @@ pub fn handle_notes_api<W: Write>(
                 };
 
                 if let Err(e) = fs::write(&file_path, &content) {
-                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write note: {}", e), cors_origin);
+                    log::error!("Failed to write note: {}", e);
+                    send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
                 }
 
@@ -598,7 +605,8 @@ pub fn handle_export_html_api<W: Write>(
             send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
         }
         Err(e) => {
-            send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
+            log::error!("Failed to read file for export: {}", e);
+            send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
         }
     }
 }
@@ -621,7 +629,8 @@ pub fn handle_export_all_api<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
         Err(e) => {
-            send_json_error(stream, 500, "Internal Server Error", &format!("Export all failed: {}", e), cors_origin);
+            log::error!("Export all failed: {}", e);
+            send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
         }
     }
 }

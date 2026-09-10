@@ -59,11 +59,11 @@ impl NotesBridge {
         page::ensure_adoc_extension(name_or_title)
     }
 
-    fn notes_dir(&self) -> std::path::PathBuf {
+    pub fn notes_dir(&self) -> std::path::PathBuf {
         self.notes_path.join("notes")
     }
 
-    fn report_error(&mut self, msg: String) {
+    pub fn report_error(&mut self, msg: String) {
         self.error_message = msg;
         self.error_occurred(self.error_message.clone());
     }
@@ -690,6 +690,7 @@ impl NotesBridge {
             db_path,
             backup_dir,
             port: 8080,
+            bind_address: self.bind_address.clone(),
             llm_config: self.llm_config.clone(),
             permission_config: self.permission_config.clone(),
             auth_config: self.auth_config.clone(),
@@ -756,6 +757,27 @@ impl NotesBridge {
             }
             self.reject_public_networks_changed();
         }
+    }
+
+    fn set_bind_address_impl(&mut self, addr: String) {
+        if self.bind_address != addr {
+            self.bind_address = addr;
+            self.bind_address_changed();
+        }
+    }
+
+    fn get_network_interfaces_json_impl(&self) -> String {
+        let interfaces = notesplusplus_core::server::http::get_network_interfaces();
+        let entries: Vec<serde_json::Value> = interfaces
+            .into_iter()
+            .map(|(ip, name)| {
+                serde_json::json!({
+                    "ip": ip,
+                    "name": name,
+                })
+            })
+            .collect();
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     }
 
     fn set_theme_impl(&mut self, colors_json: String) {
@@ -982,6 +1004,8 @@ impl NotesBridge {
     pub fn toggle_checkbox(&mut self, block_index: i32, item_path: String) { self.toggle_checkbox_impl(block_index, item_path); }
     pub fn set_drop_comments(&mut self, drop: bool) { self.set_drop_comments_impl(drop); }
     pub fn set_reject_public_networks(&mut self, reject: bool) { self.set_reject_public_networks_impl(reject); }
+    pub fn set_bind_address(&mut self, addr: String) { self.set_bind_address_impl(addr); }
+    pub fn get_network_interfaces_json(&self) -> String { self.get_network_interfaces_json_impl() }
     pub fn load_main_page_data(&mut self) { self.load_main_page_data_impl(); }
     pub fn poll_main_page_data(&mut self) -> bool { self.poll_main_page_data_impl() }
     pub fn export_html(&mut self, page_name: String) -> String { self.export_html_impl(page_name) }

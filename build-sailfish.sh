@@ -38,7 +38,12 @@ sfdk -c target="$TARGET" build
 echo "=== Copying RPM to rpms/ ==="
 mkdir -p "$SCRIPT_DIR/rpms"
 if [ -d "$SCRIPT_DIR/RPMS" ]; then
-    cp -u "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null || cp "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null || true
+    if ! cp -u "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null; then
+        if ! cp "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null; then
+            echo "ERROR: Failed to copy RPMs from RPMS/ to rpms/" >&2
+            exit 1
+        fi
+    fi
 fi
 
 echo "=== Done ==="

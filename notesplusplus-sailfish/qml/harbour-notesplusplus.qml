@@ -67,6 +67,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: bindAddressConf
+        key: "/apps/harbour-notesplusplus/bind_address"
+        defaultValue: "0.0.0.0"
+    }
+
+    ConfigurationValue {
         id: sessionExpiryHoursConf
         key: "/apps/harbour-notesplusplus/session_expiry_hours"
         defaultValue: 24
@@ -165,6 +171,7 @@ ApplicationWindow {
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
     property bool rejectPublicNetworks: rejectPublicNetworksConf.value !== undefined ? rejectPublicNetworksConf.value : true
+    property string bindAddress: bindAddressConf.value !== undefined ? bindAddressConf.value : "0.0.0.0"
     property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
     property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
 
@@ -232,6 +239,11 @@ ApplicationWindow {
     function setRejectPublicNetworks(val) {
         rejectPublicNetworksConf.value = val
         bridge.set_reject_public_networks(val)
+    }
+
+    function setBindAddress(addr) {
+        bindAddressConf.value = addr
+        bridge.set_bind_address(addr)
     }
 
     function setSessionExpiryHours(hours) {
@@ -386,6 +398,7 @@ ApplicationWindow {
         }
         bridge.set_drop_comments(app.dropComments)
         bridge.set_reject_public_networks(app.rejectPublicNetworks)
+        bridge.set_bind_address(app.bindAddress)
         bridge.set_session_expiry_hours(app.sessionExpiryHours)
         syncTheme()
         if (app.autostartWebServer) {

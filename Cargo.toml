@@ -2,6 +2,12 @@
 members = ["notesplusplus-core", "notesplusplus-sailfish"]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+
+[patch.crates-io]
+qttypes = { path = "vendor/qttypes" }
+
 [profile.release]
 opt-level = "s"
 lto = "thin"

@@ -147,7 +147,8 @@ pub fn handle_challenge_initiate<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
         Err(e) => {
-            let err = json!({ "ok": false, "error": e });
+            log::error!("Auth challenge creation failed: {}", e);
+            let err = json!({ "ok": false, "error": "Failed to create authentication challenge" });
             send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
         }
     }
@@ -205,7 +206,8 @@ pub fn handle_challenge_status<W: Write>(
                         );
                     }
                     Err(e) => {
-                        let err = json!({ "status": "error", "error": e });
+                        log::error!("Session creation failed: {}", e);
+                        let err = json!({ "status": "error", "error": "Failed to create session" });
                         send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
                     }
                 }

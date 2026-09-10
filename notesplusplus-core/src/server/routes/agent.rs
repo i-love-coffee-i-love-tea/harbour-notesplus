@@ -137,7 +137,8 @@ pub fn handle_agent_models<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
         Err(e) => {
-            send_json_error(stream, 502, "Bad Gateway", &format!("{}", e), cors_origin);
+            log::error!("LLM model listing failed: {}", e);
+            send_json_error(stream, 502, "Bad Gateway", "Failed to retrieve models from AI provider", cors_origin);
         }
     }
 }
@@ -334,7 +335,8 @@ pub fn handle_read_file<W: Write>(
     let canonical = match expanded.canonicalize() {
         Ok(c) => c,
         Err(e) => {
-            let resp = json!({ "ok": false, "error": format!("Error resolving path: {}", e) });
+            log::error!("Error resolving file path: {}", e);
+            let resp = json!({ "ok": false, "error": "Error resolving file path" });
             send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
             return;
         }
@@ -356,7 +358,8 @@ pub fn handle_read_file<W: Write>(
             send_json_ok(stream, &resp, cors_origin);
         }
         Err(e) => {
-            let resp = json!({ "ok": false, "error": format!("Error reading file: {}", e) });
+            log::error!("Error reading file: {}", e);
+            let resp = json!({ "ok": false, "error": "Error reading file" });
             send_response(stream, 500, "Internal Server Error", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
     }

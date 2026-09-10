@@ -146,6 +146,7 @@ Item {
         id: headingComponent
         HeadingDelegate {
             blockData: delegate.localBlockData
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -154,6 +155,7 @@ Item {
         id: paragraphComponent
         ParagraphDelegate {
             blockData: delegate.localBlockData
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -165,6 +167,7 @@ Item {
             localBlockData: delegate.localBlockData
             blockIndex: delegate.blockIndex
             renderCounter: delegate.renderCounter
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
             onToggleLocalCheckbox: function(path) { delegate.toggleLocalCheckbox(path) }
@@ -312,7 +315,7 @@ Item {
             anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
             anchors.verticalCenter: parent.verticalCenter
             text: delegate.editingRawText
-            placeholderText: "Edit block..."
+            placeholderText: qsTr("Edit block...")
             font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
             color: Theme.primaryColor
             background: null

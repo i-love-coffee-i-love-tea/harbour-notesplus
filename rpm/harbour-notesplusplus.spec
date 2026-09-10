@@ -6,7 +6,7 @@ Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-notesplusplus
 Source0:    %{name}-%{version}.tar.bz2
-Requires:   sailfishsilica-qt5 >= 0.10.9
+Requires:   sailfishsilica-qt5 >= 1.0.0
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
 BuildRequires:  pkgconfig(Qt5Core)
 BuildRequires:  pkgconfig(Qt5Qml)
@@ -38,10 +38,23 @@ export CFLAGS_aarch64_unknown_linux_gnu=$CFLAGS
 export CXXFLAGS_aarch64_unknown_linux_gnu=$CXXFLAGS
 %endif
 
+%ifarch armv7hl
+export SB2_RUST_TARGET_TRIPLE=armv7-unknown-linux-gnueabihf
+export CFLAGS_armv7_unknown_linux_gnueabihf=$CFLAGS
+export CXXFLAGS_armv7_unknown_linux_gnueabihf=$CXXFLAGS
+%endif
+
+%ifarch %ix86
+export SB2_RUST_TARGET_TRIPLE=i686-unknown-linux-gnu
+export CFLAGS_i686_unknown_linux_gnu=$CFLAGS
+export CXXFLAGS_i686_unknown_linux_gnu=$CXXFLAGS
+%endif
+
 rustc --version
 cargo --version
 
 export CARGO_BUILD_JOBS=1
+export RUSTFLAGS="-C link-arg=-Wl,--as-needed"
 
 cargo build --release --locked -p harbour-notesplusplus -j 1
 
@@ -79,19 +92,7 @@ if [ -d notesplusplus-core/examples/chronicles ]; then
 fi
 
 mkdir -p %{buildroot}%{_datadir}/applications
-cat > %{buildroot}%{_datadir}/applications/%{name}.desktop << EOF
-[Desktop Entry]
-Type=Application
-X-Nemo-Application-Type=silica-qt5
-Icon=%{name}
-Exec=%{name}
-Name=Notes++
-
-[X-Sailjail]
-Permissions=UserDirs;Internet;RemovableMedia;Audio;Microphone
-OrganizationName=org.gobuki
-ApplicationName=harbour-notesplusplus
-EOF
+install -m 644 rpm/%{name}.desktop %{buildroot}%{_datadir}/applications/
 
 mkdir -p %{buildroot}%{_sysconfdir}/sailjail/permissions
 install -m 644 %{_sourcedir}/%{name}.profile %{buildroot}%{_sysconfdir}/sailjail/permissions/

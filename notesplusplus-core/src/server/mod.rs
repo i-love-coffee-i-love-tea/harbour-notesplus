@@ -16,8 +16,8 @@ pub mod tls;
 pub mod web_assets;
 
 pub use http::{
-    get_local_ip_addresses, is_private_or_local_ip, is_public_ip, sanitize_header_value,
-    StreamWrapper,
+    get_local_ip_addresses, get_network_interfaces, is_private_or_local_ip, is_public_ip,
+    sanitize_header_value, StreamWrapper,
 };
 pub use routes::handle_http_client;
 pub use routes::pages::{
@@ -38,6 +38,7 @@ pub struct ServerConfig {
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub port: u16,
+    pub bind_address: String,
     pub llm_config: LlmConfig,
     pub permission_config: PermissionConfig,
     pub auth_config: auth::AuthConfig,
@@ -57,6 +58,7 @@ impl Default for ServerConfig {
             db_path: paths.db_path,
             backup_dir,
             port: crate::constants::DEFAULT_SERVER_PORT,
+            bind_address: "0.0.0.0".to_string(),
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth::AuthConfig::default(),
@@ -265,6 +267,7 @@ pub fn start_server_full(
         db_path,
         backup_dir,
         port: requested_port,
+        bind_address: "0.0.0.0".to_string(),
         llm_config: llm_config.unwrap_or_default(),
         permission_config: permission_config.unwrap_or_default(),
         auth_config: auth::AuthConfig::default(),
@@ -305,8 +308,9 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     let port = if config.port == 0 { 8080 } else { config.port };
     let mut listener = None;
 
+    let bind_addr = config.bind_address.clone();
     for p in port..(port + 20) {
-        if let Ok(l) = TcpListener::bind(("0.0.0.0", p)) {
+        if let Ok(l) = TcpListener::bind((bind_addr.as_str(), p)) {
             listener = Some((l, p));
             break;
         }
@@ -664,6 +668,7 @@ mod tests {
             db_path,
             backup_dir,
             port: 18945,
+            bind_address: "127.0.0.1".to_string(),
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth_cfg,
@@ -770,6 +775,7 @@ mod tests {
             db_path,
             backup_dir,
             port: 18960,
+            bind_address: "127.0.0.1".to_string(),
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth::AuthConfig::default(),
