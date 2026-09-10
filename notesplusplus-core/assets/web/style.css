@@ -960,7 +960,7 @@ button:disabled {
   padding: 10px 16px;
   font-size: 0.88rem;
   font-weight: 600;
-  border: 1px solid var(--text-muted);
+  border: 1px solid var(--accent);
   border-radius: 6px;
   cursor: pointer;
   display: flex;
@@ -969,12 +969,12 @@ button:disabled {
   gap: 8px;
   transition: all 0.12s ease;
   background-color: var(--bg-card);
-  color: var(--text-main);
+  color: var(--accent);
 }
 .btn-import-submit:hover:not(:disabled) {
-  background-color: var(--primary);
+  background-color: var(--accent);
   color: #ffffff;
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .btn-import-submit:disabled {
   opacity: 0.4;
@@ -1326,8 +1326,8 @@ button:disabled {
 .btn-send-ai {
   padding: 8px 14px;
   background-color: var(--bg-card);
-  color: var(--text-main);
-  border: 1px solid var(--text-muted);
+  color: var(--accent);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-md);
   font-size: 1rem;
   cursor: pointer;
@@ -1336,9 +1336,8 @@ button:disabled {
   align-items: center;
 }
 .btn-send-ai:hover:not(:disabled) {
-  background-color: var(--primary);
+  background-color: var(--accent);
   color: #ffffff;
-  border-color: var(--primary);
 }
 .btn-send-ai:disabled {
   opacity: 0.35;
