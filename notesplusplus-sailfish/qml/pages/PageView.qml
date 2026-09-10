@@ -137,7 +137,7 @@ Page {
         id: listView
         anchors.fill: parent
         clip: true
-        cacheBuffer: 1600
+        cacheBuffer: 3500
         model: bridge.blocks_version >= 0 ? bridge.current_blocks : []
 
         PullDownMenu {
@@ -314,7 +314,7 @@ Page {
 
         delegate: BlockDelegate {
             width: listView.width
-            blockData: (pageView.parsedBlocks && pageView.parsedBlocks[index]) ? pageView.parsedBlocks[index] : (modelData ? JSON.parse(modelData) : ({}))
+            blockData: modelData ? JSON.parse(modelData) : ({})
             blockIndex: index
             searchTerm: pageView.findInPageTerm || pageView.searchTerm
             isEditing: pageView.editingBlockIndex === index

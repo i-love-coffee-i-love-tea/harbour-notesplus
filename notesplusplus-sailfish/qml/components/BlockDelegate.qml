@@ -47,7 +47,7 @@ Item {
     signal jumpToBlock(int targetIndex)
 
     width: parent ? parent.width : Screen.width
-    height: isEditing ? (inlineEditorContainer.height + Theme.paddingSmall) : blockLoader.height
+    height: isEditing ? (inlineEditorLoader.height + Theme.paddingSmall) : blockLoader.height
 
     onBlockDataChanged: {
         localBlockData = blockData
@@ -287,56 +287,58 @@ Item {
         }
     }
 
-    Item {
-        id: inlineEditorContainer
+    Loader {
+        id: inlineEditorLoader
+        active: delegate.isEditing
         width: parent ? parent.width : Screen.width
-        height: isEditing ? (inlineTextArea.implicitHeight + Theme.paddingMedium) : 0
-        visible: isEditing
+        height: active && item ? item.implicitEditorHeight + Theme.paddingMedium : 0
+        visible: active
 
-        // Subtle vertical accent line on the left to indicate the active in-place block
-        Rectangle {
-            anchors.left: parent.left
-            anchors.leftMargin: Theme.horizontalPageMargin / 2
-            anchors.top: parent.top
-            anchors.topMargin: Theme.paddingSmall
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: Theme.paddingSmall
-            width: 2
-            color: Theme.highlightColor
-            opacity: 0.8
-            radius: 1
-        }
+        sourceComponent: Component {
+            Item {
+                property int implicitEditorHeight: inlineTextArea.implicitHeight
+                width: parent ? parent.width : Screen.width
+                height: inlineTextArea.implicitHeight + Theme.paddingMedium
 
-        TextArea {
-            id: inlineTextArea
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: Theme.horizontalPageMargin
-            anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
-            anchors.verticalCenter: parent.verticalCenter
-            text: delegate.editingRawText
-            placeholderText: qsTr("Edit block...")
-            font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
-            color: Theme.primaryColor
-            background: null
-            onTextChanged: {
-                if (delegate.isEditing) {
-                    delegate.textModified(delegate.blockIndex, text)
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.horizontalPageMargin / 2
+                    anchors.top: parent.top
+                    anchors.topMargin: Theme.paddingSmall
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Theme.paddingSmall
+                    width: 2
+                    color: Theme.highlightColor
+                    opacity: 0.8
+                    radius: 1
+                }
+
+                TextArea {
+                    id: inlineTextArea
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin + Theme.itemSizeMedium
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: delegate.editingRawText
+                    placeholderText: qsTr("Edit block...")
+                    font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
+                    color: Theme.primaryColor
+                    background: null
+                    onTextChanged: {
+                        if (delegate.isEditing) {
+                            delegate.textModified(delegate.blockIndex, text)
+                        }
+                    }
+                    Component.onCompleted: {
+                        text = delegate.editingRawText
+                        forceActiveFocus()
+                    }
                 }
             }
         }
     }
 
-    onIsEditingChanged: {
-        if (isEditing) {
-            inlineTextArea.text = editingRawText
-            inlineTextArea.forceActiveFocus()
-        }
-    }
-
-    onEditingRawTextChanged: {
-        if (isEditing) {
-            inlineTextArea.text = editingRawText
-        }
-    }
+    // Loader's Component.onCompleted handles initial text + focus when editing starts.
+    // The TextArea's `text: delegate.editingRawText` binding handles updates while editing.
 }
