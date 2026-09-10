@@ -260,17 +260,23 @@ html, body {
   padding: 0 11px;
   color: var(--text-muted);
   gap: 5px;
+  border: none;
+  outline: none;
 }
 
 .view-mode-tabs button:hover:not(.active) {
   color: var(--text-main);
   background-color: var(--bg-main);
+  border: none;
+  outline: none;
 }
 
 .view-mode-tabs button.active {
   background-color: var(--bg-main);
   color: var(--primary);
   font-weight: 600;
+  border: none;
+  outline: none;
 }
 
 /* Right: Action Groups & Status */
@@ -954,20 +960,21 @@ button:disabled {
   padding: 10px 16px;
   font-size: 0.88rem;
   font-weight: 600;
-  border: 1.5px solid var(--primary);
+  border: 1px solid var(--text-muted);
   border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  transition: all 0.15s ease;
-  background-color: var(--primary);
-  color: #ffffff;
+  transition: all 0.12s ease;
+  background-color: var(--bg-card);
+  color: var(--text-main);
 }
 .btn-import-submit:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  border-color: var(--primary-hover);
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
 }
 .btn-import-submit:disabled {
   opacity: 0.4;
@@ -1015,8 +1022,6 @@ button:disabled {
   font-weight: 600;
   font-size: 0.8rem;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 .import-source-actions {
   display: flex;
@@ -1320,17 +1325,23 @@ button:disabled {
 }
 .btn-send-ai {
   padding: 8px 14px;
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--text-muted);
+  border-radius: var(--radius-md);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  display: flex;
+  align-items: center;
+}
+.btn-send-ai:hover:not(:disabled) {
   background-color: var(--primary);
   color: #ffffff;
   border-color: var(--primary);
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-}
-.btn-send-ai:hover:not(:disabled) {
-  background-color: var(--primary-hover);
 }
 .btn-send-ai:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 

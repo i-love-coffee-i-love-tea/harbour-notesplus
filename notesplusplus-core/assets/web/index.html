@@ -503,7 +503,7 @@
             title="Select AI Model"
           >
             <option v-for="m in availableModels" :key="m.id" :value="m.id">
-              {{ m.name || m.id }}
+              {{ m.name || m.id }}{{ m.parameter_size ? ' (' + m.parameter_size + (m.quantization ? ', ' + m.quantization : '') + ')' : '' }}
             </option>
             <option v-if="!isCurrentModelInList && aiConfig.model" :value="aiConfig.model">
               {{ aiConfig.model }} (Custom)
@@ -512,7 +512,8 @@
           <span v-else class="ai-backend-badge">{{ aiConfig.model }}</span>
         </div>
         <div class="ai-header-actions">
-          <button @click="showAiSettings = !showAiSettings" class="btn-icon" title="AI Model Settings">⚙️</button>
+          <button @click="showAiSettings = !showAiSettings" class="btn-icon" title="AI Model Settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           <button @click="openAiDrawer = false" class="btn-icon" title="Close Drawer">&times;</button>
         </div>
       </div>
@@ -530,7 +531,7 @@
           <div style="display: flex; gap: 8px; align-items: center;">
             <select v-if="availableModels.length > 0" v-model="aiConfig.model" @change="onModelSelect" style="flex: 1;">
               <option v-for="m in availableModels" :key="m.id" :value="m.id">
-                {{ m.name || m.id }}
+                {{ m.name || m.id }}{{ m.parameter_size ? ' (' + m.parameter_size + (m.quantization ? ', ' + m.quantization : '') + ')' : '' }}
               </option>
               <option v-if="!isCurrentModelInList && aiConfig.model" :value="aiConfig.model">
                 {{ aiConfig.model }} (Custom)

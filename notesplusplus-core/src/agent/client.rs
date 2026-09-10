@@ -120,6 +120,10 @@ impl ChatMessage {
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameter_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,9 +325,14 @@ impl LlmClient {
                 for m in models {
                     let name = m.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let display_name = name.split(':').next().unwrap_or(name).to_string();
+                    let details = m.get("details");
+                    let parameter_size = details.and_then(|d| d.get("parameter_size")).and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let quantization = details.and_then(|d| d.get("quantization_level")).and_then(|v| v.as_str()).map(|s| s.to_string());
                     result.push(ModelInfo {
                         id: name.to_string(),
                         name: display_name,
+                        parameter_size,
+                        quantization,
                     });
                 }
                 Ok(result)
@@ -340,6 +349,8 @@ impl LlmClient {
                     result.push(ModelInfo {
                         id: id.to_string(),
                         name: id.to_string(),
+                        parameter_size: None,
+                        quantization: None,
                     });
                 }
                 Ok(result)
