@@ -9,6 +9,7 @@ use crate::server::http::escape_html;
 pub mod assets;
 pub mod icons;
 pub mod preprocess;
+pub mod qt_html;
 
 pub use assets::{DOCUMENT_CSS, DOCUMENT_JS};
 pub use icons::{get_admonition_svg_icon, get_standard_svg_icon};
