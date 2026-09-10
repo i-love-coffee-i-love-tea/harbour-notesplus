@@ -11,6 +11,6 @@ InlineText {
     anchors.right: parent ? parent.right : undefined
     anchors.leftMargin: Theme.horizontalPageMargin
     anchors.rightMargin: Theme.horizontalPageMargin
-    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-    font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+    font.family: app.resolvedFontFamily()
+    font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
 }

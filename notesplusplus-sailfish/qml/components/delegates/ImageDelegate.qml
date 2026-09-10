@@ -17,8 +17,8 @@ Column {
     InlineText {
         visible: Boolean(blockData && ((blockData.title_spans && blockData.title_spans.length > 0) || (blockData.title && blockData.title.length > 0)))
         spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
-        font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-        font.pixelSize: Math.round(Theme.fontSizeExtraSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+        font.family: app.resolvedFontFamily()
+        font.pixelSize: app.scaledFontSize(Theme.fontSizeExtraSmall)
         font.bold: true
         color: Theme.highlightColor
         wrapMode: Text.WrapAtWordBoundaryOrAnywhere

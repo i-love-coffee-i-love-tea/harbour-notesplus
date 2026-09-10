@@ -9,14 +9,13 @@ InlineText {
 
     spans: (blockData && blockData.spans) ? blockData.spans : []
     color: Theme.highlightColor
-    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
+    font.family: app.resolvedFontFamily()
     font.pixelSize: {
-        var scale = (typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0
         switch (level) {
-            case 1: return Math.round(Theme.fontSizeExtraLarge * scale)
-            case 2: return Math.round(Theme.fontSizeLarge * scale)
-            case 3: return Math.round(Theme.fontSizeMedium * scale)
-            default: return Math.round(Theme.fontSizeSmall * scale)
+            case 1: return app.scaledFontSize(Theme.fontSizeExtraLarge)
+            case 2: return app.scaledFontSize(Theme.fontSizeLarge)
+            case 3: return app.scaledFontSize(Theme.fontSizeMedium)
+            default: return app.scaledFontSize(Theme.fontSizeSmall)
         }
     }
     font.bold: level <= 2

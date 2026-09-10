@@ -18,6 +18,18 @@ pub struct PageInfo {
 }
 
 impl PageInfo {
+    pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(PageInfo {
+            id: row.get(0)?,
+            filename: row.get(1)?,
+            title: row.get(2)?,
+            is_journal: row.get::<_, i32>(3)? != 0,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+            block_count: row.get(6)?,
+        })
+    }
+
     pub fn to_json_value(&self) -> serde_json::Value {
         json!({
             "id": self.id,
@@ -139,11 +151,6 @@ fn slice_preview_content(content: &str, limit: usize) -> &str {
     }
 }
 
-/// Get the first N non-empty preview blocks of a page.
-pub fn get_page_preview_blocks(notes_dir: &Path, filename: &str, limit: usize) -> Vec<crate::block::Block> {
-    get_page_preview_blocks_with_options(notes_dir, filename, limit, true)
-}
-
 /// Get the first N non-empty preview blocks of a page with configurable options.
 pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> Vec<crate::block::Block> {
     let path = notes_dir.join(filename);
@@ -224,11 +231,6 @@ pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limi
     serde_json::to_string(&preview_json_vec).unwrap_or_else(|_| "[]".to_string())
 }
 
-/// Get preview blocks serialized as JSON string (default options).
-pub fn get_page_preview_json(notes_dir: &Path, filename: &str, limit: usize) -> String {
-    get_page_preview_json_with_options(notes_dir, filename, limit, true)
-}
-
 /// Read the raw AsciiDoc content of a page.
 pub fn read_page(notes_dir: &Path, filename: &str) -> Result<String, String> {
     let path = notes_dir.join(filename);
@@ -252,11 +254,7 @@ pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) 
         if direct_path.exists() {
             let _ = std::fs::remove_file(&direct_path);
         }
-        let adoc_name = if name_or_filename.ends_with(".adoc") {
-            name_or_filename.to_string()
-        } else {
-            format!("{}.adoc", name_or_filename)
-        };
+        let adoc_name = ensure_adoc_extension(name_or_filename);
         let adoc_path = notes_dir.join(&adoc_name);
         if adoc_path.exists() {
             let _ = std::fs::remove_file(&adoc_path);
@@ -282,17 +280,7 @@ pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, String> {
         .map_err(|e| e.to_string())?;
 
     let pages = stmt
-        .query_map([], |row| {
-            Ok(PageInfo {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                title: row.get(2)?,
-                is_journal: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                block_count: row.get(6)?,
-            })
-        })
+        .query_map([], |row| PageInfo::from_row(row))
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -310,17 +298,7 @@ pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, St
         .map_err(|e| e.to_string())?;
 
     let pages = stmt
-        .query_map([limit as i64], |row| {
-            Ok(PageInfo {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                title: row.get(2)?,
-                is_journal: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                block_count: row.get(6)?,
-            })
-        })
+        .query_map([limit as i64], |row| PageInfo::from_row(row))
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -338,11 +316,7 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
         )
         .map_err(|e| e.to_string())?;
 
-    let adoc_filename = if name_or_filename.ends_with(".adoc") {
-        name_or_filename.to_string()
-    } else {
-        format!("{}.adoc", name_or_filename)
-    };
+    let adoc_filename = ensure_adoc_extension(name_or_filename);
     let sanitized_adoc = format!("{}.adoc", sanitize_filename(name_or_filename));
     let title_without_adoc = name_or_filename.trim_end_matches(".adoc").replace('_', " ");
 
@@ -354,17 +328,7 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
                 sanitized_adoc,
                 title_without_adoc
             ],
-            |row| {
-                Ok(PageInfo {
-                    id: row.get(0)?,
-                    filename: row.get(1)?,
-                    title: row.get(2)?,
-                    is_journal: row.get::<_, i32>(3)? != 0,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                    block_count: row.get(6)?,
-                })
-            },
+            |row| PageInfo::from_row(row),
         )
         .map_err(|e| e.to_string())?;
 
@@ -520,6 +484,14 @@ pub fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
+pub fn ensure_adoc_extension(name: &str) -> String {
+    if name.ends_with(".adoc") {
+        name.to_string()
+    } else {
+        format!("{}.adoc", name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,7 +610,7 @@ mod tests {
         let content = "= Preview Note\n\nFirst intro paragraph.\n\n* Item 1\n* Item 2\n\n[NOTE]\nImportant tip!\n";
         std::fs::write(notes.join("Preview_Note.adoc"), content).unwrap();
 
-        let previews = get_page_preview_blocks(&notes, "Preview_Note.adoc", 3);
+        let previews = get_page_preview_blocks_with_options(&notes, "Preview_Note.adoc", 3, true);
         assert_eq!(previews.len(), 3);
         assert!(matches!(previews[0], crate::block::Block::Heading { level: 1, .. }));
         assert!(matches!(previews[1], crate::block::Block::Paragraph { .. }));
@@ -653,7 +625,7 @@ mod tests {
         let content = "= Toc Note\n:toc:\n\n== Section One\nText 1\n\n== Section Two\nText 2\n";
         std::fs::write(notes.join("Toc_Note.adoc"), content).unwrap();
 
-        let preview_json_str = get_page_preview_json(&notes, "Toc_Note.adoc", 5);
+        let preview_json_str = get_page_preview_json_with_options(&notes, "Toc_Note.adoc", 5, true);
         let parsed: serde_json::Value = serde_json::from_str(&preview_json_str).unwrap();
         assert!(parsed.is_array());
         let toc_obj = parsed.as_array().unwrap().iter().find(|b| b["type"] == "toc").expect("TOC block");

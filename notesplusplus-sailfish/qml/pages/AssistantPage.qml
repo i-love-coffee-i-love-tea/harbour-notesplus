@@ -127,6 +127,7 @@ Page {
         onAiAutoAllowCreateChanged: assistantPage.applyConfig()
         onAiRequireConfirmEditChanged: assistantPage.applyConfig()
         onAiAllowSelfSignedChanged: assistantPage.applyConfig()
+        onAiAllowFetchUrlChanged: assistantPage.applyConfig()
     }
 
     AgentBridge {
@@ -963,46 +964,30 @@ Page {
                 }
 
                 // Live Streaming Progress Card
-                Rectangle {
-                    width: parent.width - Theme.horizontalPageMargin * 2
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    height: streamCol.height + Theme.paddingMedium * 2
-                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
-                    radius: Theme.paddingSmall
-                    border.color: Theme.rgba(Theme.highlightColor, 0.3)
-                    border.width: 1
+                InfoCard {
                     visible: agentBridge.agent_busy && agentBridge.streaming_text.length > 0 && currentTab === 1
 
-                    Column {
-                        id: streamCol
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.paddingMedium
+                    Row {
                         spacing: Theme.paddingSmall
-
-                        Row {
-                            spacing: Theme.paddingSmall
-                            Label {
-                                text: qsTr("Converting...")
-                                font.pixelSize: Theme.fontSizeExtraSmall
-                                font.bold: true
-                                color: Theme.highlightColor
-                            }
-                            BusyIndicator {
-                                size: BusyIndicatorSize.ExtraSmall
-                                running: true
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-                        }
-
                         Label {
-                            width: parent.width
-                            text: agentBridge.streaming_text
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.primaryColor
-                            wrapMode: Text.Wrap
+                            text: qsTr("Converting...")
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            font.bold: true
+                            color: Theme.highlightColor
                         }
+                        BusyIndicator {
+                            size: BusyIndicatorSize.ExtraSmall
+                            running: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Label {
+                        width: parent.width
+                        text: agentBridge.streaming_text
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.primaryColor
+                        wrapMode: Text.Wrap
                     }
                 }
 
@@ -1036,68 +1021,51 @@ Page {
                 }
 
                 // Result Card when a note is created
-                Rectangle {
-                    id: resultCard
-                    width: parent.width - Theme.horizontalPageMargin * 2
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    height: resultColumn.height + Theme.paddingLarge * 2
-                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
-                    radius: Theme.paddingSmall
-                    border.color: Theme.rgba(Theme.highlightColor, 0.3)
-                    border.width: 1
+                InfoCard {
                     visible: agentBridge.last_created_note.length > 0 && !agentBridge.agent_busy
 
-                    Column {
-                        id: resultColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.paddingLarge
-                        spacing: Theme.paddingMedium
+                    Row {
+                        spacing: Theme.paddingSmall
+                        anchors.horizontalCenter: parent.horizontalCenter
 
-                        Row {
-                            spacing: Theme.paddingSmall
-                            anchors.horizontalCenter: parent.horizontalCenter
-
-                            Label {
-                                text: "✓"
-                                color: "#4cd964"
-                                font.pixelSize: Theme.fontSizeLarge
-                                font.bold: true
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-
-                            Label {
-                                text: qsTr("Import Completed")
-                                color: Theme.highlightColor
-                                font.pixelSize: Theme.fontSizeMedium
-                                font.bold: true
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
+                        Label {
+                            text: "✓"
+                            color: "#4cd964"
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.bold: true
+                            anchors.verticalCenter: parent.verticalCenter
                         }
 
                         Label {
-                            text: qsTr("Created Note: ") + agentBridge.last_created_note
-                            color: Theme.primaryColor
+                            text: qsTr("Import Completed")
+                            color: Theme.highlightColor
                             font.pixelSize: Theme.fontSizeMedium
                             font.bold: true
-                            horizontalAlignment: Text.AlignHCenter
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            wrapMode: Text.Wrap
-                            width: parent.width
+                            anchors.verticalCenter: parent.verticalCenter
                         }
+                    }
 
-                        Button {
-                            text: qsTr("📖 Open Created Note")
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            preferredWidth: Theme.buttonWidthMedium
-                            onClicked: {
-                                var noteTitle = agentBridge.last_created_note
-                                pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                                    pageName: noteTitle
-                                })
-                                bridge.load_page(noteTitle)
-                            }
+                    Label {
+                        text: qsTr("Created Note: ") + agentBridge.last_created_note
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.fontSizeMedium
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        wrapMode: Text.Wrap
+                        width: parent.width
+                    }
+
+                    Button {
+                        text: qsTr("📖 Open Created Note")
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        preferredWidth: Theme.buttonWidthMedium
+                        onClicked: {
+                            var noteTitle = agentBridge.last_created_note
+                            pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                                pageName: noteTitle
+                            })
+                            bridge.load_page(noteTitle)
                         }
                     }
                 }

@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../components"
+import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Page {
     id: pageView
@@ -238,7 +239,7 @@ Page {
                     anchors.verticalCenter: parent.verticalCenter
                     text: pageView.newBlockText
                     placeholderText: qsTr("Type text, task (* [ ]), or heading...")
-                    font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                     color: Theme.primaryColor
                     background: null
                     onTextChanged: {
@@ -378,51 +379,14 @@ Page {
     }
 
     function applyNewBlockPrefix(prefix, multiLineList) {
-        var txt = newBlockText || ""
-        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
-        if (multiLineList && txt.indexOf("\n") !== -1) {
-            var lines = txt.split("\n")
-            var resultLines = []
-            for (var i = 0; i < lines.length; i++) {
-                var l = lines[i]
-                if (l.trim().length > 0) {
-                    var lRest = regex.test(l) ? l.replace(regex, "") : l
-                    resultLines.push(prefix + lRest)
-                } else {
-                    resultLines.push(l)
-                }
-            }
-            newBlockText = resultLines.join("\n")
-        } else {
-            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
-            newBlockText = prefix + rest
-        }
+        newBlockText = BlockHtmlUtils.stripAndApplyPrefix(newBlockText || "", prefix)
     }
 
     function applyBlockPrefix(prefix, multiLineList) {
         var txt = editingCurrentText || ""
-        var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/
-        if (multiLineList && txt.indexOf("\n") !== -1) {
-            var lines = txt.split("\n")
-            var resultLines = []
-            for (var i = 0; i < lines.length; i++) {
-                var l = lines[i]
-                if (l.trim().length > 0) {
-                    var lRest = regex.test(l) ? l.replace(regex, "") : l
-                    resultLines.push(prefix + lRest)
-                } else {
-                    resultLines.push(l)
-                }
-            }
-            var newText = resultLines.join("\n")
-            editingRawText = newText
-            editingCurrentText = newText
-        } else {
-            var rest = regex.test(txt) ? txt.replace(regex, "") : txt
-            var newText = prefix + rest
-            editingRawText = newText
-            editingCurrentText = newText
-        }
+        var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
+        editingRawText = newText
+        editingCurrentText = newText
     }
 
     function saveCurrentEditingBlock() {

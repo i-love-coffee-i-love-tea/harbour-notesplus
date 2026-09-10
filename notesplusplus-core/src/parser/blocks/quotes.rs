@@ -9,6 +9,20 @@ use crate::parser::delimiters::{
 };
 use crate::parser::parse_blocks;
 
+fn is_paragraph_break(line: &str, consumed: usize) -> bool {
+    line.trim().is_empty()
+        || (consumed > 0 && is_attribute_line(line.trim()))
+        || is_heading(line)
+        || is_horizontal_rule(line)
+        || is_delimiter(line)
+        || is_doc_attribute(line.trim())
+        || line.trim() == "<<<"
+        || line.starts_with('>')
+        || line.trim_start().starts_with('|')
+        || parse_ordered_list_item(line).is_some()
+        || parse_unordered_list_item(line).is_some()
+}
+
 pub fn parse_admonition_block(kind: &str, lines: &[&str], title: Option<String>) -> (Block, usize) {
     // lines[0] is the [KIND] line, lines[1] should be ====
     let mut consumed = 0;
@@ -77,23 +91,8 @@ pub fn parse_admonition_paragraph(
 
     while consumed < lines.len() {
         let line = lines[consumed];
-        if line.trim().is_empty() {
-            break;
-        }
-        if consumed > 0 && is_attribute_line(line.trim()) {
-            break;
-        }
-        if is_heading(line)
-            || is_horizontal_rule(line)
-            || is_delimiter(line)
-            || is_doc_attribute(line.trim())
-            || line.trim() == "<<<"
-            || line.starts_with('>')
-            || line.trim_start().starts_with('|')
-            || parse_ordered_list_item(line).is_some()
-            || parse_unordered_list_item(line).is_some()
-        {
-            if consumed == 0 {
+        if is_paragraph_break(line, consumed) {
+            if consumed == 0 && !line.trim().is_empty() {
                 text_lines.push(line);
                 consumed += 1;
             }
@@ -173,23 +172,8 @@ pub fn parse_quote_paragraph(
 
     while consumed < lines.len() {
         let line = lines[consumed];
-        if line.trim().is_empty() {
-            break;
-        }
-        if consumed > 0 && is_attribute_line(line.trim()) {
-            break;
-        }
-        if is_heading(line)
-            || is_horizontal_rule(line)
-            || is_delimiter(line)
-            || is_doc_attribute(line.trim())
-            || line.trim() == "<<<"
-            || line.starts_with('>')
-            || line.trim_start().starts_with('|')
-            || parse_ordered_list_item(line).is_some()
-            || parse_unordered_list_item(line).is_some()
-        {
-            if consumed == 0 {
+        if is_paragraph_break(line, consumed) {
+            if consumed == 0 && !line.trim().is_empty() {
                 text_lines.push(line);
                 consumed += 1;
             }
@@ -224,6 +208,24 @@ pub fn parse_quote_paragraph(
     )
 }
 
+fn build_verse_block(
+    verse_lines: Vec<String>,
+    raw_lines: Vec<String>,
+    title: Option<String>,
+    attribution: Option<String>,
+    citation: Option<String>,
+) -> Block {
+    let spans = verse_lines.iter().map(|l| parse_inline(l)).collect();
+    Block::Verse {
+        title,
+        attribution,
+        citation,
+        lines: verse_lines,
+        spans,
+        raw: raw_lines.join("\n"),
+    }
+}
+
 pub fn parse_verse_block(
     lines: &[&str],
     title: Option<String>,
@@ -246,16 +248,8 @@ pub fn parse_verse_block(
         verse_lines.push(line.to_string());
     }
 
-    let spans = verse_lines.iter().map(|l| parse_inline(l)).collect();
     (
-        Block::Verse {
-            title,
-            attribution,
-            citation,
-            lines: verse_lines,
-            spans,
-            raw: raw_lines.join("\n"),
-        },
+        build_verse_block(verse_lines, raw_lines, title, attribution, citation),
         consumed,
     )
 }
@@ -272,23 +266,8 @@ pub fn parse_verse_paragraph(
 
     while consumed < lines.len() {
         let line = lines[consumed];
-        if line.trim().is_empty() {
-            break;
-        }
-        if consumed > 0 && is_attribute_line(line.trim()) {
-            break;
-        }
-        if is_heading(line)
-            || is_horizontal_rule(line)
-            || is_delimiter(line)
-            || is_doc_attribute(line.trim())
-            || line.trim() == "<<<"
-            || line.starts_with('>')
-            || line.trim_start().starts_with('|')
-            || parse_ordered_list_item(line).is_some()
-            || parse_unordered_list_item(line).is_some()
-        {
-            if consumed == 0 {
+        if is_paragraph_break(line, consumed) {
+            if consumed == 0 && !line.trim().is_empty() {
                 verse_lines.push(line.to_string());
                 raw_lines.push(line.to_string());
                 consumed += 1;
@@ -306,16 +285,8 @@ pub fn parse_verse_paragraph(
         consumed = 1;
     }
 
-    let spans = verse_lines.iter().map(|l| parse_inline(l)).collect();
     (
-        Block::Verse {
-            title,
-            attribution,
-            citation,
-            lines: verse_lines,
-            spans,
-            raw: raw_lines.join("\n"),
-        },
+        build_verse_block(verse_lines, raw_lines, title, attribution, citation),
         consumed,
     )
 }

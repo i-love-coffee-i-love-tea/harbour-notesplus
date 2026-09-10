@@ -167,6 +167,20 @@ ApplicationWindow {
     property bool rejectPublicNetworks: rejectPublicNetworksConf.value !== undefined ? rejectPublicNetworksConf.value : true
     property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
     property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
+
+    function formatSize(bytes) {
+        if (!bytes || bytes <= 0) return ""
+        var mb = bytes / (1024 * 1024)
+        return mb.toFixed(0) + " MB"
+    }
+
+    function resolvedFontFamily() {
+        return (docFontFamily && docFontFamily.length > 0) ? docFontFamily : Theme.fontFamily
+    }
+
+    function scaledFontSize(base) {
+        return Math.round(base * fontScale)
+    }
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
     property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
     property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""

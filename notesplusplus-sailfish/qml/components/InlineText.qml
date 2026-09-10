@@ -15,7 +15,7 @@ Label {
     textFormat: Text.RichText
     color: Theme.primaryColor
     linkColor: Theme.highlightColor
-    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
+    font.family: app.resolvedFontFamily()
     opacity: pressed ? 0.5 : 1.0
     text: (spans !== undefined && spans !== null) ? renderSpans(spans) : ""
 
@@ -29,22 +29,13 @@ Label {
     }
 
     onLinkActivated: function(link) {
-        if (link.indexOf("xref:") === 0) {
-            var target = link.substring(5)
-            if (target.indexOf(".adoc") === target.length - 5) {
-                target = target.substring(0, target.length - 5)
-            }
-            inlineText.xrefActivated(target)
-        } else if (link.indexOf("toggle:") === 0) {
+        BlockHtmlUtils.handleLink(link, function(target) { inlineText.xrefActivated(target) }, function(path) {
             inlineText.pressed = true
-            var path = link.substring(7)
             if (inlineText.blockIndex >= 0) {
                 inlineText.checkboxToggled(inlineText.blockIndex, path)
             }
             feedbackTimer.restart()
-        } else if (link.indexOf("http") === 0) {
-            Qt.openUrlExternally(link)
-        }
+        })
     }
 
     Timer {

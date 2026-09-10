@@ -289,12 +289,6 @@ impl AudioRecorder {
             .unwrap_or(false)
     }
 
-    pub fn last_recording_path(&self) -> Option<PathBuf> {
-        self.inner
-            .lock()
-            .ok()
-            .and_then(|s| s.last_path.clone())
-    }
 
     /// Retrieve the current normalized audio volume level (0.0 .. 1.0) and waveform history.
     pub fn get_level_and_history(&self) -> (f64, Vec<f64>) {
@@ -704,10 +698,7 @@ fn finalize_child(child: &mut Child, backend: &str) -> Result<(), String> {
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success() || status.code() == Some(1) || status.code() == Some(130) {
-                    return Ok(());
-                }
+            Ok(Some(_)) => {
                 return Ok(());
             }
             Ok(None) => {

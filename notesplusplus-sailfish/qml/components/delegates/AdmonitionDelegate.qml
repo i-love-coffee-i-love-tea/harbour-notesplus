@@ -74,8 +74,8 @@ Item {
             Label {
                 text: (blockData && blockData.title && blockData.title.length > 0) ? (kind + ": " + blockData.title) : kind
                 font.bold: true
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                 color: borderColor
             }
 
@@ -84,20 +84,12 @@ Item {
                 width: parent.width
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 textFormat: Text.RichText
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                 color: Theme.primaryColor
                 linkColor: Theme.highlightColor
                 onLinkActivated: function(link) {
-                    if (link.indexOf("xref:") === 0) {
-                        var target = link.substring(5)
-                        if (target.indexOf(".adoc") === target.length - 5) {
-                            target = target.substring(0, target.length - 5)
-                        }
-                        admonitionDelegate.xrefActivated(target)
-                    } else if (link.indexOf("http") === 0) {
-                        Qt.openUrlExternally(link)
-                    }
+                    BlockHtmlUtils.handleLink(link, function(target) { admonitionDelegate.xrefActivated(target) }, null)
                 }
             }
         }

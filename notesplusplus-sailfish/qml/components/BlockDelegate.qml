@@ -1,7 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "./delegates"
-import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Item {
     id: delegate
@@ -271,7 +270,7 @@ Item {
             anchors.rightMargin: Theme.horizontalPageMargin
             font.italic: true
             font.family: "monospace"
-            font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+            font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
             color: Theme.rgba(Theme.secondaryColor, 0.6)
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
         }
@@ -314,7 +313,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: delegate.editingRawText
             placeholderText: "Edit block..."
-            font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+            font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
             color: Theme.primaryColor
             background: null
             onTextChanged: {

@@ -1,7 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../"
-import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Item {
     id: tocDelegateItem
@@ -55,8 +54,8 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Table of Contents"
                     font.bold: true
-                    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                    font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    font.family: app.resolvedFontFamily()
+                    font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                     color: tocHeader.highlighted ? Theme.primaryColor : Theme.highlightColor
                     truncationMode: TruncationMode.Fade
                 }
@@ -124,8 +123,8 @@ Item {
                             anchors.rightMargin: Theme.paddingSmall
                             anchors.verticalCenter: parent.verticalCenter
                             text: "• " + headingText
-                            font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                            font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                            font.family: app.resolvedFontFamily()
+                            font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                             color: tocEntry.highlighted ? Theme.primaryColor : Theme.highlightColor
                             wrapMode: Text.Wrap
                         }

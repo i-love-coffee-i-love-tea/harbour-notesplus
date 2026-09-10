@@ -14,6 +14,8 @@ use notesplusplus_core::stt::{
 
 use super::audio_recorder::AudioRecorder;
 
+const DEFAULT_WAVEFORM_JSON: &str = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]";
+
 #[derive(QObject)]
 pub struct SpeechBridge {
     base: qt_base_class!(trait QObject),
@@ -125,7 +127,7 @@ impl Default for SpeechBridge {
             has_installed_models: has_installed,
             recording_file_path: String::new(),
             audio_level: 0.0,
-            waveform_json: "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]".to_string(),
+            waveform_json: DEFAULT_WAVEFORM_JSON.to_string(),
 
             recording_changed: Default::default(),
             transcribing_changed: Default::default(),
@@ -166,6 +168,11 @@ impl Default for SpeechBridge {
 }
 
 impl SpeechBridge {
+    fn report_error(&mut self, msg: String) {
+        self.error_message = msg;
+        self.error_occurred(self.error_message.clone());
+    }
+
     pub fn refresh_models(&mut self) {
         let catalog = get_model_catalog(
             &self.models_dir,
@@ -232,8 +239,7 @@ impl SpeechBridge {
             Some(m) => m,
             None => {
                 let err = format!("Unknown model ID: {}", model_id);
-                self.error_message = err.clone();
-                self.error_occurred(err);
+                self.report_error(err);
                 return;
             }
         };
@@ -328,8 +334,7 @@ impl SpeechBridge {
         if trimmed_path.is_empty() {
             let err = "Audio path is empty".to_string();
             eprintln!("[debug:stt] begin_transcription: {}", err);
-            self.error_message = err.clone();
-            self.error_occurred(err);
+            self.report_error(err);
             self.is_transcribing = false;
             self.transcribing_changed();
             return;
@@ -339,8 +344,7 @@ impl SpeechBridge {
         if !audio_path.is_file() {
             let err = format!("Audio file not found: {}", trimmed_path);
             eprintln!("[debug:stt] begin_transcription: {}", err);
-            self.error_message = err.clone();
-            self.error_occurred(err);
+            self.report_error(err);
             self.is_transcribing = false;
             self.transcribing_changed();
             return;
@@ -361,8 +365,7 @@ impl SpeechBridge {
                     let err =
                         "No speech model installed. Please download a model first.".to_string();
                     eprintln!("[debug:stt] begin_transcription: {}", err);
-                    self.error_message = err.clone();
-                    self.error_occurred(err);
+                    self.report_error(err);
                     self.is_transcribing = false;
                     self.transcribing_changed();
                     return;
@@ -377,8 +380,7 @@ impl SpeechBridge {
                 model_id
             );
             eprintln!("[debug:stt] begin_transcription: {}", err);
-            self.error_message = err.clone();
-            self.error_occurred(err);
+            self.report_error(err);
             self.is_transcribing = false;
             self.transcribing_changed();
             return;
@@ -470,8 +472,7 @@ impl SpeechBridge {
                     self.refresh_models();
                 }
                 Err(err) => {
-                    self.error_message = err.clone();
-                    self.error_occurred(err);
+                    self.report_error(err);
                 }
             }
             state_changed = true;
@@ -505,8 +506,7 @@ impl SpeechBridge {
                     }
                 }
                 Err(err) => {
-                    self.error_message = err.clone();
-                    self.error_occurred(err);
+                    self.report_error(err);
                 }
             }
             state_changed = true;
@@ -533,8 +533,7 @@ impl SpeechBridge {
         }
         if self.is_transcribing {
             let err = "Cannot start recording while transcription is in progress".to_string();
-            self.error_message = err.clone();
-            self.error_occurred(err);
+            self.report_error(err);
             return false;
         }
 
@@ -543,7 +542,7 @@ impl SpeechBridge {
                 self.recording_file_path = path.to_string_lossy().to_string();
                 self.is_recording = true;
                 self.audio_level = 0.0;
-                self.waveform_json = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]".to_string();
+                self.waveform_json = DEFAULT_WAVEFORM_JSON.to_string();
                 self.error_message = String::new();
                 self.recording_changed();
                 self.audio_level_changed();
@@ -553,11 +552,10 @@ impl SpeechBridge {
                 self.is_recording = false;
                 self.recording_file_path = String::new();
                 self.audio_level = 0.0;
-                self.waveform_json = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]".to_string();
-                self.error_message = err.clone();
+                self.waveform_json = DEFAULT_WAVEFORM_JSON.to_string();
+                self.report_error(err);
                 self.recording_changed();
                 self.audio_level_changed();
-                self.error_occurred(err);
                 false
             }
         }
@@ -569,7 +567,7 @@ impl SpeechBridge {
         }
 
         self.audio_level = 0.0;
-        self.waveform_json = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]".to_string();
+        self.waveform_json = DEFAULT_WAVEFORM_JSON.to_string();
         self.audio_level_changed();
 
         match self.recorder.stop() {
@@ -583,8 +581,7 @@ impl SpeechBridge {
             Err(err) => {
                 self.is_recording = false;
                 self.recording_changed();
-                self.error_message = err.clone();
-                self.error_occurred(err);
+                self.report_error(err);
                 String::new()
             }
         }
@@ -610,7 +607,7 @@ impl SpeechBridge {
     pub fn cancel_recording(&mut self) {
         self.recorder.cancel();
         self.audio_level = 0.0;
-        self.waveform_json = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]".to_string();
+        self.waveform_json = DEFAULT_WAVEFORM_JSON.to_string();
         self.audio_level_changed();
         if self.is_recording || !self.recording_file_path.is_empty() {
             self.is_recording = false;

@@ -9,6 +9,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
+pub fn current_epoch_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 /// Generates a cryptographically secure random hex string of given byte length.
 pub fn generate_secure_token(byte_len: usize) -> Result<String, String> {
     let rng = SystemRandom::new();
@@ -53,11 +60,7 @@ pub struct Session {
 
 impl Session {
     pub fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        now >= self.expires_at
+        current_epoch_secs() >= self.expires_at
     }
 }
 
@@ -81,10 +84,7 @@ impl SessionStore {
         let sessions = if path.exists() {
             if let Ok(data) = std::fs::read_to_string(&path) {
                 if let Ok(loaded) = serde_json::from_str::<HashMap<String, Session>>(&data) {
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
+                    let now = current_epoch_secs();
                     loaded
                         .into_iter()
                         .filter(|(_, s)| s.expires_at > now)
@@ -122,10 +122,7 @@ impl SessionStore {
             return None;
         }
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = current_epoch_secs();
 
         // Prune expired
         let mut changed = false;
@@ -150,10 +147,7 @@ impl SessionStore {
         auth_method: &str,
         ttl_secs: u64,
     ) -> Result<Session, String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = current_epoch_secs();
         let session_id = generate_secure_token(32)?;
 
         let session = Session {
@@ -182,10 +176,7 @@ impl SessionStore {
     /// Cleans up all expired sessions from memory and disk.
     pub fn clean_expired(&self) {
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = current_epoch_secs();
         let initial_len = map.len();
         map.retain(|_, s| s.expires_at > now);
         if map.len() != initial_len {
@@ -206,11 +197,7 @@ pub struct AuthChallenge {
 
 impl AuthChallenge {
     pub fn is_expired(&self) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        now >= self.expires_at
+        current_epoch_secs() >= self.expires_at
     }
 }
 
@@ -229,10 +216,7 @@ impl AuthChallengeStore {
 
     /// Creates a new pending challenge with the given TTL in seconds.
     pub fn create_challenge(&self, ttl_secs: u64) -> Result<AuthChallenge, String> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = current_epoch_secs();
         let challenge = AuthChallenge {
             challenge_id: generate_secure_token(32)?,
             verification_code: generate_verification_code(4),

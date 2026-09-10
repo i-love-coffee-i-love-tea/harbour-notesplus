@@ -1,5 +1,30 @@
 .pragma library
 
+function handleLink(link, xrefCallback, toggleCallback) {
+    if (link.indexOf("xref:") === 0) {
+        var target = link.substring(5);
+        if (target.indexOf(".adoc") === target.length - 5) {
+            target = target.substring(0, target.length - 5);
+        }
+        if (xrefCallback) xrefCallback(target);
+    } else if (link.indexOf("toggle:") === 0) {
+        var togglePath = link.substring(7);
+        if (toggleCallback) toggleCallback(togglePath);
+    } else if (link.indexOf("http") === 0) {
+        Qt.openUrlExternally(link);
+    }
+}
+
+function stripAndApplyPrefix(text, prefix) {
+    var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/;
+    var lines = text.split('\n');
+    var stripped = lines.map(function(line) {
+        if (line.trim().length === 0) return line;
+        return regex.test(line) ? line.replace(regex, '') : line;
+    });
+    return stripped.map(function(line) { return prefix + line; }).join('\n');
+}
+
 function escapeHtml(text) {
     if (!text) return ""
     var s = "" + text
@@ -7,24 +32,6 @@ function escapeHtml(text) {
         return s
     }
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-}
-
-function spansToPlainText(spans) {
-    if (!spans || spans.length === 0) return ""
-    if (spans.length === 1 && spans[0]) {
-        var first = spans[0]
-        if (first.value !== undefined) return first.value
-        if (first.display !== undefined) return first.display
-    }
-    var txt = ""
-    for (var i = 0; i < spans.length; i++) {
-        var s = spans[i]
-        if (!s) continue
-        if (s.value !== undefined) txt += s.value
-        else if (s.display !== undefined) txt += s.display
-        else if (s.spans) txt += spansToPlainText(s.spans)
-    }
-    return txt
 }
 
 function resolveImagePath(target, notesDir, allowExternal) {

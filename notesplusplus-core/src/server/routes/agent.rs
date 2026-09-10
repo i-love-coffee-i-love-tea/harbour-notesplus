@@ -9,9 +9,53 @@ use crate::agent::{
 };
 use crate::constants::MIME_JSON;
 use crate::server::http::{
-    send_response, send_sse_done, send_sse_event, send_sse_header, ParsedHttpRequest,
+    send_json_error, send_json_ok, send_response, send_sse_done, send_sse_event, send_sse_header,
+    ParsedHttpRequest,
 };
 use crate::server::ServerContext;
+
+fn send_step_result_sse<W: Write>(
+    stream: &mut W,
+    step_result: &AgentStepResult,
+    session: &crate::agent::AgentSession,
+    include_created_note: bool,
+) {
+    match step_result {
+        AgentStepResult::Finished { content, last_snapshot_id } => {
+            let mut event = json!({
+                "type": "finished",
+                "content": content,
+                "last_snapshot_id": last_snapshot_id,
+                "can_undo": session.can_undo()
+            });
+            if include_created_note {
+                event["last_created_note"] = json!(session.last_created_note());
+            }
+            send_sse_event(stream, &event);
+        }
+        AgentStepResult::RequiresConfirmation(pending) => {
+            send_sse_event(stream, &json!({
+                "type": "pending_confirmation",
+                "action": {
+                    "tool_name": pending.tool_name,
+                    "filename": pending.filename,
+                    "reason": pending.reason,
+                    "diff": pending.diff.lines.iter().map(|l| json!({
+                        "diff_type": format!("{:?}", l.line_type).to_lowercase(),
+                        "text": l.content
+                    })).collect::<Vec<_>>()
+                }
+            }));
+        }
+        AgentStepResult::Error(err) => {
+            send_sse_event(stream, &json!({
+                "type": "error",
+                "error": err
+            }));
+        }
+    }
+    send_sse_done(stream);
+}
 
 pub fn handle_agent_config<W: Write>(
     stream: &mut W,
@@ -93,8 +137,7 @@ pub fn handle_agent_models<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
         Err(e) => {
-            let resp = json!({ "error": format!("{}", e) });
-            send_response(stream, 502, "Bad Gateway", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+            send_json_error(stream, 502, "Bad Gateway", &format!("{}", e), cors_origin);
         }
     }
 }
@@ -105,8 +148,7 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let prompt = json_body.get("prompt").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).map(|s| s.to_string());
     let context_content = json_body.get("context_content").and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -134,38 +176,7 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
     });
 
     if let Ok(mut s) = stream_mutex.lock() {
-        match step_result {
-            AgentStepResult::Finished { content, last_snapshot_id } => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "finished",
-                    "content": content,
-                    "last_snapshot_id": last_snapshot_id,
-                    "can_undo": session_guard.can_undo(),
-                    "last_created_note": session_guard.last_created_note()
-                }));
-            }
-            AgentStepResult::RequiresConfirmation(pending) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "pending_confirmation",
-                    "action": {
-                        "tool_name": pending.tool_name,
-                        "filename": pending.filename,
-                        "reason": pending.reason,
-                        "diff": pending.diff.lines.iter().map(|l| json!({
-                            "diff_type": format!("{:?}", l.line_type).to_lowercase(),
-                            "text": l.content
-                        })).collect::<Vec<_>>()
-                    }
-                }));
-            }
-            AgentStepResult::Error(err) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "error",
-                    "error": err
-                }));
-            }
-        }
-        send_sse_done(&mut *s);
+        send_step_result_sse(&mut *s, &step_result, &session_guard, true);
     };
 }
 
@@ -175,8 +186,7 @@ pub fn handle_agent_template<W: Write + Send + 'static>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let template_id = json_body.get("template_id").and_then(|v| v.as_str()).unwrap_or("summarize");
     let content = json_body.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let context_filename = json_body.get("context_filename").and_then(|v| v.as_str()).unwrap_or("note.adoc");
@@ -205,37 +215,7 @@ pub fn handle_agent_template<W: Write + Send + 'static>(
     });
 
     if let Ok(mut s) = stream_mutex.lock() {
-        match step_result {
-            AgentStepResult::Finished { content, last_snapshot_id } => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "finished",
-                    "content": content,
-                    "last_snapshot_id": last_snapshot_id,
-                    "can_undo": session_guard.can_undo()
-                }));
-            }
-            AgentStepResult::RequiresConfirmation(pending) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "pending_confirmation",
-                    "action": {
-                        "tool_name": pending.tool_name,
-                        "filename": pending.filename,
-                        "reason": pending.reason,
-                        "diff": pending.diff.lines.iter().map(|l| json!({
-                            "diff_type": format!("{:?}", l.line_type).to_lowercase(),
-                            "text": l.content
-                        })).collect::<Vec<_>>()
-                    }
-                }));
-            }
-            AgentStepResult::Error(err) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "error",
-                    "error": err
-                }));
-            }
-        }
-        send_sse_done(&mut *s);
+        send_step_result_sse(&mut *s, &step_result, &session_guard, false);
     };
 }
 
@@ -245,8 +225,7 @@ pub fn handle_agent_confirm<W: Write + Send + 'static>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let approved = json_body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
     send_sse_header(&mut stream, cors_origin);
@@ -265,37 +244,7 @@ pub fn handle_agent_confirm<W: Write + Send + 'static>(
     });
 
     if let Ok(mut s) = stream_mutex.lock() {
-        match step_result {
-            AgentStepResult::Finished { content, last_snapshot_id } => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "finished",
-                    "content": content,
-                    "last_snapshot_id": last_snapshot_id,
-                    "can_undo": session_guard.can_undo()
-                }));
-            }
-            AgentStepResult::RequiresConfirmation(pending) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "pending_confirmation",
-                    "action": {
-                        "tool_name": pending.tool_name,
-                        "filename": pending.filename,
-                        "reason": pending.reason,
-                        "diff": pending.diff.lines.iter().map(|l| json!({
-                            "diff_type": format!("{:?}", l.line_type).to_lowercase(),
-                            "text": l.content
-                        })).collect::<Vec<_>>()
-                    }
-                }));
-            }
-            AgentStepResult::Error(err) => {
-                send_sse_event(&mut *s, &json!({
-                    "type": "error",
-                    "error": err
-                }));
-            }
-        }
-        send_sse_done(&mut *s);
+        send_step_result_sse(&mut *s, &step_result, &session_guard, false);
     };
 }
 
@@ -308,7 +257,7 @@ pub fn handle_agent_undo<W: Write>(
     match session_guard.undo_last_action() {
         Ok(msg) => {
             let resp = json!({ "ok": true, "message": msg, "can_undo": session_guard.can_undo() });
-            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+            send_json_ok(stream, &resp, cors_origin);
         }
         Err(err) => {
             let resp = json!({ "ok": false, "error": err, "can_undo": session_guard.can_undo() });
@@ -322,8 +271,7 @@ pub fn handle_fetch_url<W: Write>(
     req: &ParsedHttpRequest,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let url = json_body.get("url").and_then(|v| v.as_str()).unwrap_or("").trim();
     if url.is_empty() {
         let resp = json!({ "ok": false, "error": "URL parameter is required" });
@@ -334,7 +282,7 @@ pub fn handle_fetch_url<W: Write>(
     match fetch_url(url) {
         Ok(content) => {
             let resp = json!({ "ok": true, "content": content });
-            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+            send_json_ok(stream, &resp, cors_origin);
         }
         Err(err) => {
             let resp = json!({ "ok": false, "error": err });
@@ -348,12 +296,11 @@ pub fn handle_preprocess_html<W: Write>(
     req: &ParsedHttpRequest,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let html = json_body.get("html").and_then(|v| v.as_str()).unwrap_or("");
     let processed = crate::html::preprocess_html(html);
     let resp = json!({ "ok": true, "content": processed });
-    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+    send_json_ok(stream, &resp, cors_origin);
 }
 
 pub fn handle_read_file<W: Write>(
@@ -362,8 +309,7 @@ pub fn handle_read_file<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let file_path = json_body.get("file_path").and_then(|v| v.as_str()).unwrap_or("").trim();
     if file_path.is_empty() {
         let resp = json!({ "ok": false, "error": "file_path parameter is required" });
@@ -407,7 +353,7 @@ pub fn handle_read_file<W: Write>(
                 content
             };
             let resp = json!({ "ok": true, "content": processed });
-            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+            send_json_ok(stream, &resp, cors_origin);
         }
         Err(e) => {
             let resp = json!({ "ok": false, "error": format!("Error reading file: {}", e) });

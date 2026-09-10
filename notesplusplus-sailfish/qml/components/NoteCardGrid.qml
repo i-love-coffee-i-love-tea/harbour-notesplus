@@ -24,7 +24,6 @@ Grid {
             height: noteCardGrid.cellWidth
             cardData: modelData
             noteIndex: index
-            searchTerm: noteCardGrid.searchTerm
             onClicked: {
                 noteCardGrid.itemClicked(cardData, index)
             }

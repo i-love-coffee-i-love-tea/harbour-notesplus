@@ -68,8 +68,6 @@ pub struct NotesBridge {
     reject_public_networks_changed: qt_signal!(),
     web_server_status_changed: qt_signal!(),
     error_occurred: qt_signal!(message: String),
-    page_saved: qt_signal!(),
-    html_exported: qt_signal!(path: String),
     initialized_changed: qt_signal!(),
     auth_challenge_changed: qt_signal!(),
 
@@ -109,8 +107,6 @@ pub struct NotesBridge {
     reset_tls_certificate: qt_method!(fn(&mut self) -> String),
     is_custom_tls_certificate: qt_method!(fn(&mut self) -> bool),
     get_tls_certificate_info_json: qt_method!(fn(&mut self) -> String),
-    configure_auth: qt_method!(fn(&mut self, enabled: bool, basic_enabled: bool, username: String, password: String)),
-    get_auth_info_json: qt_method!(fn(&mut self) -> String),
     set_theme: qt_method!(fn(&mut self, colors_json: String)),
     set_session_expiry_hours: qt_method!(fn(&mut self, hours: i32)),
     check_auth_challenge: qt_method!(fn(&mut self) -> bool),
@@ -169,8 +165,6 @@ impl Default for NotesBridge {
             reject_public_networks_changed: Default::default(),
             web_server_status_changed: Default::default(),
             error_occurred: Default::default(),
-            page_saved: Default::default(),
-            html_exported: Default::default(),
             initialized_changed: Default::default(),
             load_page: Default::default(),
             save_block: Default::default(),
@@ -207,8 +201,6 @@ impl Default for NotesBridge {
             reset_tls_certificate: Default::default(),
             is_custom_tls_certificate: Default::default(),
             get_tls_certificate_info_json: Default::default(),
-            configure_auth: Default::default(),
-            get_auth_info_json: Default::default(),
             set_theme: Default::default(),
             set_session_expiry_hours: Default::default(),
             check_auth_challenge: Default::default(),
@@ -252,7 +244,7 @@ impl NotesBridge {
         self.conn_receiver = Some(rx);
 
         let notes_path = self.notes_path.clone();
-        let notes_subdir = notes_path.join("notes");
+        let notes_subdir = self.notes_dir();
         let data_dir = self.data_dir.clone();
 
         std::thread::spawn(move || {
@@ -305,8 +297,7 @@ impl NotesBridge {
                     return true;
                 }
                 Ok(Err(e)) => {
-                    self.error_message = e;
-                    self.error_occurred(self.error_message.clone());
+                    self.report_error(e);
                     self.conn_receiver = None;
                     return false;
                 }

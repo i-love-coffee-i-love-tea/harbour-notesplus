@@ -1,17 +1,11 @@
 use rusqlite::Connection;
 
-use crate::db;
 use crate::page::PageInfo;
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub page: PageInfo,
     pub snippet: String,
-}
-
-/// Index a page's content into FTS5.
-pub fn index_page(conn: &Connection, page_id: i64, content: &str) -> Result<(), String> {
-    db::update_fts_content(conn, page_id, content).map_err(|e| e.to_string())
 }
 
 /// Search pages via FTS5 with query sanitization and fallback. Returns matching pages with snippets.
@@ -60,15 +54,7 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
             snip = first_line.chars().take(80).collect();
         }
         Ok(SearchResult {
-            page: PageInfo {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                title,
-                is_journal: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                block_count: row.get(6)?,
-            },
+            page: PageInfo::from_row(row)?,
             snippet: snip,
         })
     });
@@ -110,15 +96,7 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
     let results = stmt.query_map(rusqlite::params![pattern], |row| {
         let title: String = row.get(2)?;
         Ok(SearchResult {
-            page: PageInfo {
-                id: row.get(0)?,
-                filename: row.get(1)?,
-                title: title.clone(),
-                is_journal: row.get::<_, i32>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                block_count: row.get(6)?,
-            },
+            page: PageInfo::from_row(row)?,
             snippet: title,
         })
     }).map_err(|e| e.to_string())?
@@ -131,6 +109,7 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db;
     use tempfile::TempDir;
 
     fn setup() -> (Connection, TempDir) {
@@ -156,7 +135,7 @@ mod tests {
     fn index_and_search() {
         let (conn, _dir) = setup();
         let page_id = create_test_page(&conn, "Test");
-        index_page(&conn, page_id, "hello world content").unwrap();
+        db::update_fts_content(&conn, page_id, "hello world content").unwrap();
 
         let results = search_pages(&conn, "hello").unwrap();
         assert_eq!(results.len(), 1);
@@ -167,7 +146,7 @@ mod tests {
     fn search_returns_snippet() {
         let (conn, _dir) = setup();
         let page_id = create_test_page(&conn, "Test");
-        index_page(&conn, page_id, "the quick brown fox jumps").unwrap();
+        db::update_fts_content(&conn, page_id, "the quick brown fox jumps").unwrap();
 
         let results = search_pages(&conn, "brown").unwrap();
         assert_eq!(results.len(), 1);
@@ -185,7 +164,7 @@ mod tests {
     fn search_no_results() {
         let (conn, _dir) = setup();
         let page_id = create_test_page(&conn, "Test");
-        index_page(&conn, page_id, "hello world").unwrap();
+        db::update_fts_content(&conn, page_id, "hello world").unwrap();
 
         let results = search_pages(&conn, "nonexistent").unwrap();
         assert!(results.is_empty());
@@ -195,7 +174,7 @@ mod tests {
     fn search_special_characters() {
         let (conn, _dir) = setup();
         let page_id = create_test_page(&conn, "Test");
-        index_page(&conn, page_id, "C++ programming").unwrap();
+        db::update_fts_content(&conn, page_id, "C++ programming").unwrap();
 
         // Should not panic
         let _results = search_pages(&conn, "C++");
@@ -205,7 +184,7 @@ mod tests {
     fn search_prefix_matching() {
         let (conn, _dir) = setup();
         let page_id = create_test_page(&conn, "SailfishOS Guide");
-        index_page(&conn, page_id, "Developing applications in Rust and QML").unwrap();
+        db::update_fts_content(&conn, page_id, "Developing applications in Rust and QML").unwrap();
 
         let results = search_pages(&conn, "app").unwrap();
         assert_eq!(results.len(), 1);
@@ -216,9 +195,9 @@ mod tests {
     fn search_multiple_words() {
         let (conn, _dir) = setup();
         let p1 = create_test_page(&conn, "Doc 1");
-        index_page(&conn, p1, "Quick brown fox").unwrap();
+        db::update_fts_content(&conn, p1, "Quick brown fox").unwrap();
         let p2 = create_test_page(&conn, "Doc 2");
-        index_page(&conn, p2, "Lazy sleeping dog").unwrap();
+        db::update_fts_content(&conn, p2, "Lazy sleeping dog").unwrap();
 
         let results = search_pages(&conn, "brown fox").unwrap();
         assert_eq!(results.len(), 1);

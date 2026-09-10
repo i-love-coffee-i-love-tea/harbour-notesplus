@@ -16,6 +16,17 @@ pub enum LlmProvider {
     OpenAiCompatible,
 }
 
+impl std::str::FromStr for LlmProvider {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "openai" | "mimocode" | "compatible" => Ok(LlmProvider::OpenAiCompatible),
+            "ollama" => Ok(LlmProvider::Ollama),
+            _ => Ok(LlmProvider::Ollama),
+        }
+    }
+}
+
 
 /// Default endpoint URL for a local Ollama instance.
 pub const DEFAULT_OLLAMA_ENDPOINT: &str = DEFAULT_AI_ENDPOINT;

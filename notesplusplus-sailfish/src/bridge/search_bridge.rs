@@ -118,8 +118,7 @@ impl NotesBridge {
                 }
             });
         } else if let Some(Err(e)) = result {
-            self.error_message = e;
-            self.error_occurred(self.error_message.clone());
+            self.report_error(e);
         }
 
         true

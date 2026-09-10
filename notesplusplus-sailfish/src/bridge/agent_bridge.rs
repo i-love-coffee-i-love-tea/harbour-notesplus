@@ -138,7 +138,7 @@ impl Default for AgentBridge {
             models_loading: false,
             provider_type: "ollama".to_string(),
             endpoint_url: DEFAULT_OLLAMA_ENDPOINT.to_string(),
-            model_name: "llama3.2".to_string(),
+            model_name: notesplusplus_core::constants::DEFAULT_AI_MODEL.to_string(),
             internal_api_key: String::new(),
             timeout_secs: 90,
             auto_allow_read: true,
@@ -182,6 +182,11 @@ impl Default for AgentBridge {
 }
 
 impl AgentBridge {
+    fn report_error(&mut self, msg: String) {
+        self.error_message = msg;
+        self.error_occurred(self.error_message.clone());
+    }
+
     pub fn configure(
         &mut self,
         provider: String,
@@ -206,11 +211,7 @@ impl AgentBridge {
         self.allow_self_signed = allow_self_signed;
         self.allow_fetch_url = allow_fetch;
 
-        let provider_enum = if provider.to_lowercase() == "mimocode" || provider.to_lowercase() == "openai" {
-            LlmProvider::OpenAiCompatible
-        } else {
-            LlmProvider::Ollama
-        };
+        let provider_enum: LlmProvider = provider.parse().unwrap_or_default();
 
         let llm_config = LlmConfig {
             provider: provider_enum,
@@ -571,8 +572,7 @@ impl AgentBridge {
                 eprintln!("[debug:agent] worker_result lock poisoned: {}", e);
                 self.agent_busy = false;
                 self.busy_changed();
-                self.error_message = format!("Internal error: {}", e);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Internal error: {}", e));
                 return false;
             }
         };
@@ -610,12 +610,10 @@ impl AgentBridge {
                     // Pending action updated
                 }
                 Ok(AgentStepResult::Error(err)) => {
-                    self.error_message = err.clone();
-                    self.error_occurred(err);
+                    self.report_error(err);
                 }
                 Err(err) => {
-                    self.error_message = err.clone();
-                    self.error_occurred(err);
+                    self.report_error(err);
                 }
             }
 
@@ -638,11 +636,7 @@ impl AgentBridge {
         self.models_changed();
 
         // Build a temporary LlmClient from current config properties
-        let provider_enum = if self.provider_type.to_lowercase() == "mimocode" || self.provider_type.to_lowercase() == "openai" {
-            LlmProvider::OpenAiCompatible
-        } else {
-            LlmProvider::Ollama
-        };
+        let provider_enum: LlmProvider = self.provider_type.parse().unwrap_or_default();
         let config = LlmConfig {
             provider: provider_enum,
             endpoint_url: self.endpoint_url.clone(),
@@ -681,8 +675,7 @@ impl AgentBridge {
                                 .unwrap_or_else(|_| "[]".to_string());
                         }
                         Err(e) => {
-                            self.error_message = format!("Failed to fetch models: {}", e);
-                            self.error_occurred(self.error_message.clone());
+                            self.report_error(format!("Failed to fetch models: {}", e));
                             self.available_models = "[]".to_string();
                         }
                     }

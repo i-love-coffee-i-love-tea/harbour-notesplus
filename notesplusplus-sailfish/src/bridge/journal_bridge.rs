@@ -13,8 +13,7 @@ impl NotesBridge {
             self.loading_changed();
 
             if let Some(error) = result.error {
-                self.error_message = error;
-                self.error_occurred(self.error_message.clone());
+                self.report_error(error);
                 return true;
             }
 

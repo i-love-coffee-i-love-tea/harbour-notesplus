@@ -67,7 +67,12 @@ pub fn parse_image_block(line: &str, title: Option<String>) -> Option<Block> {
     None
 }
 
-pub fn parse_open_block(lines: &[&str], title: Option<String>) -> (Block, usize) {
+fn parse_container_block(
+    lines: &[&str],
+    title: Option<String>,
+    is_closing_delimiter: fn(&str) -> bool,
+    make_block: fn(Option<String>, Vec<Block>, String) -> Block,
+) -> (Block, usize) {
     let mut inner_lines = Vec::new();
     let mut raw_lines = Vec::new();
     let mut consumed = 0;
@@ -76,79 +81,34 @@ pub fn parse_open_block(lines: &[&str], title: Option<String>) -> (Block, usize)
         raw_lines.push(line.to_string());
         consumed += 1;
         if idx == 0 {
-            continue; // opening --
+            continue; // skip opening delimiter
         }
-        if is_open_delimiter(line.trim()) {
+        if is_closing_delimiter(line.trim()) {
             break;
         }
         inner_lines.push(*line);
     }
 
     let children = parse_blocks(&inner_lines.join("\n"));
-    (
-        Block::Open {
-            title,
-            children,
-            raw: raw_lines.join("\n"),
-        },
-        consumed,
-    )
+    (make_block(title, children, raw_lines.join("\n")), consumed)
+}
+
+pub fn parse_open_block(lines: &[&str], title: Option<String>) -> (Block, usize) {
+    parse_container_block(lines, title, is_open_delimiter, |title, children, raw| {
+        Block::Open { title, children, raw }
+    })
 }
 
 pub fn parse_sidebar_block(lines: &[&str], title: Option<String>) -> (Block, usize) {
-    let mut inner_lines = Vec::new();
-    let mut raw_lines = Vec::new();
-    let mut consumed = 0;
-
-    for (idx, line) in lines.iter().enumerate() {
-        raw_lines.push(line.to_string());
-        consumed += 1;
-        if idx == 0 {
-            continue; // opening ****
-        }
-        if is_sidebar_delimiter(line.trim()) {
-            break;
-        }
-        inner_lines.push(*line);
-    }
-
-    let children = parse_blocks(&inner_lines.join("\n"));
-    (
-        Block::Sidebar {
-            title,
-            children,
-            raw: raw_lines.join("\n"),
-        },
-        consumed,
-    )
+    parse_container_block(lines, title, is_sidebar_delimiter, |title, children, raw| {
+        Block::Sidebar { title, children, raw }
+    })
 }
 
 pub fn parse_example_block(lines: &[&str], title: Option<String>) -> (Block, usize) {
-    let mut inner_lines = Vec::new();
-    let mut raw_lines = Vec::new();
-    let mut consumed = 0;
-
-    for (idx, line) in lines.iter().enumerate() {
-        raw_lines.push(line.to_string());
-        consumed += 1;
-        if idx == 0 {
-            continue; // opening ====
-        }
-        if is_example_delimiter(line.trim()) {
-            break;
-        }
-        inner_lines.push(*line);
-    }
-
-    let children = parse_blocks(&inner_lines.join("\n"));
-    (
-        Block::Example {
-            title,
-            children,
-            raw: raw_lines.join("\n"),
-        },
-        consumed,
-    )
+    parse_container_block(lines, title, is_example_delimiter, |title, children, raw| {
+        Block::Example { title, children, raw }
+    })
 }
 
 pub fn parse_delimited_block(

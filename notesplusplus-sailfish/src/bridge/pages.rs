@@ -2,7 +2,7 @@ use qmetaobject::*;
 use std::path::PathBuf;
 
 use notesplusplus_core::block::Block;
-use notesplusplus_core::constants::JOURNAL_FILENAME;
+use notesplusplus_core::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
 
 /// Navigate to a block within `blocks[idx]` using a dot-separated `item_path`
 /// and toggle its checkbox state. Returns `true` if a checkbox was toggled.
@@ -48,7 +48,7 @@ use super::{NotesBridge, MainPageData, PendingResult};
 
 impl NotesBridge {
     fn resolve_page_filename(&self, name_or_title: &str) -> String {
-        if name_or_title == "Journal" || name_or_title == "journal" {
+        if name_or_title.eq_ignore_ascii_case(JOURNAL_TITLE) {
             return JOURNAL_FILENAME.to_string();
         }
         if let Some(conn) = self.conn() {
@@ -56,18 +56,23 @@ impl NotesBridge {
                 return info.filename;
             }
         }
-        if name_or_title.ends_with(".adoc") {
-            name_or_title.to_string()
-        } else {
-            format!("{}.adoc", name_or_title)
-        }
+        page::ensure_adoc_extension(name_or_title)
+    }
+
+    fn notes_dir(&self) -> std::path::PathBuf {
+        self.notes_path.join("notes")
+    }
+
+    fn report_error(&mut self, msg: String) {
+        self.error_message = msg;
+        self.error_occurred(self.error_message.clone());
     }
 
     fn mutate_page_blocks<F>(&mut self, filename: &str, mutator: F)
     where
         F: FnOnce(&mut Vec<Block>) -> bool,
     {
-        let path = self.notes_path.join("notes").join(filename);
+        let path = self.notes_dir().join(filename);
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -90,7 +95,6 @@ impl NotesBridge {
                 }
             }
 
-            self.page_saved();
         }
     }
 
@@ -107,7 +111,7 @@ impl NotesBridge {
                 self.current_page_name = info.title.clone();
                 self.is_journal_page = info.is_journal;
 
-                let notes_dir = self.notes_path.join("notes");
+                let notes_dir = self.notes_dir();
                 let pending = self.pending.clone();
                 let drop_comments = self.drop_comments;
                 self.is_loading = true;
@@ -133,12 +137,10 @@ impl NotesBridge {
                 });
             }
             Ok(None) => {
-                self.error_message = format!("Page '{}' not found", name);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Page '{}' not found", name));
             }
             Err(e) => {
-                self.error_message = e;
-                self.error_occurred(self.error_message.clone());
+                self.report_error(e);
             }
         }
     }
@@ -183,7 +185,7 @@ impl NotesBridge {
             return;
         }
 
-        let is_journal = self.is_journal_page || self.current_page_name == "Journal" || self.current_page_name == "journal";
+        let is_journal = self.is_journal_page || self.current_page_name.eq_ignore_ascii_case(JOURNAL_TITLE);
         let line_to_append = if is_task {
             if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
                 trimmed.to_string()
@@ -201,26 +203,24 @@ impl NotesBridge {
         };
 
         if is_journal {
-            if let Err(e) = journal::append_to_journal_today(&self.notes_path.join("notes"), &line_to_append) {
-                self.error_message = format!("Failed to append to journal: {}", e);
-                self.error_occurred(self.error_message.clone());
+            if let Err(e) = journal::append_to_journal_today(&self.notes_dir(), &line_to_append) {
+                self.report_error(format!("Failed to append to journal: {}", e));
                 return;
             }
             if let Some(conn) = self.conn() {
-                let path = self.notes_path.join("notes").join(JOURNAL_FILENAME);
+                let path = self.notes_dir().join(JOURNAL_FILENAME);
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(Some(info)) = page::get_page(conn, JOURNAL_FILENAME) {
                         let _ = db::update_fts_content(conn, info.id, &content);
                     }
                 }
             }
-            self.page_saved();
             self.load_page_impl("Journal".to_string());
             return;
         }
 
         let filename = self.resolve_page_filename(&self.current_page_name);
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
 
         let mut content = std::fs::read_to_string(&path).unwrap_or_default();
 
@@ -231,8 +231,7 @@ impl NotesBridge {
         content.push('\n');
 
         if let Err(e) = std::fs::write(&path, &content) {
-            self.error_message = format!("Failed to append to note: {}", e);
-            self.error_occurred(self.error_message.clone());
+            self.report_error(format!("Failed to append to note: {}", e));
             return;
         }
 
@@ -242,7 +241,6 @@ impl NotesBridge {
             }
         }
 
-        self.page_saved();
         let page_name = self.current_page_name.clone();
         if !page_name.is_empty() {
             self.load_page_impl(page_name);
@@ -270,7 +268,7 @@ impl NotesBridge {
         if block_index < 0 { return; }
         let idx = block_index as usize;
         let filename = JOURNAL_FILENAME.to_string();
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
 
         if idx < self.journal_blocks_data.len() {
             toggle_check_in_blocks(&mut self.journal_blocks_data, idx, &item_path);
@@ -290,7 +288,6 @@ impl NotesBridge {
                     let _ = db::update_fts_content(conn, info.id, &new_content);
                 }
             }
-            self.page_saved();
             self.load_main_page_data_impl();
         }
     }
@@ -318,14 +315,13 @@ impl NotesBridge {
             trimmed.to_string()
         };
 
-        if let Err(e) = journal::append_to_journal_today(&self.notes_path.join("notes"), &line_to_append) {
-            self.error_message = format!("Failed to append to journal: {}", e);
-            self.error_occurred(self.error_message.clone());
+        if let Err(e) = journal::append_to_journal_today(&self.notes_dir(), &line_to_append) {
+            self.report_error(format!("Failed to append to journal: {}", e));
             return;
         }
 
         if let Some(conn) = self.conn() {
-            let path = self.notes_path.join("notes").join(JOURNAL_FILENAME);
+            let path = self.notes_dir().join(JOURNAL_FILENAME);
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(Some(info)) = page::get_page(conn, JOURNAL_FILENAME) {
                     let _ = db::update_fts_content(conn, info.id, &content);
@@ -333,23 +329,21 @@ impl NotesBridge {
             }
         }
 
-        self.page_saved();
         self.load_main_page_data_impl();
     }
 
     fn get_page_source_impl(&mut self, name: String) -> String {
         let filename = self.resolve_page_filename(&name);
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
         std::fs::read_to_string(&path).unwrap_or_default()
     }
 
     fn save_page_source_impl(&mut self, name: String, content: String) {
         self.ensure_init();
         let filename = self.resolve_page_filename(&name);
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
         if let Err(e) = std::fs::write(&path, &content) {
-            self.error_message = format!("Failed to save source: {}", e);
-            self.error_occurred(self.error_message.clone());
+            self.report_error(format!("Failed to save source: {}", e));
             return;
         }
 
@@ -359,7 +353,6 @@ impl NotesBridge {
             }
         }
 
-        self.page_saved();
         self.load_page_impl(name);
     }
 
@@ -371,7 +364,7 @@ impl NotesBridge {
         } else {
             self.resolve_page_filename(&self.current_page_name)
         };
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
 
         if idx < self.current_blocks_data.len() {
             toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
@@ -406,13 +399,12 @@ impl NotesBridge {
             None => return,
         };
 
-        match page::create_page(conn, &self.notes_path.join("notes"), &name, false) {
+        match page::create_page(conn, &self.notes_dir(), &name, false) {
             Ok(_) => {
                 self.load_main_page_data_impl();
             }
             Err(e) => {
-                self.error_message = e;
-                self.error_occurred(self.error_message.clone());
+                self.report_error(e);
             }
         }
     }
@@ -428,7 +420,7 @@ impl NotesBridge {
         let target_title = target_page.as_ref().map(|p| p.title.clone()).unwrap_or_else(|| name.clone());
         let target_filename = target_page.as_ref().map(|p| p.filename.clone());
 
-        match page::delete_page(conn, &self.notes_path.join("notes"), &name) {
+        match page::delete_page(conn, &self.notes_dir(), &name) {
             Ok(_) => {
                 let is_current = self.current_page_name == name
                     || self.current_page_name == target_title
@@ -444,8 +436,7 @@ impl NotesBridge {
                 self.load_main_page_data_impl();
             }
             Err(e) => {
-                self.error_message = e;
-                self.error_occurred(self.error_message.clone());
+                self.report_error(e);
             }
         }
     }
@@ -463,7 +454,7 @@ impl NotesBridge {
         } else {
             self.resolve_page_filename(&self.current_page_name)
         };
-        let path = self.notes_path.join("notes").join(&filename);
+        let path = self.notes_dir().join(&filename);
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
@@ -494,11 +485,11 @@ impl NotesBridge {
         eprintln!("[debug] init ready, starting data load at {:?}", t_start.elapsed());
 
         // Journal data (fast, keep synchronous)
-        let _ = journal::init_journal(&self.notes_path.join("notes"));
+        let _ = journal::init_journal(&self.notes_dir());
         self.journal_blocks = QVariantList::default();
         self.journal_blocks_data = Vec::new();
 
-        match journal::recent_journal_lines(&self.notes_path.join("notes"), 5) {
+        match journal::recent_journal_lines(&self.notes_dir(), 5) {
             Ok(lines) => {
                 let mut list = QVariantList::default();
                 for line in &lines {
@@ -523,7 +514,7 @@ impl NotesBridge {
             Ok(pages) => {
                 eprintln!("[debug] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
 
-                let notes_dir = self.notes_path.join("notes");
+                let notes_dir = self.notes_dir();
                 let drop_comments = self.drop_comments;
                 let pending = self.pending_main_page.clone();
 
@@ -596,7 +587,7 @@ impl NotesBridge {
 
     fn export_html_impl(&mut self, page_name: String) -> String {
         self.ensure_init();
-        let filename = if self.is_journal_page || page_name == "Journal" || page_name == "journal" {
+        let filename = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
             JOURNAL_FILENAME.to_string()
         } else {
             self.resolve_page_filename(&page_name)
@@ -607,15 +598,13 @@ impl NotesBridge {
         let title = page_name.strip_suffix(".adoc").unwrap_or(&page_name);
         let output_path = export_dir.join(format!("{}.html", title));
 
-        match notesplusplus_core::html::export_page_to_html5(&self.notes_path.join("notes"), &self.notes_path, &filename, &output_path) {
+        match notesplusplus_core::html::export_page_to_html5(&self.notes_dir(), &self.notes_path, &filename, &output_path) {
             Ok(path) => {
                 let path_str = path.to_string_lossy().to_string();
-                self.html_exported(path_str.clone());
                 path_str
             }
             Err(e) => {
-                self.error_message = format!("Export failed: {}", e);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Export failed: {}", e));
                 String::new()
             }
         }
@@ -628,7 +617,7 @@ impl NotesBridge {
         let _ = std::fs::create_dir_all(&export_dir);
 
         let mut exported_count = 0;
-        let notes_subdir = self.notes_path.join("notes");
+        let notes_subdir = self.notes_dir();
         // Export .adoc files from the notes subdirectory
         if let Ok(entries) = std::fs::read_dir(&notes_subdir) {
             for entry in entries.flatten() {
@@ -660,13 +649,12 @@ impl NotesBridge {
         }
 
         let result_dir_str = export_dir.to_string_lossy().to_string();
-        self.html_exported(format!("{} ({} notes)", result_dir_str, exported_count));
         result_dir_str
     }
 
     fn open_in_browser_impl(&mut self, page_name: String) {
         if self.web_server_running {
-            let filename = if self.is_journal_page || page_name == "Journal" || page_name == "journal" {
+            let filename = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
                 JOURNAL_FILENAME.to_string()
             } else {
                 self.resolve_page_filename(&page_name)
@@ -698,7 +686,7 @@ impl NotesBridge {
 
         let config = notesplusplus_core::server::ServerConfig {
             notes_dir: self.notes_path.clone(),
-            notes_subdir: self.notes_path.join("notes"),
+            notes_subdir: self.notes_dir(),
             db_path,
             backup_dir,
             port: 8080,
@@ -724,8 +712,7 @@ impl NotesBridge {
                 primary_url
             }
             Err(e) => {
-                self.error_message = format!("Failed to start web server: {}", e);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Failed to start web server: {}", e));
                 String::new()
             }
         }
@@ -864,10 +851,7 @@ impl NotesBridge {
         allow_self_signed: bool,
         allow_fetch: bool,
     ) {
-        let p = match provider.to_lowercase().as_str() {
-            "mimocode" | "openai" => notesplusplus_core::agent::LlmProvider::OpenAiCompatible,
-            _ => notesplusplus_core::agent::LlmProvider::Ollama,
-        };
+        let p: notesplusplus_core::agent::LlmProvider = provider.parse().unwrap_or_default();
         self.llm_config.provider = p;
         self.llm_config.endpoint_url = if url.trim().is_empty() {
             match p {
@@ -878,7 +862,7 @@ impl NotesBridge {
             url.trim().to_string()
         };
         self.llm_config.model = if model.trim().is_empty() {
-            "llama3.2".to_string()
+            notesplusplus_core::constants::DEFAULT_AI_MODEL.to_string()
         } else {
             model.trim().to_string()
         };
@@ -920,8 +904,7 @@ impl NotesBridge {
                 String::new()
             }
             Err(e) => {
-                self.error_message = format!("Failed to install SSL certificate: {}", e);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Failed to install SSL certificate: {}", e));
                 e
             }
         }
@@ -942,8 +925,7 @@ impl NotesBridge {
                 String::new()
             }
             Err(e) => {
-                self.error_message = format!("Failed to reset SSL certificate: {}", e);
-                self.error_occurred(self.error_message.clone());
+                self.report_error(format!("Failed to reset SSL certificate: {}", e));
                 e
             }
         }
@@ -967,21 +949,6 @@ impl NotesBridge {
         }).to_string()
     }
 
-    fn configure_auth_impl(
-        &mut self,
-        _enabled: bool,
-        _basic_enabled: bool,
-        _username: String,
-        _password: String,
-    ) {
-    }
-
-    fn get_auth_info_json_impl(&self) -> String {
-        serde_json::json!({
-            "auth_required": true,
-        }).to_string()
-    }
-
     // QML method wrappers
     pub fn configure_ai(&mut self, provider: String, url: String, model: String, key: String, timeout: i32, auto_read: bool, auto_create: bool, require_edit: bool, allow_self_signed: bool, allow_fetch: bool) {
         self.configure_ai_impl(provider, url, model, key, timeout, auto_read, auto_create, require_edit, allow_self_signed, allow_fetch);
@@ -997,18 +964,6 @@ impl NotesBridge {
     }
     pub fn get_tls_certificate_info_json(&mut self) -> String {
         self.get_tls_certificate_info_json_impl()
-    }
-    pub fn configure_auth(
-        &mut self,
-        enabled: bool,
-        basic_enabled: bool,
-        username: String,
-        password: String,
-    ) {
-        self.configure_auth_impl(enabled, basic_enabled, username, password);
-    }
-    pub fn get_auth_info_json(&mut self) -> String {
-        self.get_auth_info_json_impl()
     }
     pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }

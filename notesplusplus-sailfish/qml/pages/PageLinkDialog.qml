@@ -11,8 +11,6 @@ Dialog {
     property string targetPageTitle: ""
     property string linkDisplayText: selectedText || ""
     property string formattedLink: ""
-    property alias selectedFilename: pageLinkDialog.targetPageFilename
-    property alias selectedTitle: pageLinkDialog.targetPageTitle
     property var pagesList: []
 
     canAccept: (targetPageFilename.length > 0) || (searchField.text.trim().length > 0) || (linkDisplayField.text.trim().length > 0)

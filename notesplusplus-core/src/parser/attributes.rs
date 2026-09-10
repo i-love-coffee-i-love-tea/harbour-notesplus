@@ -154,13 +154,6 @@ pub fn parse_cols_value(val: &str) -> (Vec<f64>, Vec<bool>, Vec<ColSpec>) {
     (widths, asciidoc, specs)
 }
 
-#[allow(dead_code)]
-pub fn parse_cols_attribute(attr: &str) -> (Vec<f64>, Vec<bool>) {
-    let inner = attr.trim_start_matches("[cols=").trim_end_matches(']');
-    let (w, a, _) = parse_cols_value(inner);
-    (w, a)
-}
-
 pub fn parse_table_attributes(
     attr_line: &str,
     col_widths: &mut Vec<f64>,

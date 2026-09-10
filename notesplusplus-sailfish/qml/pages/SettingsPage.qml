@@ -12,12 +12,6 @@ Page {
     property bool modelsLoaded: false
     property var sttModelsList: []
 
-    function formatSize(bytes) {
-        if (!bytes || bytes <= 0) return ""
-        var mb = bytes / (1024 * 1024)
-        return mb.toFixed(0) + " MB"
-    }
-
     function refreshSttModels() {
         if (typeof speechBridge !== "undefined" && speechBridge && speechBridge.available_models_json) {
             try {
@@ -331,8 +325,8 @@ Page {
                             text: "Sample Document Heading"
                             color: Theme.highlightColor
                             font.bold: true
-                            font.family: (app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                            font.pixelSize: Math.round(Theme.fontSizeLarge * app.fontScale)
+                            font.family: app.resolvedFontFamily()
+                            font.pixelSize: app.scaledFontSize(Theme.fontSizeLarge)
                             wrapMode: Text.Wrap
                         }
 
@@ -341,8 +335,8 @@ Page {
                             text: "This is a live preview of body text with <b>bold</b>, <i>italic</i>, and <code style='background:#18181c;color:#f2f2f7;padding:1px 4px;border-radius:3px;font-family:monospace;'>code spans</code>."
                             textFormat: Text.RichText
                             color: Theme.primaryColor
-                            font.family: (app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                            font.pixelSize: Math.round(Theme.fontSizeMedium * app.fontScale)
+                            font.family: app.resolvedFontFamily()
+                            font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                             wrapMode: Text.Wrap
                         }
 
@@ -677,40 +671,21 @@ Page {
                     visible: (typeof app !== "undefined" && app && app.sttEnabled !== undefined) ? app.sttEnabled : true
 
                     // Info Card
-                    Rectangle {
-                        width: parent.width - Theme.horizontalPageMargin * 2
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        height: sttInfoCol.height + Theme.paddingMedium * 2
-                        color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
-                        border.color: Theme.rgba(Theme.highlightColor, 0.3)
-                        border.width: 1
-                        radius: Theme.paddingSmall
+                    InfoCard {
+                        Label {
+                            width: parent.width
+                            text: qsTr("Offline Speech Recognition")
+                            color: Theme.highlightColor
+                            font.bold: true
+                            font.pixelSize: Theme.fontSizeMedium
+                        }
 
-                        Column {
-                            id: sttInfoCol
-                            anchors {
-                                left: parent.left
-                                right: parent.right
-                                top: parent.top
-                                margins: Theme.paddingMedium
-                            }
-                            spacing: Theme.paddingSmall
-
-                            Label {
-                                width: parent.width
-                                text: qsTr("Offline Speech Recognition")
-                                color: Theme.highlightColor
-                                font.bold: true
-                                font.pixelSize: Theme.fontSizeMedium
-                            }
-
-                            Label {
-                                width: parent.width
-                                text: qsTr("Speech recognition runs 100% offline on your device using Whisper models. Downloaded models are stored locally. Whisper Tiny (~75 MB) or Base (~142 MB) are recommended for fast performance.")
-                                color: Theme.primaryColor
-                                font.pixelSize: Theme.fontSizeExtraSmall
-                                wrapMode: Text.Wrap
-                            }
+                        Label {
+                            width: parent.width
+                            text: qsTr("Speech recognition runs 100% offline on your device using Whisper models. Downloaded models are stored locally. Whisper Tiny (~75 MB) or Base (~142 MB) are recommended for fast performance.")
+                            color: Theme.primaryColor
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            wrapMode: Text.Wrap
                         }
                     }
 
@@ -722,175 +697,11 @@ Page {
                     Repeater {
                         model: sttModelsList
 
-                        delegate: BackgroundItem {
-                            id: modelDelegate
-                            width: parent.width
-                            height: sttItemColumn.height + Theme.paddingMedium * 2
-
-                            readonly property var modelItem: modelData
-                            readonly property bool isCurrentDownloading: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_downloading && speechBridge.downloading_model_id === modelItem.id
-                            readonly property bool isModelActive: (typeof speechBridge !== "undefined" && speechBridge && speechBridge.active_model_id === modelItem.id) || (modelItem.is_active === true)
-                            readonly property bool isModelInstalled: modelItem.is_installed === true
-
-                            Column {
-                                id: sttItemColumn
-                                anchors {
-                                    left: parent.left
-                                    right: parent.right
-                                    top: parent.top
-                                    leftMargin: Theme.horizontalPageMargin
-                                    rightMargin: Theme.horizontalPageMargin
-                                    topMargin: Theme.paddingSmall
-                                }
-                                spacing: Theme.paddingSmall
-
-                                // Header row with Name and Badges
-                                Row {
-                                    width: parent.width
-                                    spacing: Theme.paddingSmall
-
-                                    Label {
-                                        text: modelItem.name || modelItem.id
-                                        color: isModelActive ? Theme.highlightColor : Theme.primaryColor
-                                        font.bold: true
-                                        font.pixelSize: Theme.fontSizeMedium
-                                    }
-
-                                    Rectangle {
-                                        visible: isModelActive
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: sttActiveLabel.width + Theme.paddingSmall
-                                        height: sttActiveLabel.height + Theme.paddingSmall / 2
-                                        color: Theme.rgba(Theme.highlightColor, 0.25)
-                                        border.color: Theme.highlightColor
-                                        border.width: 1
-                                        radius: 4
-
-                                        Label {
-                                            id: sttActiveLabel
-                                            anchors.centerIn: parent
-                                            text: qsTr("ACTIVE")
-                                            color: Theme.highlightColor
-                                            font.bold: true
-                                            font.pixelSize: Theme.fontSizeTiny
-                                        }
-                                    }
-                                }
-
-                                // Meta row: Language & Size
-                                Row {
-                                    width: parent.width
-                                    spacing: Theme.paddingMedium
-
-                                    Label {
-                                        text: modelItem.is_multilingual ? qsTr("Multilingual") : qsTr("English only")
-                                        color: Theme.secondaryColor
-                                        font.pixelSize: Theme.fontSizeExtraSmall
-                                    }
-
-                                    Label {
-                                        text: formatSize(modelItem.size_bytes)
-                                        color: Theme.secondaryColor
-                                        font.pixelSize: Theme.fontSizeExtraSmall
-                                    }
-
-                                    Label {
-                                        text: isModelInstalled ? qsTr("Installed") : qsTr("Not downloaded")
-                                        color: isModelInstalled ? Theme.highlightColor : Theme.secondaryColor
-                                        font.pixelSize: Theme.fontSizeExtraSmall
-                                    }
-                                }
-
-                                // Description
-                                Label {
-                                    width: parent.width
-                                    text: modelItem.description || ""
-                                    color: Theme.secondaryColor
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    wrapMode: Text.Wrap
-                                }
-
-                                // Active Download Progress
-                                Column {
-                                    width: parent.width
-                                    visible: isCurrentDownloading
-                                    spacing: Theme.paddingSmall
-
-                                    ProgressBar {
-                                        width: parent.width
-                                        minimumValue: 0
-                                        maximumValue: 100
-                                        value: typeof speechBridge !== "undefined" && speechBridge ? speechBridge.download_progress : 0
-                                        label: qsTr("Downloading model...")
-                                        valueText: Math.round(value) + "%"
-                                    }
-
-                                    Button {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: qsTr("Cancel Download")
-                                        preferredWidth: Theme.buttonWidthSmall
-                                        onClicked: {
-                                            if (typeof speechBridge !== "undefined" && speechBridge) {
-                                                speechBridge.cancel_download()
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Installed Actions
-                                Row {
-                                    visible: isModelInstalled && !isCurrentDownloading
-                                    spacing: Theme.paddingMedium
-                                    anchors.horizontalCenter: parent.horizontalCenter
-
-                                    Button {
-                                        text: qsTr("Set Active")
-                                        visible: !isModelActive
-                                        preferredWidth: Theme.buttonWidthSmall
-                                        onClicked: {
-                                            if (typeof speechBridge !== "undefined" && speechBridge) {
-                                                speechBridge.set_active_model(modelItem.id)
-                                            }
-                                            if (typeof app !== "undefined" && app && app.setSttModel) {
-                                                app.setSttModel(modelItem.id)
-                                            }
-                                        }
-                                    }
-
-                                    Button {
-                                        text: qsTr("Delete")
-                                        preferredWidth: Theme.buttonWidthSmall
-                                        color: Theme.highlightColor
-                                        onClicked: {
-                                            if (typeof speechBridge !== "undefined" && speechBridge) {
-                                                speechBridge.delete_model(modelItem.id)
-                                                remorsePopup.execute(qsTr("Deleted %1").arg(modelItem.name), function() {})
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Not Installed Actions
-                                Row {
-                                    visible: !isModelInstalled && !isCurrentDownloading
-                                    anchors.horizontalCenter: parent.horizontalCenter
-
-                                    Button {
-                                        text: qsTr("Download (%1)").arg(formatSize(modelItem.size_bytes))
-                                        preferredWidth: Theme.buttonWidthMedium
-                                        enabled: !(typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_downloading)
-                                        onClicked: {
-                                            if (typeof speechBridge !== "undefined" && speechBridge) {
-                                                speechBridge.download_model(modelItem.id)
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Bottom separator
-                                Separator {
-                                    width: parent.width
-                                    color: Theme.rgba(Theme.primaryColor, 0.1)
+                        delegate: SttModelDelegate {
+                            onDeleteRequested: function(modelId, modelName) {
+                                if (typeof speechBridge !== "undefined" && speechBridge) {
+                                    speechBridge.delete_model(modelId)
+                                    remorsePopup.execute(qsTr("Deleted %1").arg(modelName), function() {})
                                 }
                             }
                         }

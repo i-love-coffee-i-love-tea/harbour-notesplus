@@ -263,22 +263,6 @@ pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), Strin
     Ok(())
 }
 
-/// Get parsed and rendered journal blocks.
-pub fn get_journal_blocks(notes_dir: &Path, limit: Option<usize>, drop_comments: bool) -> Result<Vec<Block>, String> {
-    init_journal(notes_dir)?;
-    let path = notes_dir.join(JOURNAL_FILENAME);
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mut blocks = crate::parser::parse_blocks_with_options(&content, drop_comments);
-    let today = Local::now().format("%Y-%m-%d").to_string();
-    remove_empty_day_headings(&mut blocks, &today);
-    if let Some(lim) = limit {
-        if blocks.len() > lim {
-            blocks.truncate(lim);
-        }
-    }
-    Ok(blocks)
-}
-
 fn is_date_string(s: &str) -> bool {
     // Simple check: YYYY-MM-DD
     if s.len() != 10 {
@@ -407,11 +391,14 @@ mod tests {
     fn get_journal_blocks_parses_and_preserves_today() {
         let dir = TempDir::new().unwrap();
         let notes = dir.path();
-        let today = Local::now().format("%Y-%m-%d").to_string();
 
         append_to_journal_today(notes, "* [ ] Buy groceries").unwrap();
 
-        let blocks = get_journal_blocks(notes, None, true).unwrap();
+        let path = notes.join(JOURNAL_FILENAME);
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut blocks = crate::parser::parse_blocks_with_options(&content, true);
+        let today = Local::now().format("%Y-%m-%d").to_string();
+        remove_empty_day_headings(&mut blocks, &today);
         assert!(blocks.len() >= 2);
         match &blocks[0] {
             Block::Heading { raw, .. } => assert!(raw.contains(&today)),

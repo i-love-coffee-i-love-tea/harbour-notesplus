@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::block::Block;
 use crate::inline::InlineSpan;
 use crate::parser;
+use crate::server::http::escape_html;
 
 pub mod assets;
 pub mod icons;
@@ -144,10 +145,10 @@ pub fn export_all_pages_to_html5(
 }
 
 #[derive(Debug, Clone)]
-pub struct TocHeading {
-    pub level: u8,
-    pub title: String,
-    pub id: String,
+pub(crate) struct TocHeading {
+    pub(crate) level: u8,
+    pub(crate) title: String,
+    pub(crate) id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -461,10 +462,36 @@ impl<'a> HtmlRenderContext<'a> {
         )
     }
 
+    fn render_title_html(title: Option<&str>) -> String {
+        Self::render_title_html_class(title, "title")
+    }
+
+    fn render_title_html_class(title: Option<&str>, css_class: &str) -> String {
+        title
+            .map(|t| format!(r#"<div class="{}">{}</div>"#, css_class, escape_html(t)))
+            .unwrap_or_default()
+    }
+
+    fn render_attribution_html(attribution: Option<&str>, citation: Option<&str>) -> String {
+        match (attribution, citation) {
+            (Some(a), Some(c)) => format!(
+                r#"<div class="attribution">&#8212; {} <cite>{}</cite></div>"#,
+                escape_html(a), escape_html(c)
+            ),
+            (Some(a), None) => format!(
+                r#"<div class="attribution">&#8212; {}</div>"#,
+                escape_html(a)
+            ),
+            (None, Some(c)) => format!(
+                r#"<div class="attribution"><cite>{}</cite></div>"#,
+                escape_html(c)
+            ),
+            (None, None) => String::new(),
+        }
+    }
+
     fn render_code_block(&self, title: Option<&str>, language: Option<&str>, lines: &[String]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let lang_class = language
             .map(|l| format!(" language-{}", escape_html(l)))
             .unwrap_or_default();
@@ -482,9 +509,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_literal_block(&self, title: Option<&str>, lines: &[String]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let code_content = lines
             .iter()
             .map(|l| escape_html(l))
@@ -498,26 +523,9 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_blockquote(&mut self, title: Option<&str>, attribution: Option<&str>, citation: Option<&str>, children: &[Block]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let body = self.render_blocks(children);
-        let attr_html = match (attribution, citation) {
-            (Some(a), Some(c)) => format!(
-                r#"<div class="attribution">&#8212; {} <cite>{}</cite></div>"#,
-                escape_html(a),
-                escape_html(c)
-            ),
-            (Some(a), None) => format!(
-                r#"<div class="attribution">&#8212; {}</div>"#,
-                escape_html(a)
-            ),
-            (None, Some(c)) => format!(
-                r#"<div class="attribution"><cite>{}</cite></div>"#,
-                escape_html(c)
-            ),
-            (None, None) => String::new(),
-        };
+        let attr_html = Self::render_attribution_html(attribution, citation);
         format!(
             r#"<div class="quoteblock">{title}<blockquote>{body}</blockquote>{attr}</div>"#,
             title = title_html,
@@ -527,30 +535,13 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_verse_block(&self, title: Option<&str>, attribution: Option<&str>, citation: Option<&str>, lines: &[String]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let content = lines
             .iter()
             .map(|l| escape_html(l))
             .collect::<Vec<_>>()
             .join("\n");
-        let attr_html = match (attribution, citation) {
-            (Some(a), Some(c)) => format!(
-                r#"<div class="attribution">&#8212; {} <cite>{}</cite></div>"#,
-                escape_html(a),
-                escape_html(c)
-            ),
-            (Some(a), None) => format!(
-                r#"<div class="attribution">&#8212; {}</div>"#,
-                escape_html(a)
-            ),
-            (None, Some(c)) => format!(
-                r#"<div class="attribution"><cite>{}</cite></div>"#,
-                escape_html(c)
-            ),
-            (None, None) => String::new(),
-        };
+        let attr_html = Self::render_attribution_html(attribution, citation);
         format!(
             r#"<div class="verseblock">{title}<pre class="verse">{content}</pre>{attr}</div>"#,
             title = title_html,
@@ -560,9 +551,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_sidebar_block(&mut self, title: Option<&str>, children: &[Block]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="sidebar-title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html_class(title, "sidebar-title");
         let body = self.render_blocks(children);
         format!(
             r#"<aside class="sidebarblock">{title}<div class="sidebar-content">{body}</div></aside>"#,
@@ -572,9 +561,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_example_block(&mut self, title: Option<&str>, children: &[Block]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="example-title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html_class(title, "example-title");
         let body = self.render_blocks(children);
         format!(
             r#"<div class="exampleblock">{title}<div class="example-content">{body}</div></div>"#,
@@ -584,9 +571,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_table_block(&mut self, title: Option<&str>, rows: &[Vec<crate::block::TableCell>], col_widths: &[f64], frame: Option<&str>, grid: Option<&str>) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="table-title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html_class(title, "table-title");
         let frame_class = frame.unwrap_or("all");
         let grid_class = grid.unwrap_or("all");
 
@@ -641,9 +626,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_image_block(&self, title: Option<&str>, target: &str, alt: &str, width: Option<&str>, height: Option<&str>) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let img_src = self.resolve_image_source(target);
         let mut style = String::new();
         if let Some(w) = width {
@@ -685,9 +668,7 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_open_block(&mut self, title: Option<&str>, children: &[Block]) -> String {
-        let title_html = title
-            .map(|t| format!(r#"<div class="title">{}</div>"#, escape_html(t)))
-            .unwrap_or_default();
+        let title_html = Self::render_title_html(title);
         let body = self.render_blocks(children);
         format!(
             r#"<div class="openblock">{title}<div class="openblock-content">{body}</div></div>"#,
@@ -987,20 +968,7 @@ fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-fn escape_html(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
+
 
 #[cfg(test)]
 mod tests {

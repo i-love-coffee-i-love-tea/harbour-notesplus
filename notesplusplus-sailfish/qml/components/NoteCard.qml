@@ -6,7 +6,6 @@ BackgroundItem {
 
     property var cardData: ({})
     property int noteIndex: 0
-    property string searchTerm: ""
 
     function getNoteColor(name) {
         var palette = [

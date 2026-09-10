@@ -19,8 +19,8 @@ Column {
     InlineText {
         visible: Boolean(blockData && ((blockData.title_spans && blockData.title_spans.length > 0) || (blockData.title && blockData.title.length > 0)))
         spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
-        font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-        font.pixelSize: Math.round(Theme.fontSizeExtraSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+        font.family: app.resolvedFontFamily()
+        font.pixelSize: app.scaledFontSize(Theme.fontSizeExtraSmall)
         font.bold: true
         color: Theme.highlightColor
         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -74,20 +74,12 @@ Column {
                         return ""
                     }
                     font.italic: true
-                    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                    font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    font.family: app.resolvedFontFamily()
+                    font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                     color: Theme.primaryColor
                     linkColor: Theme.highlightColor
                     onLinkActivated: function(link) {
-                        if (link.indexOf("xref:") === 0) {
-                            var target = link.substring(5)
-                            if (target.indexOf(".adoc") === target.length - 5) {
-                                target = target.substring(0, target.length - 5)
-                            }
-                            verseQuoteDelegate.xrefActivated(target)
-                        } else if (link.indexOf("http") === 0) {
-                            Qt.openUrlExternally(link)
-                        }
+                        BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, null)
                     }
                 }
             }
@@ -101,20 +93,12 @@ Column {
                       ? BlockHtmlUtils.blocksToHtml(blockData.blocks, 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge && bridge.notes_dir) ? bridge.notes_dir : "", (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true)
                       : ("<i>" + BlockHtmlUtils.escapeHtml((blockData && (blockData.raw || "")) || "") + "</i>")
                 font.italic: true
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round(Theme.fontSizeMedium * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                 color: Theme.primaryColor
                 linkColor: Theme.highlightColor
                 onLinkActivated: function(link) {
-                    if (link.indexOf("xref:") === 0) {
-                        var target = link.substring(5)
-                        if (target.indexOf(".adoc") === target.length - 5) {
-                            target = target.substring(0, target.length - 5)
-                        }
-                        verseQuoteDelegate.xrefActivated(target)
-                    } else if (link.indexOf("http") === 0) {
-                        Qt.openUrlExternally(link)
-                    }
+                    BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, null)
                 }
             }
 
@@ -130,8 +114,8 @@ Column {
                     if (cit) return "\u2014 " + cit
                     return ""
                 }
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                 font.italic: true
                 color: Theme.highlightColor
             }

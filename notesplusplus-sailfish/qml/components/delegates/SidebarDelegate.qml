@@ -69,8 +69,8 @@ Item {
                     spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
                     color: Theme.highlightColor
                     font.bold: true
-                    font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                    font.pixelSize: Math.round(Theme.fontSizeSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                    font.family: app.resolvedFontFamily()
+                    font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                     font.capitalization: Font.AllUppercase
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 }
@@ -82,8 +82,8 @@ Item {
                 spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
                 color: isExample ? Theme.secondaryColor : Theme.highlightColor
                 font.bold: true
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round(Theme.fontSizeExtraSmall * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeExtraSmall)
                 font.capitalization: Font.AllUppercase
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
@@ -93,23 +93,12 @@ Item {
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 textFormat: Text.RichText
                 text: BlockHtmlUtils.blocksToHtml((blockData && blockData.blocks) ? blockData.blocks : [], 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true)
-                font.family: (typeof app !== "undefined" && app && app.docFontFamily && app.docFontFamily.length > 0) ? app.docFontFamily : Theme.fontFamily
-                font.pixelSize: Math.round((isOpen ? Theme.fontSizeMedium : Theme.fontSizeSmall) * ((typeof app !== "undefined" && app && app.fontScale) ? app.fontScale : 1.0))
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(isOpen ? Theme.fontSizeMedium : Theme.fontSizeSmall)
                 color: Theme.primaryColor
                 linkColor: Theme.highlightColor
                 onLinkActivated: function(link) {
-                    if (link.indexOf("xref:") === 0) {
-                        var target = link.substring(5)
-                        if (target.indexOf(".adoc") === target.length - 5) {
-                            target = target.substring(0, target.length - 5)
-                        }
-                        sidebarDelegate.xrefActivated(target)
-                    } else if (link.indexOf("toggle:") === 0) {
-                        var path = link.substring(7)
-                        sidebarDelegate.checkboxToggled(sidebarDelegate.blockIndex, path)
-                    } else if (link.indexOf("http") === 0) {
-                        Qt.openUrlExternally(link)
-                    }
+                    BlockHtmlUtils.handleLink(link, function(target) { sidebarDelegate.xrefActivated(target) }, function(path) { sidebarDelegate.checkboxToggled(sidebarDelegate.blockIndex, path) })
                 }
             }
         }

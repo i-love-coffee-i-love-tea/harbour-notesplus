@@ -255,76 +255,39 @@ impl Block {
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::CodeBlock { title, language, lines, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 if let Some(lang) = language {
                     map.insert("language".into(), serde_json::Value::String(lang.clone()));
                 }
-                map.insert("lines".into(), serde_json::Value::Array(
-                    lines.iter().map(|l| serde_json::Value::String(l.clone())).collect()
-                ));
+                map.insert("lines".into(), lines_to_json_array(lines));
             }
             Block::LiteralBlock { title, lines, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
-                map.insert("lines".into(), serde_json::Value::Array(
-                    lines.iter().map(|l| serde_json::Value::String(l.clone())).collect()
-                ));
+                insert_title(&mut map, title);
+                map.insert("lines".into(), lines_to_json_array(lines));
             }
             Block::Blockquote { title, attribution, citation, children, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
-                if let Some(a) = attribution {
-                    map.insert("attribution".into(), serde_json::Value::String(a.clone()));
-                }
-                if let Some(c) = citation {
-                    map.insert("citation".into(), serde_json::Value::String(c.clone()));
-                }
+                insert_title(&mut map, title);
+                insert_attribution_citation(&mut map, attribution, citation);
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::Verse { title, attribution, citation, lines, spans, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
-                if let Some(a) = attribution {
-                    map.insert("attribution".into(), serde_json::Value::String(a.clone()));
-                }
-                if let Some(c) = citation {
-                    map.insert("citation".into(), serde_json::Value::String(c.clone()));
-                }
-                map.insert("lines".into(), serde_json::Value::Array(
-                    lines.iter().map(|l| serde_json::Value::String(l.clone())).collect()
-                ));
+                insert_title(&mut map, title);
+                insert_attribution_citation(&mut map, attribution, citation);
+                map.insert("lines".into(), lines_to_json_array(lines));
                 map.insert("lines_spans".into(), serde_json::Value::Array(
                     spans.iter().map(|s| spans_to_json(s)).collect()
                 ));
             }
             Block::Sidebar { title, children, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::Example { title, children, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::Table { title, rows, col_widths, frame, grid, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("rows".into(), serde_json::Value::Array(
                     rows.iter().map(|row| {
                         serde_json::Value::Array(
@@ -361,10 +324,7 @@ impl Block {
                 }
             }
             Block::Image { title, target, alt, width, height, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("target".into(), serde_json::Value::String(target.clone()));
                 map.insert("alt".into(), serde_json::Value::String(alt.clone()));
                 if let Some(w) = width {
@@ -379,18 +339,12 @@ impl Block {
                 map.insert("text".into(), serde_json::Value::String(text.clone()));
             }
             Block::Admonition { title, kind, children, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("kind".into(), serde_json::Value::String(kind.clone()));
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::Open { title, children, .. } => {
-                if let Some(t) = title {
-                    map.insert("title".into(), serde_json::Value::String(t.clone()));
-                    map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
-                }
+                insert_title(&mut map, title);
                 map.insert("blocks".into(), blocks_to_json(children));
             }
         }
@@ -408,6 +362,32 @@ fn spans_to_json(spans: &[InlineSpan]) -> serde_json::Value {
 fn blocks_to_json(blocks: &[Block]) -> serde_json::Value {
     serde_json::Value::Array(
         blocks.iter().map(|b| b.to_qvariant_map()).collect()
+    )
+}
+
+fn insert_title(map: &mut serde_json::Map<String, serde_json::Value>, title: &Option<String>) {
+    if let Some(t) = title {
+        map.insert("title".into(), serde_json::Value::String(t.clone()));
+        map.insert("title_spans".into(), spans_to_json(&crate::inline::parse_inline(t)));
+    }
+}
+
+fn insert_attribution_citation(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    attribution: &Option<String>,
+    citation: &Option<String>,
+) {
+    if let Some(a) = attribution {
+        map.insert("attribution".into(), serde_json::Value::String(a.clone()));
+    }
+    if let Some(c) = citation {
+        map.insert("citation".into(), serde_json::Value::String(c.clone()));
+    }
+}
+
+fn lines_to_json_array(lines: &[String]) -> serde_json::Value {
+    serde_json::Value::Array(
+        lines.iter().map(|l| serde_json::Value::String(l.clone())).collect()
     )
 }
 

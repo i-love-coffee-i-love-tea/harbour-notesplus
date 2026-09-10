@@ -58,22 +58,6 @@ impl AgentSession {
         }
     }
 
-    pub fn backup_mgr(&self) -> &BackupManager {
-        &self.backup_mgr
-    }
-
-    pub fn permission_mgr(&self) -> &PermissionManager {
-        &self.permission_mgr
-    }
-
-    pub fn permission_mgr_mut(&mut self) -> &mut PermissionManager {
-        &mut self.permission_mgr
-    }
-
-    pub fn client(&self) -> &LlmClient {
-        &self.client
-    }
-
     pub fn messages(&self) -> &[ChatMessage] {
         &self.messages
     }
@@ -125,11 +109,6 @@ impl AgentSession {
         self.messages.push(ChatMessage::user(user_prompt));
     }
 
-    /// Appends a user prompt and drives the conversation loop.
-    pub fn send_prompt(&mut self, user_prompt: &str) -> AgentStepResult {
-        self.send_prompt_streaming(user_prompt, |_| {})
-    }
-
     /// Appends a user prompt and drives the conversation loop with a streaming token callback.
     pub fn send_prompt_streaming<F: FnMut(&str)>(&mut self, user_prompt: &str, on_token: F) -> AgentStepResult {
         if self.messages.is_empty() {
@@ -141,11 +120,6 @@ impl AgentSession {
             self.messages.push(ChatMessage::user(user_prompt));
         }
         self.run_loop_streaming(on_token)
-    }
-
-    /// Resolves pending confirmation (approving or rejecting) and resumes the loop.
-    pub fn confirm_pending_action(&mut self, approved: bool) -> AgentStepResult {
-        self.confirm_pending_action_streaming(approved, |_| {})
     }
 
     /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.

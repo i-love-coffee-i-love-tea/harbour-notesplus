@@ -8,9 +8,11 @@ use crate::block::Block;
 use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
 use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
+use crate::page::ensure_adoc_extension;
 use crate::parser;
 use crate::server::http::{
-    escape_html, send_attachment_response, send_response, ParsedHttpRequest,
+    escape_html, send_attachment_response, send_json_error, send_json_ok, send_response,
+    ParsedHttpRequest,
 };
 use crate::server::web_assets::INDEX_HTML;
 use crate::server::ServerContext;
@@ -121,8 +123,7 @@ pub fn handle_pages_api<W: Write>(
     let conn = match Connection::open(&ctx.db_path) {
         Ok(c) => c,
         Err(e) => {
-            let err = json!({ "error": format!("Database error: {}", e) });
-            send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+            send_json_error(stream, 500, "Internal Server Error", &format!("Database error: {}", e), cors_origin);
             return;
         }
     };
@@ -134,19 +135,16 @@ pub fn handle_pages_api<W: Write>(
                 send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
             }
             Err(e) => {
-                let err = json!({ "error": e });
-                send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
             }
         },
         "POST" => {
-            let body_str = String::from_utf8_lossy(&req.body);
-            let parsed: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+            let parsed = req.json_body();
             let name = parsed.get("name").or_else(|| parsed.get("title")).and_then(|v| v.as_str()).unwrap_or("").trim();
             let is_journal = parsed.get("is_journal").and_then(|v| v.as_bool()).unwrap_or(false);
 
             if name.is_empty() {
-                let err = json!({ "error": "Page name cannot be empty" });
-                send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 400, "Bad Request", "Page name cannot be empty", cors_origin);
                 return;
             }
 
@@ -155,8 +153,7 @@ pub fn handle_pages_api<W: Write>(
                     send_response(stream, 201, "Created", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
                 }
                 Err(e) => {
-                    let err = json!({ "error": e });
-                    send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                    send_json_error(stream, 400, "Bad Request", &e, cors_origin);
                 }
             }
         }
@@ -171,18 +168,13 @@ pub fn handle_page_detail_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let filename = if filename.ends_with(".adoc") {
-        filename.to_string()
-    } else {
-        format!("{}.adoc", filename)
-    };
+    let filename = ensure_adoc_extension(filename);
 
     match req.method.as_str() {
         "GET" => {
             let file_path = ctx.notes_subdir.join(&filename);
             if !file_path.is_file() {
-                let err = json!({ "error": format!("Page '{}' not found", filename) });
-                send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 404, "Not Found", &format!("Page '{}' not found", filename), cors_origin);
                 return;
             }
 
@@ -201,14 +193,12 @@ pub fn handle_page_detail_api<W: Write>(
                     send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
                 }
                 Err(e) => {
-                    let err = json!({ "error": format!("Failed to read file: {}", e) });
-                    send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
                 }
             }
         }
         "PUT" => {
-            let body_str = String::from_utf8_lossy(&req.body);
-            let parsed: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+            let parsed = req.json_body();
             
             // Check if block index update was requested
             if let Some(block_idx) = parsed.get("block_index").and_then(|v| v.as_i64()) {
@@ -226,21 +216,19 @@ pub fn handle_page_detail_api<W: Write>(
                             blocks.splice(idx..end_idx, new_blocks);
                             let new_content = parser::blocks_to_adoc(&blocks);
                             if let Err(e) = fs::write(&file_path, &new_content) {
-                                let err = json!({ "error": format!("Failed to write page: {}", e) });
-                                send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                                send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write page: {}", e), cors_origin);
                                 return;
                             }
                             if let Ok(conn) = Connection::open(&ctx.db_path) {
                                 let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                             }
                             let resp = json!({ "ok": true, "filename": filename });
-                            send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                            send_json_ok(stream, &resp, cors_origin);
                             return;
                         }
                     }
                     Err(e) => {
-                        let err = json!({ "error": format!("Failed to read file: {}", e) });
-                        send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                        send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
                         return;
                     }
                 }
@@ -250,7 +238,7 @@ pub fn handle_page_detail_api<W: Write>(
             let new_content = if let Some(content) = parsed.get("content").and_then(|v| v.as_str()) {
                 content.to_string()
             } else {
-                body_str.to_string()
+                String::from_utf8_lossy(&req.body).into_owned()
             };
 
             let file_path = ctx.notes_subdir.join(&filename);
@@ -260,11 +248,10 @@ pub fn handle_page_detail_api<W: Write>(
                         let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                     }
                     let resp = json!({ "ok": true, "filename": filename });
-                    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                    send_json_ok(stream, &resp, cors_origin);
                 }
                 Err(e) => {
-                    let err = json!({ "error": format!("Failed to write page: {}", e) });
-                    send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write page: {}", e), cors_origin);
                 }
             }
         }
@@ -273,16 +260,14 @@ pub fn handle_page_detail_api<W: Write>(
                 match page::delete_page(&conn, &ctx.notes_subdir, &filename) {
                     Ok(_) => {
                         let resp = json!({ "ok": true });
-                        send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                        send_json_ok(stream, &resp, cors_origin);
                     }
                     Err(e) => {
-                        let err = json!({ "error": e });
-                        send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                        send_json_error(stream, 400, "Bad Request", &e, cors_origin);
                     }
                 }
             } else {
-                let err = json!({ "error": "Database connection failed" });
-                send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 500, "Internal Server Error", "Database connection failed", cors_origin);
             }
         }
         _ => {}
@@ -320,14 +305,12 @@ pub fn handle_search_api<W: Write>(
                 return;
             }
             Err(e) => {
-                let err = json!({ "error": e });
-                send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
                 return;
             }
         }
     }
-    let err = json!({ "error": "Database connection failed" });
-    send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+    send_json_error(stream, 500, "Internal Server Error", "Database connection failed", cors_origin);
 }
 
 pub fn handle_notes_api<W: Write>(
@@ -348,8 +331,7 @@ pub fn handle_notes_api<W: Write>(
                 return;
             }
             "POST" => {
-                let body_str = String::from_utf8_lossy(&req.body);
-                let json_val: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+                let json_val = req.json_body();
                 let title = json_val.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Note");
                 let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -363,8 +345,7 @@ pub fn handle_notes_api<W: Write>(
                 };
 
                 if let Err(e) = fs::write(&file_path, &initial_content) {
-                    let err = json!({ "error": format!("Failed to create note: {}", e) });
-                    send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to create note: {}", e), cors_origin);
                     return;
                 }
 
@@ -390,16 +371,11 @@ pub fn handle_notes_api<W: Write>(
             .unwrap()
             .strip_suffix("/toggle")
             .unwrap();
-        let filename = if raw_name.ends_with(".adoc") {
-            raw_name.to_string()
-        } else {
-            format!("{}.adoc", raw_name)
-        };
+        let filename = ensure_adoc_extension(raw_name);
         let file_path = ctx.notes_subdir.join(&filename);
         if file_path.is_file() {
             if let Ok(content) = fs::read_to_string(&file_path) {
-                let body_str = String::from_utf8_lossy(&req.body);
-                let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+                let json_body = req.json_body();
                 let block_idx = json_body.get("block_index").and_then(|v| v.as_u64()).map(|v| v as usize);
                 let item_idx = json_body.get("item_index").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(0);
                 let target_checked = json_body.get("checked").and_then(|v| v.as_bool());
@@ -449,23 +425,18 @@ pub fn handle_notes_api<W: Write>(
                         let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                     }
                     let resp = json!({ "ok": true });
-                    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                    send_json_ok(stream, &resp, cors_origin);
                     return;
                 }
             }
         }
-        let err = json!({ "error": "Failed to toggle checklist item" });
-        send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+        send_json_error(stream, 400, "Bad Request", "Failed to toggle checklist item", cors_origin);
         return;
     }
 
     if clean_path.starts_with("api/notes/") {
         let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
-        let filename = if note_name.ends_with(".adoc") {
-            note_name.to_string()
-        } else {
-            format!("{}.adoc", note_name)
-        };
+        let filename = ensure_adoc_extension(note_name);
 
         let file_path = ctx.notes_subdir.join(&filename);
 
@@ -477,8 +448,7 @@ pub fn handle_notes_api<W: Write>(
                         return;
                     }
                 }
-                let err = json!({ "error": format!("Note '{}' not found", filename) });
-                send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", filename), cors_origin);
                 return;
             }
             "PUT" => {
@@ -490,8 +460,7 @@ pub fn handle_notes_api<W: Write>(
                 };
 
                 if let Err(e) = fs::write(&file_path, &content) {
-                    let err = json!({ "error": format!("Failed to write note: {}", e) });
-                    send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                    send_json_error(stream, 500, "Internal Server Error", &format!("Failed to write note: {}", e), cors_origin);
                     return;
                 }
 
@@ -500,7 +469,7 @@ pub fn handle_notes_api<W: Write>(
                 }
 
                 let resp = json!({ "ok": true, "filename": filename });
-                send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                send_json_ok(stream, &resp, cors_origin);
                 return;
             }
             "DELETE" => {
@@ -510,11 +479,10 @@ pub fn handle_notes_api<W: Write>(
                         let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                     }
                     let resp = json!({ "ok": true });
-                    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                    send_json_ok(stream, &resp, cors_origin);
                     return;
                 }
-                let err = json!({ "error": "File not found" });
-                send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+                send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
                 return;
             }
             _ => {}
@@ -528,8 +496,7 @@ pub fn handle_render_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_val: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_val = req.json_body();
     let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let is_standalone = json_val.get("standalone").and_then(|v| v.as_bool()).unwrap_or(false);
     let title = json_val.get("title").and_then(|v| v.as_str()).unwrap_or("Rendered Document");
@@ -579,8 +546,7 @@ pub fn handle_blocks_to_adoc_api<W: Write>(
     req: &ParsedHttpRequest,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_val: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_val = req.json_body();
 
     let blocks_res = json_val
         .get("blocks")
@@ -594,8 +560,7 @@ pub fn handle_blocks_to_adoc_api<W: Write>(
         return;
     }
 
-    let err = json!({ "error": "Invalid blocks payload" });
-    send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+    send_json_error(stream, 400, "Bad Request", "Invalid blocks payload", cors_origin);
 }
 
 pub fn handle_export_html_api<W: Write>(
@@ -605,8 +570,7 @@ pub fn handle_export_html_api<W: Write>(
     cors_origin: &str,
 ) {
     let filename = if req.method == "POST" {
-        let body_str = String::from_utf8_lossy(&req.body);
-        let json_val: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+        let json_val = req.json_body();
         json_val.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string()
     } else {
         req.query.as_deref().and_then(|q| {
@@ -615,21 +579,15 @@ pub fn handle_export_html_api<W: Write>(
     };
 
     if filename.is_empty() {
-        let err = json!({ "error": "filename query parameter or JSON property required" });
-        send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+        send_json_error(stream, 400, "Bad Request", "filename query parameter or JSON property required", cors_origin);
         return;
     }
 
-    let adoc_filename = if filename.ends_with(".adoc") {
-        filename.clone()
-    } else {
-        format!("{}.adoc", filename)
-    };
+    let adoc_filename = ensure_adoc_extension(&filename);
 
     let file_path = ctx.notes_subdir.join(&adoc_filename);
     if !file_path.is_file() {
-        let err = json!({ "error": format!("Note '{}' not found", adoc_filename) });
-        send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+        send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", adoc_filename), cors_origin);
         return;
     }
 
@@ -640,8 +598,7 @@ pub fn handle_export_html_api<W: Write>(
             send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
         }
         Err(e) => {
-            let err = json!({ "error": format!("Failed to read file: {}", e) });
-            send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+            send_json_error(stream, 500, "Internal Server Error", &format!("Failed to read file: {}", e), cors_origin);
         }
     }
 }
@@ -664,8 +621,7 @@ pub fn handle_export_all_api<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
         Err(e) => {
-            let err = json!({ "error": format!("Export all failed: {}", e) });
-            send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+            send_json_error(stream, 500, "Internal Server Error", &format!("Export all failed: {}", e), cors_origin);
         }
     }
 }
@@ -683,11 +639,7 @@ pub fn handle_page_url<W: Write>(
         .or_else(|| clean_path.strip_prefix("edit/"))
         .unwrap_or("");
 
-    let filename = if note_name.ends_with(".adoc") {
-        note_name.to_string()
-    } else {
-        format!("{}.adoc", note_name)
-    };
+    let filename = ensure_adoc_extension(note_name);
 
     if let Some(q) = req.query.as_deref() {
         if q.contains("export=1") || q.contains("download=1") {
@@ -723,11 +675,7 @@ pub fn handle_raw_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("raw/").unwrap_or("");
-    let filename = if note_name.ends_with(".adoc") {
-        note_name.to_string()
-    } else {
-        format!("{}.adoc", note_name)
-    };
+    let filename = ensure_adoc_extension(note_name);
 
     let file_path = ctx.notes_subdir.join(&filename);
     if file_path.is_file() {
@@ -736,8 +684,7 @@ pub fn handle_raw_url<W: Write>(
             return;
         }
     }
-    let err = json!({ "error": "File not found" });
-    send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+    send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
 }
 
 pub fn handle_export_url<W: Write>(
@@ -747,12 +694,10 @@ pub fn handle_export_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("export/").unwrap_or("");
-    let filename = if note_name.ends_with(".adoc") {
-        note_name.to_string()
-    } else if note_name.ends_with(".html") {
-        format!("{}.adoc", note_name.strip_suffix(".html").unwrap_or(note_name))
+    let filename = if note_name.ends_with(".html") {
+        ensure_adoc_extension(note_name.strip_suffix(".html").unwrap_or(note_name))
     } else {
-        format!("{}.adoc", note_name)
+        ensure_adoc_extension(note_name)
     };
 
     let file_path = ctx.notes_subdir.join(&filename);
@@ -764,6 +709,5 @@ pub fn handle_export_url<W: Write>(
             return;
         }
     }
-    let err = json!({ "error": "File not found" });
-    send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
+    send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
 }

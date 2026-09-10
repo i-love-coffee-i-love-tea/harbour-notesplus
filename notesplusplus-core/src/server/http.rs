@@ -6,7 +6,7 @@ use std::net::TcpStream;
 use rustls::ServerConnection;
 use rustls::StreamOwned;
 
-use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_TEXT_PLAIN};
+use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_JSON, MIME_TEXT_PLAIN};
 
 pub enum StreamWrapper {
     Plain(TcpStream),
@@ -80,6 +80,11 @@ impl ParsedHttpRequest {
         } else {
             "127.0.0.1"
         }
+    }
+
+    pub fn json_body(&self) -> serde_json::Value {
+        let body_str = String::from_utf8_lossy(&self.body);
+        serde_json::from_str(&body_str).unwrap_or(serde_json::json!({}))
     }
 }
 
@@ -283,6 +288,16 @@ pub fn send_response<W: Write>(
     cors_origin: &str,
 ) {
     send_response_full(stream, status_code, status_text, content_type, body, cors_origin, &[]);
+}
+
+pub fn send_json_error<W: Write>(stream: &mut W, status_code: u16, reason: &str, msg: &str, cors_origin: &str) {
+    let body = serde_json::json!({ "error": msg }).to_string();
+    send_response(stream, status_code, reason, MIME_JSON, body.as_bytes(), cors_origin);
+}
+
+pub fn send_json_ok<W: Write>(stream: &mut W, data: &serde_json::Value, cors_origin: &str) {
+    let body = data.to_string();
+    send_response(stream, 200, "OK", MIME_JSON, body.as_bytes(), cors_origin);
 }
 
 pub fn send_redirect<W: Write>(

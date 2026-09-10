@@ -1,11 +1,11 @@
 use std::io::Write;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use serde_json::json;
 
 use crate::constants::{AUTH_CHALLENGE_TTL_SECS, MIME_JSON, SESSION_COOKIE_NAME};
-use crate::server::auth::{Session, SessionStore};
+use crate::server::auth::{current_epoch_secs, Session, SessionStore};
 use crate::server::http::{
-    extract_cookie_value, make_session_cookie, send_response, send_response_full,
+    extract_cookie_value, make_session_cookie, send_json_ok, send_response, send_response_full,
     ParsedHttpRequest,
 };
 use crate::server::ServerContext;
@@ -45,10 +45,7 @@ pub fn handle_auth_config<W: Write>(
 ) {
     let session_store = ctx.session_store.clone();
     let session = authenticate_request(req, &session_store);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = current_epoch_secs();
 
     let resp = json!({
         "auth_required": true,
@@ -98,10 +95,7 @@ pub fn handle_whoami<W: Write>(
     cors_origin: &str,
 ) {
     let session = authenticate_request(req, &ctx.session_store);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = current_epoch_secs();
 
     let resp = json!({
         "authenticated": session.is_some(),
@@ -191,10 +185,7 @@ pub fn handle_challenge_status<W: Write>(
                         // Clean up the challenge
                         ctx.auth_challenges.remove_challenge(&challenge_id);
                         let cookie_str = make_session_cookie(&sess.id, ctx.is_tls, Some(ttl));
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
+                        let now = current_epoch_secs();
                         let remaining_secs = sess.expires_at.saturating_sub(now);
                         let resp = json!({
                             "status": "approved",
@@ -245,8 +236,7 @@ pub fn handle_challenge_approve<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let challenge_id = json_body.get("challenge_id").and_then(|v| v.as_str()).unwrap_or("");
 
     if challenge_id.is_empty() {
@@ -258,7 +248,7 @@ pub fn handle_challenge_approve<W: Write>(
     if ctx.auth_challenges.approve_challenge(challenge_id) {
         ctx.clear_auth_challenge();
         let resp = json!({ "ok": true, "message": "Challenge approved successfully" });
-        send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        send_json_ok(stream, &resp, cors_origin);
     } else {
         let err = json!({ "ok": false, "error": "Challenge not found, expired, or not pending" });
         send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
@@ -272,8 +262,7 @@ pub fn handle_challenge_deny<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let body_str = String::from_utf8_lossy(&req.body);
-    let json_body: serde_json::Value = serde_json::from_str(&body_str).unwrap_or(json!({}));
+    let json_body = req.json_body();
     let challenge_id = json_body.get("challenge_id").and_then(|v| v.as_str()).unwrap_or("");
 
     if challenge_id.is_empty() {
@@ -285,7 +274,7 @@ pub fn handle_challenge_deny<W: Write>(
     if ctx.auth_challenges.deny_challenge(challenge_id) {
         ctx.clear_auth_challenge();
         let resp = json!({ "ok": true, "message": "Challenge denied" });
-        send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+        send_json_ok(stream, &resp, cors_origin);
     } else {
         let err = json!({ "ok": false, "error": "Challenge not found or not pending" });
         send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);

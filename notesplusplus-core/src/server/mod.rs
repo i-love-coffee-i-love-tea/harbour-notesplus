@@ -159,12 +159,6 @@ impl ServerContext {
         self.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
     }
 
-    /// Updates the active authentication configuration.
-    pub fn update_auth_config(&self, config: auth::AuthConfig) {
-        let mut cfg_guard = self.auth_config.lock().unwrap_or_else(|e| e.into_inner());
-        *cfg_guard = config;
-    }
-
     /// Returns the currently configured session expiration in seconds.
     pub fn session_expiry_secs(&self) -> u64 {
         self.auth_config
@@ -253,20 +247,6 @@ impl HttpServerHandle {
         self.is_running.store(false, Ordering::SeqCst);
         let _ = TcpStream::connect(format!("127.0.0.1:{}", self.port));
     }
-}
-
-/// Start the embedded documentation HTTP server with default configuration.
-pub fn start_server(notes_path: PathBuf, requested_port: u16) -> Result<HttpServerHandle, String> {
-    let db_path = notes_path.parent().unwrap_or(&notes_path).join("notesplusplus.db");
-    let backup_dir = notes_path.parent().unwrap_or(&notes_path).join("backups");
-    let config = ServerConfig {
-        notes_dir: notes_path,
-        db_path,
-        backup_dir,
-        port: requested_port,
-        ..Default::default()
-    };
-    start_server_with_config(config)
 }
 
 /// Start the embedded documentation HTTP server with full explicit configuration.
@@ -448,28 +428,6 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         local_urls,
         context,
     })
-}
-
-/// Start the embedded documentation HTTP server with custom certificate and private key.
-pub fn start_server_with_cert_and_key(
-    notes_path: PathBuf,
-    requested_port: u16,
-    cert_path: PathBuf,
-    key_path: PathBuf,
-) -> Result<HttpServerHandle, String> {
-    let db_path = notes_path.parent().unwrap_or(&notes_path).join("notesplusplus.db");
-    let backup_dir = notes_path.parent().unwrap_or(&notes_path).join("backups");
-    let config = ServerConfig {
-        notes_dir: notes_path,
-        db_path,
-        backup_dir,
-        port: requested_port,
-        enable_tls: true,
-        tls_cert_path: Some(cert_path),
-        tls_key_path: Some(key_path),
-        ..Default::default()
-    };
-    start_server_with_config(config)
 }
 
 #[cfg(test)]
@@ -970,13 +928,11 @@ mod tests {
     fn test_ai_model_selection_web_assets() {
         use crate::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
 
-        // 1. Verify index.html contains provider and model selection, and system prompt configuration
+        // 1. Verify index.html contains model selection UI elements
         assert!(INDEX_HTML.contains("ai-model-select"));
         assert!(INDEX_HTML.contains("availableModels"));
-        assert!(INDEX_HTML.contains("fetchAvailableModels"));
         assert!(INDEX_HTML.contains("onModelSelect"));
-        assert!(INDEX_HTML.contains("aiConfig.provider"));
-        assert!(INDEX_HTML.contains("aiConfig.system_prompt"));
+        assert!(INDEX_HTML.contains("aiConfig.model"));
 
         // Verify index.html does NOT leak server address, api key, token inputs, or self-signed cert option
         assert!(!INDEX_HTML.contains("aiConfig.endpoint"));
