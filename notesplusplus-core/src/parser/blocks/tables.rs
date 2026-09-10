@@ -276,9 +276,17 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
                     open_cell_spec.style == Some('a')
                     || col_asciidoc.get(cell_col_idx).copied().unwrap_or(false)
                 );
+                // Check if the NEXT column is an AsciiDoc column (blank line between
+                // a regular cell and an upcoming a| cell is just spacing)
+                let next_is_ad = col_asciidoc.get(current_row_col_count).copied().unwrap_or(false);
                 if is_ad_cell {
                     // Blank line inside an AsciiDoc cell — treat as cell content
                     open_cell_lines.push(String::new());
+                    consumed += 1;
+                    continue;
+                }
+                if next_is_ad && !current_row_cells.is_empty() {
+                    // Blank line between a committed cell and an upcoming a| cell — skip
                     consumed += 1;
                     continue;
                 }
@@ -295,6 +303,35 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
                     }
                     flush_row(&mut current_row_cells, &mut rows, &col_specs);
                     current_row_col_count = 0;
+                }
+                consumed += 1;
+                continue;
+            }
+
+            // Handle |a|... as a single cell with AsciiDoc style prefix.
+            // parse_cells_from_line splits on all |, so |a|* item becomes two cells.
+            // Detect this pattern and treat as one cell with style 'a'.
+            if line.trim_start().starts_with("|a|") || line.trim_start().starts_with("|A|") {
+                let content = &line.trim_start()[3..]; // skip "|a|"
+                let mut spec = CellSpec::default();
+                spec.style = Some('a');
+                commit_open_cell(
+                    &mut has_open_cell,
+                    &mut open_cell_lines,
+                    open_cell_spec,
+                    &mut current_row_cells,
+                    &mut current_row_col_count,
+                );
+                if let Some(max_cols) = num_cols {
+                    if current_row_col_count >= max_cols {
+                        flush_row(&mut current_row_cells, &mut rows, &col_specs);
+                        current_row_col_count = 0;
+                    }
+                }
+                open_cell_spec = spec;
+                has_open_cell = true;
+                if !content.is_empty() {
+                    open_cell_lines.push(content.to_string());
                 }
                 consumed += 1;
                 continue;
@@ -398,3 +435,5 @@ pub fn parse_table_row(line: &str) -> Vec<TableCell> {
     }
     cells
 }
+
+
