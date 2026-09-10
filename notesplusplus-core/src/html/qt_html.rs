@@ -133,11 +133,12 @@ fn render_span(span: &InlineSpan, ctx: &QtHtmlCtx) -> String {
         InlineSpan::SingleQuote(inner) => format!("&lsquo;{}&rsquo;", render_spans(inner, ctx)),
         InlineSpan::Link { url, display } => {
             let disp = if display.is_empty() { url.as_str() } else { display.as_str() };
-            format!("<a href='{}'>{}</a>", escape_html(url), escape_html(disp))
+            // Use __LINK_COLOR__ placeholder — QML substitutes Theme.highlightColor
+            format!("<a href='{}' style='color:__LINK_COLOR__'>{}</a>", escape_html(url), escape_html(disp))
         }
         InlineSpan::Xref { target, display } => {
             let disp = if display.is_empty() { target.as_str() } else { display.as_str() };
-            format!("<a href='xref:{}'>{}</a>", escape_html(target), escape_html(disp))
+            format!("<a href='xref:{}' style='color:__LINK_COLOR__'>{}</a>", escape_html(target), escape_html(disp))
         }
         InlineSpan::Strikethrough(inner) => format!("<s>{}</s>", render_spans(inner, ctx)),
         InlineSpan::Superscript(inner) => format!("<sup>{}</sup>", render_spans(inner, ctx)),
@@ -233,8 +234,8 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             format!("<p style='margin:4px 0;'>{}</p>", render_spans(spans, ctx))
         }
         Block::Heading { spans, .. } => {
-            // Color comes from QML Label.color (Theme.highlightColor) — not baked into HTML
-            format!("<h3 style='margin:6px 0 2px 0;'>{}</h3>", render_spans(spans, ctx))
+            // Use __LINK_COLOR__ placeholder — QML substitutes Theme.highlightColor
+            format!("<h3 style='color:__LINK_COLOR__;margin:6px 0 2px 0;'>{}</h3>", render_spans(spans, ctx))
         }
         Block::CodeBlock { lines, .. } | Block::LiteralBlock { lines, .. } => {
             let code_lines = lines.iter().map(|l| escape_html(l)).collect::<Vec<_>>().join("<br/>");
@@ -655,7 +656,7 @@ mod tests {
     fn heading_level1() {
         let blocks = parser::parse_blocks("= Title");
         let html = render_qt_block(&blocks[0], 0, &default_theme(), &default_opts());
-        assert_eq!(html, "<h3 style='color:#0088cc;margin:6px 0 2px 0;'>Title</h3>");
+        assert_eq!(html, "<h3 style='color:__LINK_COLOR__;margin:6px 0 2px 0;'>Title</h3>");
     }
 
     #[test]
@@ -663,7 +664,7 @@ mod tests {
         let blocks = parser::parse_blocks("=== Sub");
         let html = render_qt_block(&blocks[0], 0, &default_theme(), &default_opts());
         // All headings render as <h3> in the JS path
-        assert_eq!(html, "<h3 style='color:#0088cc;margin:6px 0 2px 0;'>Sub</h3>");
+        assert_eq!(html, "<h3 style='color:__LINK_COLOR__;margin:6px 0 2px 0;'>Sub</h3>");
     }
 
     #[test]
@@ -767,7 +768,7 @@ mod tests {
         let spans = parse_inline("visit https://example.com[Example] here");
         let html = render_qt_spans(&spans, &default_theme(), &default_opts());
         assert!(html.contains("<a href='https://example.com'"));
-        assert!(html.contains("style='color:#0088cc'"));
+        assert!(html.contains("style='color:__LINK_COLOR__'"));
         assert!(html.contains("Example"));
     }
 
@@ -882,7 +883,7 @@ mod tests {
         };
         let blocks = parser::parse_blocks("= Title");
         let html = render_qt_block(&blocks[0], 0, &theme, &default_opts());
-        assert!(html.contains("color:#ff0000"));
+        assert!(html.contains("color:__LINK_COLOR__"));
     }
 
     #[test]

@@ -270,6 +270,18 @@ pub fn parse_table(lines: &[&str], title: Option<String>) -> (Block, usize) {
             }
 
             if line.trim().is_empty() {
+                // Check if the current open cell is an AsciiDoc cell (a| or column-level a)
+                let cell_col_idx = current_row_col_count;
+                let is_ad_cell = has_open_cell && (
+                    open_cell_spec.style == Some('a')
+                    || col_asciidoc.get(cell_col_idx).copied().unwrap_or(false)
+                );
+                if is_ad_cell {
+                    // Blank line inside an AsciiDoc cell — treat as cell content
+                    open_cell_lines.push(String::new());
+                    consumed += 1;
+                    continue;
+                }
                 commit_open_cell(
                     &mut has_open_cell,
                     &mut open_cell_lines,

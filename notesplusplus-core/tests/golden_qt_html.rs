@@ -307,3 +307,22 @@ This is sidebar content.
     }
     assert_or_update_golden("full_document", &full_html.trim());
 }
+
+#[test]
+fn debug_table_col_widths() {
+    let adoc = include_str!("../examples/cheat-sheet.adoc");
+    let blocks = parser::parse_blocks(adoc);
+    for (i, b) in blocks.iter().enumerate() {
+        if let notesplusplus_core::block::Block::Table { rows, col_widths, .. } = b {
+            eprintln!("Table {}: col_widths={:?}, rows={}, cols_in_first_row={}", 
+                i, col_widths, rows.len(), 
+                rows.first().map_or(0, |r| r.len()));
+            for (ri, row) in rows.iter().enumerate() {
+                for (ci, cell) in row.iter().enumerate() {
+                    let block_types: Vec<&str> = cell.blocks.iter().map(|b| b.block_type()).collect();
+                    eprintln!("  row[{}].cell[{}]: colspan={}, blocks={:?}", ri, ci, cell.colspan, block_types);
+                }
+            }
+        }
+    }
+}

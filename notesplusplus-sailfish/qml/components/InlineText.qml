@@ -21,9 +21,14 @@ Label {
     opacity: pressed ? 0.5 : 1.0
     text: {
         if (preRenderedHtml && preRenderedHtml.length > 0) {
-            return applySearchHighlight(preRenderedHtml)
+            return applySearchHighlight(substituteThemeColors(preRenderedHtml))
         }
         return (spans !== undefined && spans !== null) ? applySearchHighlight(renderSpans(spans)) : ""
+    }
+
+    function substituteThemeColors(html) {
+        // Replace placeholders from Rust renderer with actual QML theme colors
+        return html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
     }
 
     function applySearchHighlight(html) {
