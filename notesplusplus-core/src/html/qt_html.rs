@@ -77,6 +77,11 @@ fn escape_html(text: &str) -> String {
     out
 }
 
+/// Public wrapper for escape_html, used by bridge for footnotes rendering.
+pub fn escape_html_for_footnote(text: &str) -> String {
+    escape_html(text)
+}
+
 // ── Image path resolution (matches JS resolveImagePath) ──────────────
 
 pub fn resolve_qt_image_path(target: &str, notes_dir: Option<&str>, allow_external: bool) -> String {

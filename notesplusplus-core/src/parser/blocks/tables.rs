@@ -102,13 +102,17 @@ pub fn parse_cells_from_line(line: &str) -> Option<Vec<(CellSpec, String)>> {
     let s = &trimmed_start[first_pipe + 1..];
     let mut chars = s.char_indices().peekable();
     let mut last_idx = 0;
+    let mut in_backtick = false;
 
     while let Some((idx, c)) = chars.next() {
         if c == '\\' {
             chars.next();
             continue;
         }
-        if c == '|' {
+        if c == '`' {
+            in_backtick = !in_backtick;
+        }
+        if c == '|' && !in_backtick {
             let segment = &s[last_idx..idx];
             let (content, spec_str) = if let Some(last_ws) = segment.rfind(char::is_whitespace) {
                 let pot_spec = segment[last_ws..].trim();

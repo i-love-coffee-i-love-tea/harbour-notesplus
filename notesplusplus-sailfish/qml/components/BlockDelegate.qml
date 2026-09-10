@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "./delegates"
+import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Item {
     id: delegate
@@ -137,6 +138,7 @@ Item {
                 case "page_break": return pageBreakComponent
                 case "comment": return commentComponent
                 case "empty_line": return emptyComponent
+                case "footnotes": return footnotesComponent
                 default: return emptyComponent
             }
         }
@@ -287,6 +289,29 @@ Item {
         }
     }
 
+    Component {
+        id: footnotesComponent
+        Label {
+            text: {
+                var html = (delegate.blockData && delegate.blockData.html) ? delegate.blockData.html : ""
+                return html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
+            }
+            anchors.left: parent ? parent.left : undefined
+            anchors.right: parent ? parent.right : undefined
+            anchors.leftMargin: Theme.horizontalPageMargin
+            anchors.rightMargin: Theme.horizontalPageMargin
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            textFormat: Text.RichText
+            font.family: app.resolvedFontFamily()
+            font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
+            color: Theme.primaryColor
+            linkColor: Theme.highlightColor
+            onLinkActivated: function(link) {
+                BlockHtmlUtils.handleLink(link, function(target) { delegate.xrefActivated(target) }, null)
+            }
+        }
+    }
+
     Loader {
         id: inlineEditorLoader
         active: delegate.isEditing
@@ -331,14 +356,10 @@ Item {
                         }
                     }
                     Component.onCompleted: {
-                        text = delegate.editingRawText
                         forceActiveFocus()
                     }
                 }
             }
         }
     }
-
-    // Loader's Component.onCompleted handles initial text + focus when editing starts.
-    // The TextArea's `text: delegate.editingRawText` binding handles updates while editing.
 }

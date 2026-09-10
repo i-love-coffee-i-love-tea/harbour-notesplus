@@ -5,6 +5,7 @@ use std::sync::mpsc;
 
 use notesplusplus_core::block::Block;
 use notesplusplus_core::db;
+use notesplusplus_core::inline::InlineSpan;
 use notesplusplus_core::page;
 
 mod pages;
@@ -357,6 +358,7 @@ impl NotesBridge {
     /// Like `blocks_to_qvariantlist` but adds a pre-rendered `"html"` field to each block
     /// that has a Rust-side HTML representation. Blocks without HTML (Code, Image, Toc, etc.)
     /// are passed through unchanged — QML delegates fall back to JS rendering for those.
+    /// Also appends a synthetic "footnotes" block if any footnote spans are found.
     pub(super) fn blocks_to_qvariantlist_with_html(
         blocks: &[Block],
         theme: &notesplusplus_core::html::qt_html::QtThemeColors,
@@ -404,6 +406,81 @@ impl NotesBridge {
             let qv = QString::from(serde_json::to_string(&json).unwrap_or_default());
             list.push(qv.into());
         }
+
+        // Collect footnotes from all blocks and append a synthetic footnotes block
+        let mut footnotes: Vec<(Option<String>, String)> = Vec::new();
+        let mut seen_ids: Vec<String> = Vec::new();
+        collect_footnotes(blocks, &mut footnotes, &mut seen_ids);
+        if !footnotes.is_empty() {
+            let mut fn_html = String::from("<hr style='border:none;border-top:1px solid __LINK_COLOR__;margin:16px 8px 8px 8px;'/><p style='margin:4px 8px;font-weight:bold;color:__LINK_COLOR__;'>Footnotes</p>");
+            for (i, (id, text)) in footnotes.iter().enumerate() {
+                let num_label = (i + 1).to_string();
+                let label = id.as_deref().unwrap_or(&num_label);
+                let content = if text.is_empty() { label } else { text.as_str() };
+                use std::fmt::Write;
+                write!(fn_html, "<p style='margin:2px 8px;'>[{}] {}</p>",
+                    notesplusplus_core::html::qt_html::escape_html_for_footnote(label),
+                    notesplusplus_core::html::qt_html::escape_html_for_footnote(content)
+                ).ok();
+            }
+            let mut fn_json = serde_json::Map::new();
+            fn_json.insert("type".into(), serde_json::Value::String("footnotes".into()));
+            fn_json.insert("html".into(), serde_json::Value::String(fn_html));
+            let qv = QString::from(serde_json::to_string(&fn_json).unwrap_or_default());
+            list.push(qv.into());
+        }
+
         list
+    }
+}
+
+fn collect_footnotes(blocks: &[Block], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
+    for block in blocks {
+        match block {
+            Block::Heading { spans, .. } | Block::Paragraph { spans, .. } => {
+                collect_footnotes_from_spans(spans, footnotes, seen_ids);
+            }
+            Block::OrderedListItem { children, .. } | Block::UnorderedListItem { children, .. } |
+            Block::DescriptionListItem { children, .. } | Block::CalloutListItem { children, .. } |
+            Block::Blockquote { children, .. } | Block::Admonition { children, .. } |
+            Block::Sidebar { children, .. } | Block::Example { children, .. } |
+            Block::Open { children, .. } => {
+                collect_footnotes(children, footnotes, seen_ids);
+            }
+            Block::Verse { spans, .. } => {
+                for line_spans in spans {
+                    collect_footnotes_from_spans(line_spans, footnotes, seen_ids);
+                }
+            }
+            Block::Table { rows, .. } => {
+                for row in rows {
+                    for cell in row {
+                        collect_footnotes(&cell.blocks, footnotes, seen_ids);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_footnotes_from_spans(spans: &[InlineSpan], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
+    for span in spans {
+        match span {
+            InlineSpan::Footnote { id, text } => {
+                let key = id.clone().unwrap_or_default();
+                if key.is_empty() || !seen_ids.contains(&key) {
+                    if !key.is_empty() {
+                        seen_ids.push(key);
+                    }
+                    footnotes.push((id.clone(), text.clone()));
+                }
+            }
+            InlineSpan::Bold(inner) | InlineSpan::Italic(inner) | InlineSpan::Monospace(inner) |
+            InlineSpan::Superscript(inner) | InlineSpan::Subscript(inner) | InlineSpan::Mark(inner) => {
+                collect_footnotes_from_spans(inner, footnotes, seen_ids);
+            }
+            _ => {}
+        }
     }
 }

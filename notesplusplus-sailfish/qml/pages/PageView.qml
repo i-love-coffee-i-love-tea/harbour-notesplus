@@ -14,6 +14,7 @@ Page {
     property int targetBlockIndex: -1
     property bool hasScrolledToSearchTerm: false
     property int editingBlockIndex: -1
+    property int editingBlockCount: 1
     property string editingRawText: ""
     property string editingCurrentText: ""
     property bool isAddingNewBlock: false
@@ -317,8 +318,8 @@ Page {
             blockData: modelData ? JSON.parse(modelData) : ({})
             blockIndex: index
             searchTerm: pageView.findInPageTerm || pageView.searchTerm
-            isEditing: pageView.editingBlockIndex === index
             editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""
+            isEditing: pageView.editingBlockIndex === index
             isTocCollapsed: pageView.isTocCollapsed(index, (blockData && blockData.headings) ? blockData.headings.length : 0)
             onToggleToc: function(idx) {
                 pageView.toggleToc(idx, (blockData && blockData.headings) ? blockData.headings.length : 0)
@@ -337,14 +338,26 @@ Page {
                 if (pageView.isAddingNewBlock) {
                     pageView.saveNewBlock()
                 }
-                var actualRaw = raw
-                if ((!actualRaw || actualRaw.length === 0) && pageView.parsedBlocks && pageView.parsedBlocks[idx]) {
-                    var b = pageView.parsedBlocks[idx]
-                    actualRaw = (b.raw !== undefined) ? b.raw : (b.raw_text || "")
+                var range = pageView.findConsecutiveListRange(idx)
+                var actualRaw = ""
+                if (range.count > 1) {
+                    var parts = []
+                    for (var r = range.start; r < range.start + range.count; r++) {
+                        var rb = pageView.parsedBlocks[r]
+                        if (rb) parts.push(rb.raw || rb.raw_text || "")
+                    }
+                    actualRaw = parts.join("\n")
+                } else {
+                    actualRaw = raw
+                    if ((!actualRaw || actualRaw.length === 0) && pageView.parsedBlocks && pageView.parsedBlocks[idx]) {
+                        var b = pageView.parsedBlocks[idx]
+                        actualRaw = (b.raw !== undefined) ? b.raw : (b.raw_text || "")
+                    }
                 }
                 pageView.editingRawText = actualRaw
                 pageView.editingCurrentText = actualRaw
-                pageView.editingBlockIndex = idx
+                pageView.editingBlockIndex = range.start
+                pageView.editingBlockCount = range.count
             }
             onTextModified: function(idx, newText) {
                 if (pageView.editingBlockIndex === idx) {
@@ -412,6 +425,28 @@ Page {
         }
     }
 
+    function findConsecutiveListRange(idx) {
+        if (!parsedBlocks || idx < 0 || idx >= parsedBlocks.length) return { start: idx, count: 1 }
+        var block = parsedBlocks[idx]
+        if (!block) return { start: idx, count: 1 }
+        var t = block.type
+        if (t !== "unordered_list_item" && t !== "ordered_list_item" && t !== "description_list_item") return { start: idx, count: 1 }
+        var level = block.level || 0
+        var start = idx
+        var end = idx
+        while (start > 0) {
+            var prev = parsedBlocks[start - 1]
+            if (prev && prev.type === t && (prev.level || 0) === level) { start--; continue }
+            break
+        }
+        while (end < parsedBlocks.length - 1) {
+            var next = parsedBlocks[end + 1]
+            if (next && next.type === t && (next.level || 0) === level) { end++; continue }
+            break
+        }
+        return { start: start, count: end - start + 1 }
+    }
+
     function startAddingNewBlock() {
         if (editingBlockIndex >= 0) {
             saveCurrentEditingBlock()
@@ -452,8 +487,13 @@ Page {
 
     function saveCurrentEditingBlock() {
         if (editingBlockIndex >= 0) {
-            bridge.save_block(editingBlockIndex, editingCurrentText)
+            if (editingBlockCount > 1) {
+                bridge.save_block_range(editingBlockIndex, editingBlockCount, editingCurrentText)
+            } else {
+                bridge.save_block(editingBlockIndex, editingCurrentText)
+            }
             editingBlockIndex = -1
+            editingBlockCount = 1
             editingRawText = ""
             editingCurrentText = ""
         }
@@ -461,6 +501,7 @@ Page {
 
     function cancelCurrentEditing() {
         editingBlockIndex = -1
+        editingBlockCount = 1
         editingRawText = ""
         editingCurrentText = ""
     }
