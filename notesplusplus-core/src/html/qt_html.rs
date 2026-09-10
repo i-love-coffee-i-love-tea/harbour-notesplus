@@ -133,11 +133,11 @@ fn render_span(span: &InlineSpan, ctx: &QtHtmlCtx) -> String {
         InlineSpan::SingleQuote(inner) => format!("&lsquo;{}&rsquo;", render_spans(inner, ctx)),
         InlineSpan::Link { url, display } => {
             let disp = if display.is_empty() { url.as_str() } else { display.as_str() };
-            format!("<a href='{}' style='color:{}'>{}</a>", escape_html(url), ctx.theme.highlight_color, escape_html(disp))
+            format!("<a href='{}'>{}</a>", escape_html(url), escape_html(disp))
         }
         InlineSpan::Xref { target, display } => {
             let disp = if display.is_empty() { target.as_str() } else { display.as_str() };
-            format!("<a href='xref:{}' style='color:{}'>{}</a>", escape_html(target), ctx.theme.highlight_color, escape_html(disp))
+            format!("<a href='xref:{}'>{}</a>", escape_html(target), escape_html(disp))
         }
         InlineSpan::Strikethrough(inner) => format!("<s>{}</s>", render_spans(inner, ctx)),
         InlineSpan::Superscript(inner) => format!("<sup>{}</sup>", render_spans(inner, ctx)),
@@ -233,7 +233,8 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             format!("<p style='margin:4px 0;'>{}</p>", render_spans(spans, ctx))
         }
         Block::Heading { spans, .. } => {
-            format!("<h3 style='color:{};margin:6px 0 2px 0;'>{}</h3>", highlight, render_spans(spans, ctx))
+            // Color comes from QML Label.color (Theme.highlightColor) — not baked into HTML
+            format!("<h3 style='margin:6px 0 2px 0;'>{}</h3>", render_spans(spans, ctx))
         }
         Block::CodeBlock { lines, .. } | Block::LiteralBlock { lines, .. } => {
             let code_lines = lines.iter().map(|l| escape_html(l)).collect::<Vec<_>>().join("<br/>");
