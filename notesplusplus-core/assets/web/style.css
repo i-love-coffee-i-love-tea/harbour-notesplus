@@ -1135,15 +1135,40 @@ button:disabled {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
-  gap: 6px;
+  gap: 5px;
   overflow-x: auto;
   white-space: nowrap;
+  align-items: center;
+}
+.templates-label {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-right: 2px;
 }
 .ai-quick-templates button {
-  padding: 4px 8px;
+  padding: 4px 9px;
   font-size: 0.74rem;
-  background-color: var(--bg-main);
-  border-radius: 12px;
+  font-weight: 500;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ai-quick-templates button:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+  background-color: transparent;
+}
+.ai-quick-templates button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .ai-undo-banner {
@@ -1273,6 +1298,11 @@ button:disabled {
   padding: 10px 14px;
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-main);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-input-row {
   display: flex;
   gap: 8px;
   align-items: flex-end;
