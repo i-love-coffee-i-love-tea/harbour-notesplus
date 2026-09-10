@@ -38,6 +38,7 @@
     --text-muted: #94a3b8;
     --primary: #3b82f6;
     --primary-hover: #60a5fa;
+    --accent: #2563eb;
     --accent-light: #1e3a8a;
     --success: #4ade80;
     --success-bg: #064e3b;
@@ -953,7 +954,7 @@ button:disabled {
   padding: 10px 16px;
   font-size: 0.88rem;
   font-weight: 600;
-  border: none;
+  border: 1.5px solid var(--primary);
   border-radius: 6px;
   cursor: pointer;
   display: flex;
@@ -961,18 +962,21 @@ button:disabled {
   justify-content: center;
   gap: 8px;
   transition: all 0.15s ease;
-  background-color: var(--accent, #4a9eff);
-  color: #fff;
+  background-color: var(--primary);
+  color: #ffffff;
 }
 .btn-import-submit:hover:not(:disabled) {
-  filter: brightness(1.1);
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .btn-import-submit:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 .btn-import-submit.busy {
-  background-color: var(--text-secondary);
+  background-color: var(--bg-card);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
 }
 .btn-import-submit .spinner {
   animation: spin 1s linear infinite;
