@@ -1,65 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-
-use rustls::ServerConnection;
-use rustls::StreamOwned;
+use std::io::Write;
 
 use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_JSON, MIME_TEXT_PLAIN};
-
-pub enum StreamWrapper {
-    Plain(TcpStream),
-    Tls(Box<StreamOwned<ServerConnection, TcpStream>>),
-}
-
-impl Read for StreamWrapper {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self {
-            StreamWrapper::Plain(s) => s.read(buf),
-            StreamWrapper::Tls(s) => s.read(buf),
-        }
-    }
-}
-
-impl Write for StreamWrapper {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            StreamWrapper::Plain(s) => s.write(buf),
-            StreamWrapper::Tls(s) => s.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            StreamWrapper::Plain(s) => s.flush(),
-            StreamWrapper::Tls(s) => s.flush(),
-        }
-    }
-}
-
-impl StreamWrapper {
-    pub fn peer_addr(&self) -> Option<std::net::SocketAddr> {
-        match self {
-            StreamWrapper::Plain(s) => s.peer_addr().ok(),
-            StreamWrapper::Tls(s) => s.sock.peer_addr().ok(),
-        }
-    }
-
-    pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-        match self {
-            StreamWrapper::Plain(s) => s.set_read_timeout(timeout),
-            StreamWrapper::Tls(s) => s.sock.set_read_timeout(timeout),
-        }
-    }
-
-    pub fn set_write_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
-        match self {
-            StreamWrapper::Plain(s) => s.set_write_timeout(timeout),
-            StreamWrapper::Tls(s) => s.sock.set_write_timeout(timeout),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ParsedHttpRequest {
@@ -72,6 +15,45 @@ pub struct ParsedHttpRequest {
 }
 
 impl ParsedHttpRequest {
+    pub fn from_tiny_http(req: &mut tiny_http::Request) -> Result<Self, String> {
+        let method = req.method().as_str().to_string();
+        let raw_url = req.url();
+        let (path, query) = match raw_url.split_once('?') {
+            Some((p, q)) => (url_decode(p), Some(url_decode(q))),
+            None => (url_decode(raw_url), None),
+        };
+        let mut headers = HashMap::new();
+        for h in req.headers() {
+            headers.insert(h.field.to_string().to_ascii_lowercase(), h.value.to_string());
+        }
+
+        const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+        let body_len = req.body_length().unwrap_or(0);
+        if body_len > MAX_BODY_SIZE {
+            return Err(format!(
+                "Request body too large: {} bytes (max {})",
+                body_len, MAX_BODY_SIZE
+            ));
+        }
+
+        let mut body = Vec::new();
+        if body_len > 0 {
+            body.reserve(body_len);
+        }
+        let _ = req.as_reader().read_to_end(&mut body);
+
+        let client_ip = req.remote_addr().map(|a| a.ip().to_string());
+
+        Ok(ParsedHttpRequest {
+            method,
+            path,
+            query,
+            headers,
+            body,
+            client_ip,
+        })
+    }
+
     pub fn client_ip(&self) -> &str {
         if let Some(ref ip) = self.client_ip {
             ip.as_str()
@@ -90,81 +72,6 @@ impl ParsedHttpRequest {
 
 pub fn sanitize_header_value(s: &str) -> String {
     s.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect()
-}
-
-pub fn parse_http_request(stream: &mut StreamWrapper) -> Result<ParsedHttpRequest, String> {
-    let mut header_bytes = Vec::new();
-    let mut one_byte = [0u8; 1];
-
-    loop {
-        let n = stream.read(&mut one_byte).map_err(|e| e.to_string())?;
-        if n == 0 {
-            return Err("Unexpected EOF while reading request headers".to_string());
-        }
-        header_bytes.push(one_byte[0]);
-        if header_bytes.ends_with(b"\r\n\r\n") || header_bytes.ends_with(b"\n\n") {
-            break;
-        }
-        if header_bytes.len() > 65536 {
-            return Err("Request headers too large".to_string());
-        }
-    }
-
-    let header_str = String::from_utf8_lossy(&header_bytes);
-    let mut lines = header_str.lines();
-    let request_line = lines.next().ok_or_else(|| "Empty request".to_string())?;
-
-    let parts: Vec<&str> = request_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return Err("Invalid request line".to_string());
-    }
-
-    let method = parts[0].to_uppercase();
-    let raw_path = parts[1];
-    let (path, query) = match raw_path.split_once('?') {
-        Some((p, q)) => (url_decode(p), Some(url_decode(q))),
-        None => (url_decode(raw_path), None),
-    };
-
-    let mut headers = HashMap::new();
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Some((k, v)) = trimmed.split_once(':') {
-            headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
-        }
-    }
-
-    let content_length: usize = headers
-        .get("content-length")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-
-    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-    if content_length > MAX_BODY_SIZE {
-        return Err(format!(
-            "Request body too large: {} bytes (max {})",
-            content_length, MAX_BODY_SIZE
-        ));
-    }
-
-    let mut body = vec![0u8; content_length];
-    if content_length > 0 {
-        stream.read_exact(&mut body).map_err(|e| e.to_string())?;
-    }
-
-    let client_ip = stream.peer_addr().map(|a| a.ip().to_string());
-
-    Ok(ParsedHttpRequest {
-        method,
-        path,
-        query,
-        headers,
-        body,
-        client_ip,
-    })
 }
 
 /// Validate CORS origin against localhost variants and known LAN IPs.

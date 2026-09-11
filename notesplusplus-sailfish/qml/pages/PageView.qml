@@ -180,9 +180,13 @@ Page {
                 }
             }
             MenuItem {
-                text: qsTr("Open in Browser")
+                text: qsTr("Copy Page URL")
                 onClicked: {
-                    bridge.open_in_browser(pageName)
+                    var url = bridge.open_in_browser(pageName)
+                    if (url) {
+                        Clipboard.text = url
+                        remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
+                    }
                 }
             }
             MenuItem {

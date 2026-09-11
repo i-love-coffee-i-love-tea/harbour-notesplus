@@ -34,6 +34,20 @@ pub fn generate_verification_code(digit_count: u32) -> String {
     format!("{:0width$}", num, width = digit_count as usize)
 }
 
+/// Constant-time comparison between two string slices to prevent timing attacks.
+pub fn constant_time_eq(a: &str, b: &str) -> bool {
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    if a_bytes.len() != b_bytes.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Authentication configuration stored in server state / persistent settings.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthConfig {
@@ -341,6 +355,15 @@ mod tests {
 
         let after_deny = store.get_challenge(&challenge.challenge_id).unwrap();
         assert_eq!(after_deny.status, "denied");
+    }
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq("secret123", "secret123"));
+        assert!(!constant_time_eq("secret123", "secret124"));
+        assert!(!constant_time_eq("secret123", "secret12"));
+        assert!(!constant_time_eq("secret12", "secret123"));
+        assert!(constant_time_eq("", ""));
     }
 
     #[test]

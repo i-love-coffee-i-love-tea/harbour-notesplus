@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::constants::{AUTH_CHALLENGE_TTL_SECS, MIME_JSON, SESSION_COOKIE_NAME};
 use crate::server::auth::{current_epoch_secs, Session, SessionStore};
 use crate::server::http::{
-    extract_cookie_value, make_session_cookie, send_json_ok, send_response, send_response_full,
+    extract_cookie_value, make_session_cookie, send_response, send_response_full,
     ParsedHttpRequest,
 };
 use crate::server::ServerContext;
@@ -231,54 +231,3 @@ pub fn handle_challenge_status<W: Write>(
     }
 }
 
-/// POST /api/auth/code/approve — QML app approves an authorization challenge (localhost only).
-pub fn handle_challenge_approve<W: Write>(
-    stream: &mut W,
-    req: &ParsedHttpRequest,
-    ctx: &ServerContext,
-    cors_origin: &str,
-) {
-    let json_body = req.json_body();
-    let challenge_id = json_body.get("challenge_id").and_then(|v| v.as_str()).unwrap_or("");
-
-    if challenge_id.is_empty() {
-        let err = json!({ "ok": false, "error": "Missing challenge_id in payload" });
-        send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
-        return;
-    }
-
-    if ctx.auth_challenges.approve_challenge(challenge_id) {
-        ctx.clear_auth_challenge();
-        let resp = json!({ "ok": true, "message": "Challenge approved successfully" });
-        send_json_ok(stream, &resp, cors_origin);
-    } else {
-        let err = json!({ "ok": false, "error": "Challenge not found, expired, or not pending" });
-        send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
-    }
-}
-
-/// POST /api/auth/code/deny — QML app denies an authorization challenge (localhost only).
-pub fn handle_challenge_deny<W: Write>(
-    stream: &mut W,
-    req: &ParsedHttpRequest,
-    ctx: &ServerContext,
-    cors_origin: &str,
-) {
-    let json_body = req.json_body();
-    let challenge_id = json_body.get("challenge_id").and_then(|v| v.as_str()).unwrap_or("");
-
-    if challenge_id.is_empty() {
-        let err = json!({ "ok": false, "error": "Missing challenge_id in payload" });
-        send_response(stream, 400, "Bad Request", MIME_JSON, err.to_string().as_bytes(), cors_origin);
-        return;
-    }
-
-    if ctx.auth_challenges.deny_challenge(challenge_id) {
-        ctx.clear_auth_challenge();
-        let resp = json!({ "ok": true, "message": "Challenge denied" });
-        send_json_ok(stream, &resp, cors_origin);
-    } else {
-        let err = json!({ "ok": false, "error": "Challenge not found or not pending" });
-        send_response(stream, 404, "Not Found", MIME_JSON, err.to_string().as_bytes(), cors_origin);
-    }
-}

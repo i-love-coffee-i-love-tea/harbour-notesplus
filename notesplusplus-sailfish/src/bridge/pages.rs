@@ -657,7 +657,7 @@ impl NotesBridge {
         result_dir_str
     }
 
-    fn open_in_browser_impl(&mut self, page_name: String) {
+    fn open_in_browser_impl(&mut self, page_name: String) -> String {
         if self.web_server_running {
             let filename = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
                 JOURNAL_FILENAME.to_string()
@@ -665,15 +665,11 @@ impl NotesBridge {
                 self.resolve_page_filename(&page_name)
             };
             let port = self.server_handle.as_ref().map(|h| h.port()).unwrap_or(8080);
-            let url = format!("http://127.0.0.1:{}/page/{}", port, filename);
-            // Sailfish OS: use sailfish-browser instead of xdg-open
-            let _ = std::process::Command::new("sailfish-browser").arg(&url).spawn();
+            let base = self.server_handle.as_ref().map(|h| h.primary_url()).unwrap_or_else(|| format!("http://127.0.0.1:{}", port));
+            let base = base.replace("0.0.0.0", "localhost");
+            format!("{}/page/{}", base, filename)
         } else {
-            let path_str = self.export_html_impl(page_name);
-            if !path_str.is_empty() {
-                // Open exported HTML file in browser
-                let _ = std::process::Command::new("sailfish-browser").arg(&path_str).spawn();
-            }
+            self.export_html_impl(page_name)
         }
     }
 
@@ -710,7 +706,7 @@ impl NotesBridge {
                 if !self.pending_theme_colors.is_empty() {
                     handle.context().set_theme_colors(self.pending_theme_colors.clone());
                 }
-                let primary_url = handle.primary_url();
+                let primary_url = handle.primary_url().replace("0.0.0.0", "localhost");
                 self.web_server_url = primary_url.clone();
                 self.web_server_running = true;
                 self.server_handle = Some(handle);
@@ -783,6 +779,17 @@ impl NotesBridge {
             })
             .collect();
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    fn get_server_urls_json_impl(&self) -> String {
+        if let Some(ref handle) = self.server_handle {
+            let urls: Vec<String> = handle.urls().iter()
+                .map(|u| u.replace("0.0.0.0", "localhost"))
+                .collect();
+            serde_json::to_string(&urls).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            "[]".to_string()
+        }
     }
 
     fn set_theme_impl(&mut self, colors_json: String) {
@@ -1016,7 +1023,8 @@ impl NotesBridge {
     pub fn poll_main_page_data(&mut self) -> bool { self.poll_main_page_data_impl() }
     pub fn export_html(&mut self, page_name: String) -> String { self.export_html_impl(page_name) }
     pub fn export_all_html(&mut self) -> String { self.export_all_html_impl() }
-    pub fn open_in_browser(&mut self, page_name: String) { self.open_in_browser_impl(page_name); }
+    pub fn open_in_browser(&mut self, page_name: String) -> String { self.open_in_browser_impl(page_name) }
+    pub fn get_server_urls_json(&self) -> String { self.get_server_urls_json_impl() }
     pub fn start_web_server(&mut self) -> String { self.start_web_server_impl() }
     pub fn stop_web_server(&mut self) { self.stop_web_server_impl(); }
     pub fn toggle_web_server(&mut self) -> bool { self.toggle_web_server_impl() }

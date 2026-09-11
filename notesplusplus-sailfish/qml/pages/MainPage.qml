@@ -230,7 +230,11 @@ Page {
                     }
 
                     onClicked: {
-                        bridge.open_in_browser("")
+                        var url = bridge.web_server_url
+                        if (url) {
+                            Clipboard.text = url
+                            remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
+                        }
                     }
                 }
             }

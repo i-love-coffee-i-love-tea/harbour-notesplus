@@ -17,7 +17,7 @@ pub mod web_assets;
 
 pub use http::{
     get_local_ip_addresses, get_network_interfaces, is_private_or_local_ip, is_public_ip,
-    sanitize_header_value, StreamWrapper,
+    sanitize_header_value,
 };
 pub use routes::handle_http_client;
 pub use routes::pages::{
@@ -211,7 +211,9 @@ pub struct HttpServerHandle {
     is_running: Arc<AtomicBool>,
     port: u16,
     local_urls: Vec<String>,
+    bind_address: String,
     context: ServerContext,
+    server: Arc<tiny_http::Server>,
 }
 
 impl HttpServerHandle {
@@ -233,7 +235,7 @@ impl HttpServerHandle {
             .cloned()
             .unwrap_or_else(|| {
                 let scheme = if self.context.is_tls { "https" } else { "http" };
-                format!("{}://127.0.0.1:{}", scheme, self.port)
+                format!("{}://{}:{}", scheme, self.bind_address, self.port)
             })
     }
 
@@ -247,7 +249,9 @@ impl HttpServerHandle {
 
     pub fn stop(&self) {
         self.is_running.store(false, Ordering::SeqCst);
-        let _ = TcpStream::connect(format!("127.0.0.1:{}", self.port));
+        self.server.unblock();
+        let connect_addr = if self.bind_address == "0.0.0.0" { "127.0.0.1" } else { self.bind_address.as_str() };
+        let _ = TcpStream::connect(format!("{}:{}", connect_addr, self.port));
     }
 }
 
@@ -279,30 +283,6 @@ pub fn start_server_full(
     start_server_with_config(config)
 }
 
-/// Immediately drops and aborts a rejected TCP connection (sending RST)
-/// to avoid TIME_WAIT socket exhaustion and prevent DDoS / resource starvation.
-fn drop_rejected_connection(stream: TcpStream) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::io::AsRawFd;
-        let linger = libc::linger {
-            l_onoff: 1,
-            l_linger: 0,
-        };
-        unsafe {
-            let _ = libc::setsockopt(
-                stream.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_LINGER,
-                &linger as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::linger>() as libc::socklen_t,
-            );
-        }
-    }
-    let _ = stream.shutdown(std::net::Shutdown::Both);
-    drop(stream);
-}
-
 /// Start the embedded documentation HTTP server with a `ServerConfig`.
 pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle, String> {
     let port = if config.port == 0 { 8080 } else { config.port };
@@ -324,6 +304,9 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     let scheme = if config.enable_tls { "https" } else { "http" };
     let local_ips = get_local_ip_addresses();
     let mut local_urls = Vec::new();
+    if bind_addr == "0.0.0.0" {
+        local_urls.push(format!("{}://0.0.0.0:{}", scheme, actual_port));
+    }
     for ip in &local_ips {
         local_urls.push(format!("{}://{}:{}", scheme, ip, actual_port));
     }
@@ -331,7 +314,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         local_urls.push(format!("{}://127.0.0.1:{}", scheme, actual_port));
     }
 
-    let rustls_config = if config.enable_tls {
+    let ssl_info = if config.enable_tls {
         let parent_dir = config.notes_dir.parent().unwrap_or(&config.notes_dir);
         let cert_dir = parent_dir.join("tls");
         let cert_path = config
@@ -363,63 +346,68 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
             ..tls::TlsOptions::default()
         };
         let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, Some(tls_opts))?;
-        let r_cfg = tls::create_rustls_server_config(&cert)?;
-        Some((r_cfg, cert_path, key_path))
+        let ssl_config = tiny_http::SslConfig {
+            certificate: cert.cert_pem.into_bytes(),
+            private_key: cert.key_pem.into_bytes(),
+        };
+        Some((ssl_config, cert_path, key_path))
     } else {
         None
     };
 
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
-    let is_tls = rustls_config.is_some();
-    let r_cfg_arc = rustls_config.as_ref().map(|(c, _, _)| c.clone());
+    let is_tls = ssl_info.is_some();
 
     let context = ServerContext::new_with_tls(config, is_tls);
-    if let Some((_, cert_p, key_p)) = rustls_config {
+    let (tiny_ssl, cert_p, key_p) = match ssl_info {
+        Some((ssl, cp, kp)) => (Some(ssl), Some(cp), Some(kp)),
+        None => (None, None, None),
+    };
+
+    if let (Some(cert_path), Some(key_path)) = (cert_p, key_p) {
         context.update_tls_status(Some(tls::TlsStatusInfo {
             is_tls: true,
-            is_custom: tls::is_custom_cert_installed(&cert_p),
-            cert_path: cert_p.to_string_lossy().to_string(),
-            key_path: key_p.to_string_lossy().to_string(),
+            is_custom: tls::is_custom_cert_installed(&cert_path),
+            cert_path: cert_path.to_string_lossy().to_string(),
+            key_path: key_path.to_string_lossy().to_string(),
             subject: "Notes++ Web Server".to_string(),
         }));
     }
 
+    let server = tiny_http::Server::from_listener(listener, tiny_ssl)
+        .map_err(|e| format!("Failed to create HTTP server: {}", e))?;
+    let server = Arc::new(server);
+
     let context_clone = context.clone();
+    let server_clone = server.clone();
 
     thread::spawn(move || {
-        let _ = listener.set_nonblocking(false);
-
         while is_running_clone.load(Ordering::SeqCst) {
-            match listener.accept() {
-                Ok((stream, client_addr)) => {
+            match server_clone.recv() {
+                Ok(req) => {
                     if !is_running_clone.load(Ordering::SeqCst) {
                         break;
                     }
-                    if context_clone.reject_public_networks() && is_public_ip(&client_addr.ip()) {
-                        log::warn!(
-                            "[SERVER] Rejected connection from public IP address: {}",
-                            client_addr.ip()
-                        );
-                        drop_rejected_connection(stream);
-                        continue;
-                    }
-                    let _ = stream.set_nodelay(true);
-                    let ctx = context_clone.clone();
-                    if let Some(ref r_cfg) = r_cfg_arc {
-                        if let Ok(conn) = rustls::ServerConnection::new(r_cfg.clone()) {
-                            let tls_stream = Box::new(rustls::StreamOwned::new(conn, stream));
-                            thread::spawn(move || {
-                                handle_http_client(StreamWrapper::Tls(tls_stream), ctx);
-                            });
+                    if let Some(remote) = req.remote_addr() {
+                        if context_clone.reject_public_networks() && is_public_ip(&remote.ip()) {
+                            log::warn!(
+                                "[SERVER] Rejected connection from public IP address: {}",
+                                remote.ip()
+                            );
+                            let _ = req.respond(tiny_http::Response::empty(403));
+                            continue;
                         }
-                    } else {
-                        thread::spawn(move || {
-                            handle_http_client(StreamWrapper::Plain(stream), ctx);
-                        });
                     }
+                    let ctx = context_clone.clone();
+                    thread::spawn(move || {
+                        handle_http_client(req, ctx);
+                    });
                 }
                 Err(_) => {
+                    if !is_running_clone.load(Ordering::SeqCst) {
+                        break;
+                    }
                     thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
@@ -430,7 +418,9 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         is_running,
         port: actual_port,
         local_urls,
+        bind_address: bind_addr,
         context,
+        server,
     })
 }
 
@@ -791,6 +781,15 @@ mod tests {
         assert!(cert_path.exists());
         assert!(key_path.exists());
 
+        let agent = ureq::AgentBuilder::new()
+            .tls_config(Arc::new(crate::agent::client::build_insecure_tls_client_config()))
+            .build();
+        let ping_res = agent
+            .get(&format!("https://127.0.0.1:{}/api/ping", server_handle.port()))
+            .call()
+            .expect("HTTPS ping request should succeed");
+        assert_eq!(ping_res.status(), 200);
+
         server_handle.stop();
     }
 
@@ -884,18 +883,6 @@ mod tests {
         server_handle.stop();
     }
 
-    #[test]
-    fn test_drop_rejected_connection_executes_cleanly() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let client_thread = thread::spawn(move || {
-            TcpStream::connect(format!("127.0.0.1:{}", port))
-        });
-        let (stream, _) = listener.accept().unwrap();
-        drop_rejected_connection(stream);
-        let client_sock = client_thread.join().unwrap();
-        assert!(client_sock.is_ok());
-    }
 
     #[test]
     fn test_link_page_widget_web_assets() {
@@ -1047,7 +1034,7 @@ mod tests {
         {
             use std::io::{Read, Write as IoWrite};
             let mut tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
-            tcp.write_all(b"GET /assets/../../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+            tcp.write_all(b"GET /assets/../../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
             let mut resp = String::new();
             tcp.read_to_string(&mut resp).unwrap();
             assert!(resp.starts_with("HTTP/1.1 403"), "path traversal should return 403, got: {}", &resp[..50.min(resp.len())]);
@@ -1103,12 +1090,9 @@ mod tests {
         let init_json: serde_json::Value = init_res.into_json().unwrap();
         let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
 
-        // 2. Approve challenge
-        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
-            .set("Content-Type", "application/json")
-            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
-            .unwrap();
-        assert_eq!(approve_res.status(), 200);
+        // 2. Approve challenge in-process (as native GUI does)
+        server_handle.context().auth_challenges.approve_challenge(&challenge_id);
+        server_handle.context().clear_auth_challenge();
 
         // 3. Poll challenge status to receive session
         let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
@@ -1251,12 +1235,9 @@ mod tests {
         let init_json: serde_json::Value = init_res.into_json().unwrap();
         let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
 
-        // Approve challenge
-        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
-            .set("Content-Type", "application/json")
-            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
-            .unwrap();
-        assert_eq!(approve_res.status(), 200);
+        // Approve challenge in-process (as native GUI does)
+        server_handle.context().auth_challenges.approve_challenge(&challenge_id);
+        server_handle.context().clear_auth_challenge();
 
         // Poll status and verify remaining_secs and expires_at are reported
         let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
@@ -1408,12 +1389,9 @@ mod tests {
         let init_json: serde_json::Value = init_res.into_json().unwrap();
         let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
 
-        // 2. Approve challenge
-        let approve_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
-            .set("Content-Type", "application/json")
-            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id))
-            .unwrap();
-        assert_eq!(approve_res.status(), 200);
+        // 2. Approve challenge in-process (as native GUI does)
+        server_handle.context().auth_challenges.approve_challenge(&challenge_id);
+        server_handle.context().clear_auth_challenge();
 
         // 3. Poll status for session
         let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
@@ -1489,6 +1467,70 @@ mod tests {
         assert!(content.contains("Paragraph with **bold** text."));
         assert!(!content.contains("alert(1)"));
         assert!(!content.contains("body{color:red;}"));
+
+        server_handle.stop();
+    }
+
+    #[test]
+    fn test_challenge_approve_endpoint_not_exposed_over_http() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test_auth_http_safety.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let server_handle = start_server_full(
+            notes_dir.clone(),
+            db_path,
+            backup_dir,
+            18996,
+            None,
+            None,
+        ).expect("Server should start");
+        let port = server_handle.port();
+
+        // 1. Initiate challenge
+        let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+            .call()
+            .unwrap();
+        let init_json: serde_json::Value = init_res.into_json().unwrap();
+        let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
+
+        // 2. Attempting to approve or deny via HTTP fails / returns 404
+        let approve_attempt = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id));
+        match approve_attempt {
+            Ok(resp) => panic!("Expected 404 for removed approve route, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 404),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        let deny_attempt = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/deny", port))
+            .set("Content-Type", "application/json")
+            .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id));
+        match deny_attempt {
+            Ok(resp) => panic!("Expected 404 for removed deny route, got {}", resp.status()),
+            Err(ureq::Error::Status(code, _)) => assert_eq!(code, 404),
+            Err(e) => panic!("Unexpected error: {}", e),
+        }
+
+        // 3. Status remains pending because HTTP attempts did nothing
+        let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+            .call()
+            .unwrap();
+        let status_json: serde_json::Value = status_res.into_json().unwrap();
+        assert_eq!(status_json["status"], "pending");
+
+        // 4. In-process approval (native GUI bridge) succeeds
+        server_handle.context().auth_challenges.approve_challenge(&challenge_id);
+        server_handle.context().clear_auth_challenge();
+
+        let approved_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+            .call()
+            .unwrap();
+        let approved_json: serde_json::Value = approved_res.into_json().unwrap();
+        assert_eq!(approved_json["status"], "approved");
 
         server_handle.stop();
     }
