@@ -145,6 +145,27 @@ pub fn export_all_pages_to_html5(
     Ok(exported)
 }
 
+/// Sanitizes a URL for safe rendering in HTML `<a href="...">` tags, neutralizing dangerous schemes like `javascript:`, `vbscript:`, and `data:`.
+pub fn sanitize_url_scheme(url: &str) -> String {
+    let trimmed = url.trim();
+    let lower = trimmed.to_lowercase();
+    // Allow relative paths or fragment anchors
+    if trimmed.starts_with('/') || trimmed.starts_with('#') || trimmed.starts_with('?') || trimmed.starts_with("./") {
+        return trimmed.to_string();
+    }
+    // Filter out whitespace and control characters to detect obfuscated schemes (e.g. "java\tscript:")
+    let clean_scheme: String = lower.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect();
+    if let Some((scheme, _)) = clean_scheme.split_once(':') {
+        let allowed_schemes = ["http", "https", "mailto", "tel", "ftp", "ftps", "news", "geo", "sms"];
+        if allowed_schemes.contains(&scheme) {
+            return trimmed.to_string();
+        }
+        // Neutralize dangerous / disallowed URL scheme
+        return format!("#blocked:{}", escape_html(trimmed));
+    }
+    trimmed.to_string()
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct TocHeading {
     pub(crate) level: u8,
@@ -695,11 +716,14 @@ impl<'a> HtmlRenderContext<'a> {
             InlineSpan::Monospace(inner) => format!("<code>{}</code>", self.render_spans(inner)),
             InlineSpan::DoubleQuote(inner) => format!("&ldquo;{}&rdquo;", self.render_spans(inner)),
             InlineSpan::SingleQuote(inner) => format!("&lsquo;{}&rsquo;", self.render_spans(inner)),
-            InlineSpan::Link { url, display } => format!(
-                r#"<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>"#,
-                escape_html(url),
-                escape_html(display)
-            ),
+            InlineSpan::Link { url, display } => {
+                let safe_url = sanitize_url_scheme(url);
+                format!(
+                    r#"<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>"#,
+                    escape_html(&safe_url),
+                    escape_html(display)
+                )
+            }
             InlineSpan::Xref { target, display } => {
                 let href = if target.starts_with('#') {
                     escape_html(target)
@@ -1311,5 +1335,30 @@ And another reference: footnote:defops[].
         assert!(html.contains("<col style=\"width: 50.0000%;\">"));
         assert!(html.contains("<td colspan=\"3\" style=\"text-align: center;\"><p><em>Powered by Open Source</em></p></td>"));
         assert!(html.contains("style=\"text-align: center;\""));
+    }
+
+    #[test]
+    fn test_sanitize_url_scheme() {
+        // Allowed schemes
+        assert_eq!(sanitize_url_scheme("https://example.com"), "https://example.com");
+        assert_eq!(sanitize_url_scheme("http://example.com/test"), "http://example.com/test");
+        assert_eq!(sanitize_url_scheme("mailto:user@example.com"), "mailto:user@example.com");
+        assert_eq!(sanitize_url_scheme("tel:+1234567890"), "tel:+1234567890");
+        assert_eq!(sanitize_url_scheme("/sub/page.html"), "/sub/page.html");
+        assert_eq!(sanitize_url_scheme("#section-heading"), "#section-heading");
+
+        // Dangerous schemes neutralized
+        assert!(sanitize_url_scheme("javascript:alert(document.cookie)").starts_with("#blocked:"));
+        assert!(sanitize_url_scheme("JAVASCRIPT:alert(1)").starts_with("#blocked:"));
+        assert!(sanitize_url_scheme("java\tscript:alert(1)").starts_with("#blocked:"));
+        assert!(sanitize_url_scheme("vbscript:msgbox(1)").starts_with("#blocked:"));
+        assert!(sanitize_url_scheme("data:text/html,<script>alert(1)</script>").starts_with("#blocked:"));
+
+        // AsciiDoc rendering test
+        let adoc_xss = "link:javascript:alert(1)[Malicious Link]";
+        let html_rendered = adoc_to_html_body(adoc_xss, None);
+        assert!(!html_rendered.contains("href=\"javascript:"));
+        assert!(html_rendered.contains("href=\"#blocked:"));
+        assert!(html_rendered.contains("Malicious Link"));
     }
 }

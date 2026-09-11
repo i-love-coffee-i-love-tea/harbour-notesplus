@@ -8,7 +8,7 @@ use crate::agent::backup::BackupManager;
 use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
 use crate::agent::prompt::build_system_prompt_with_custom;
-use crate::agent::tools::{is_blocked_host, ToolCall};
+use crate::agent::tools::ToolCall;
 use crate::db;
 use crate::page;
 use crate::search;
@@ -171,8 +171,7 @@ impl AgentSession {
                     let file_content = if tool_call.function.name == "edit_note" {
                         let filename = tool_call.function.arguments.get("filename")
                             .and_then(|v| v.as_str()).unwrap_or("");
-                        let sanitized = page::sanitize_filename(filename);
-                        let file_path = self.notes_dir.join(&sanitized);
+                        let file_path = page::safe_note_path(&self.notes_dir, filename);
                         fs::read_to_string(&file_path).ok()
                     } else {
                         None
@@ -230,11 +229,11 @@ impl AgentSession {
         match name {
             "read_note" => {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let sanitized = page::sanitize_filename(filename);
-                let path = self.notes_dir.join(&sanitized);
+                let sanitized_name = page::sanitize_note_filename(filename);
+                let path = page::safe_note_path(&self.notes_dir, filename);
                 match fs::read_to_string(&path) {
                     Ok(content) => content,
-                    Err(e) => format!("Error reading note '{}': {}", sanitized, e),
+                    Err(e) => format!("Error reading note '{}': {}", sanitized_name, e),
                 }
             }
             "list_notes" => {
@@ -280,11 +279,11 @@ impl AgentSession {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 match self.open_db() {
-                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, &page::sanitize_filename(title), false) {
+                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, title, false) {
                         Ok(created) => {
                             if !content.trim().is_empty() {
                                 let path = self.notes_dir.join(&created.filename);
-                                if let Err(e) = fs::write(&path, content) {
+                                if let Err(e) = page::atomic_write(&path, content) {
                                     return format!("Error writing note content: {}", e);
                                 }
                                 let _ = db::update_fts_content(&conn, created.id, content);
@@ -301,28 +300,13 @@ impl AgentSession {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note");
-                self.apply_note_edit(&page::sanitize_filename(filename), content, reason)
+                self.apply_note_edit(filename, content, reason)
             }
             "fetch_url" => {
                 let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                if is_blocked_host(url) {
-                    format!("URL '{}' blocked: fetching localhost/private addresses is not allowed", url)
-                } else {
-                    match ureq::get(url).timeout(std::time::Duration::from_secs(15)).call() {
-                        Ok(resp) => {
-                            let text = resp.into_string().unwrap_or_default();
-                            if text.len() > 6000 {
-                                let mut end = 6000;
-                                while end > 0 && !text.is_char_boundary(end) {
-                                    end -= 1;
-                                }
-                                format!("{}... [truncated]", &text[..end])
-                            } else {
-                                text
-                            }
-                        }
-                        Err(e) => format!("Failed to fetch URL '{}': {}", url, e),
-                    }
+                match crate::agent::tools::fetch_url(url) {
+                    Ok(text) => text,
+                    Err(e) => format!("Error fetching URL: {}", e),
                 }
             }
             _ => format!("Unknown tool '{}'", name),
@@ -331,11 +315,12 @@ impl AgentSession {
 
     /// Applies note update with pre-edit backup snapshot and SQLite FTS index update.
     pub fn apply_note_edit(&mut self, filename: &str, new_content: &str, reason: &str) -> String {
-        let file_path = self.notes_dir.join(filename);
+        let safe_filename = page::sanitize_note_filename(filename);
+        let file_path = page::safe_note_path(&self.notes_dir, filename);
         let current_content = fs::read_to_string(&file_path).unwrap_or_default();
 
         // 1. Create pre-edit snapshot
-        let snapshot = match self.backup_mgr.create_snapshot(filename, &current_content, reason) {
+        let snapshot = match self.backup_mgr.create_snapshot(&safe_filename, &current_content, reason) {
             Ok(s) => {
                 self.last_snapshot_id = Some(s.id.clone());
                 Some(s)
@@ -346,26 +331,26 @@ impl AgentSession {
             }
         };
 
-        // 2. Write new content to file
-        if let Err(e) = fs::write(&file_path, new_content) {
-            return format!("Failed to write to file '{}': {}", filename, e);
+        // 2. Write new content atomically to file
+        if let Err(e) = page::atomic_write(&file_path, new_content) {
+            return format!("Failed to write to file '{}': {}", safe_filename, e);
         }
 
         // 3. Update SQLite FTS index
         if let Ok(conn) = self.open_db() {
-            let title = extract_doc_title(new_content, filename);
-            if let Ok(Some(existing_page)) = page::get_page(&conn, filename) {
+            let title = extract_doc_title(new_content, &safe_filename);
+            if let Ok(Some(existing_page)) = page::get_page(&conn, &safe_filename) {
                 let _ = db::update_fts_content(&conn, existing_page.id, new_content);
             } else {
                 let now = chrono::Utc::now().to_rfc3339();
                 let _ = conn.execute(
                     "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
                      VALUES (?1, ?2, 0, ?3, ?3, 0)",
-                    rusqlite::params![filename, title, now],
+                    rusqlite::params![safe_filename, title, now],
                 );
                 if let Ok(page_id) = conn.query_row(
                     "SELECT id FROM pages WHERE filename = ?1",
-                    rusqlite::params![filename],
+                    rusqlite::params![safe_filename],
                     |row| row.get::<_, i64>(0),
                 ) {
                     let _ = db::update_fts_content(&conn, page_id, new_content);
@@ -377,7 +362,7 @@ impl AgentSession {
             .map(|s| format!(" (Snapshot archived: {})", s.id))
             .unwrap_or_default();
 
-        format!("Successfully updated note '{}' with reason: {}{}", filename, reason, snap_msg)
+        format!("Successfully updated note '{}' with reason: {}{}", safe_filename, reason, snap_msg)
     }
 
     /// Undoes the last recorded edit action by rolling back to its pre-edit snapshot.
@@ -393,8 +378,8 @@ impl AgentSession {
             .map_err(|e| format!("Failed to read snapshot: {}", e))?
             .ok_or_else(|| format!("Snapshot '{}' not found", snapshot_id))?;
 
-        let file_path = self.notes_dir.join(&snapshot.filename);
-        fs::write(&file_path, &snapshot.content)
+        let file_path = page::safe_note_path(&self.notes_dir, &snapshot.filename);
+        page::atomic_write(&file_path, &snapshot.content)
             .map_err(|e| format!("Failed to restore file: {}", e))?;
 
         // Update database index
@@ -516,5 +501,56 @@ mod tests {
 
         let search_out = session.execute_tool(&search_call);
         assert!(search_out.contains("Shopping List") || search_out.contains("shopping_list.adoc"));
+    }
+
+    #[test]
+    fn test_read_and_edit_note_with_adoc_extension() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let mut session = AgentSession::new(
+            &notes_dir,
+            &db_path,
+            &backup_dir,
+            PermissionManager::new(PermissionConfig::default()),
+            LlmClient::new(LlmConfig::default()),
+        );
+
+        // Create initial note
+        let note_file = notes_dir.join("project_notes.adoc");
+        fs::write(&note_file, "= Project Notes\nLine 1").unwrap();
+
+        // 1. Read note using "project_notes.adoc" (must not mangle to "project_notes_adoc")
+        let read_call = ToolCall {
+            id: Some("call_read".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "project_notes.adoc" }),
+            },
+        };
+        let read_out = session.execute_tool(&read_call);
+        assert_eq!(read_out, "= Project Notes\nLine 1");
+
+        // 2. Edit note using "project_notes.adoc"
+        let edit_call = ToolCall {
+            id: Some("call_edit".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "edit_note".to_string(),
+                arguments: json!({
+                    "filename": "project_notes.adoc",
+                    "content": "= Project Notes\nLine 1\nLine 2 updated",
+                    "reason": "Appended Line 2"
+                }),
+            },
+        };
+        let edit_out = session.execute_tool(&edit_call);
+        assert!(edit_out.contains("Successfully updated note 'project_notes.adoc'"));
+        assert!(note_file.exists());
+        assert_eq!(fs::read_to_string(&note_file).unwrap(), "= Project Notes\nLine 1\nLine 2 updated");
     }
 }

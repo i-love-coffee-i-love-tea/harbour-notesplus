@@ -36,97 +36,113 @@ The work is organized to maximize net positive impact (utility): resolving the h
 
 ---
 
-### 1.2 Fix Agent Tool Filename Sanitization Bug
+### 1.2 Fix Agent Tool Filename Sanitization Bug (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/agent/session.rs` (`execute_tool`)
-  - `notesplusplus-core/src/page.rs` (`sanitize_filename`, `ensure_adoc_extension`)
+  - `notesplusplus-core/src/agent/session.rs` (`execute_tool`, `apply_note_edit`, `rollback_snapshot`)
+  - `notesplusplus-core/src/page.rs` (`sanitize_note_filename`, `safe_note_path`)
 - **Problem & Impact:**
-  In `AgentSession::execute_tool`, handling of `read_note` and `edit_note` runs `page::sanitize_filename(filename)`. Since `sanitize_filename` replaces `.` with `_`, `notes.adoc` becomes `notes_adoc`, resulting in "File not found" errors or creating corrupted extensionless files.
-- **Remediation Steps:**
-  1. Separate base stem sanitization from file extension handling.
-  2. Update `session.rs` to strip `.adoc` (if present), sanitize the stem, and invoke `page::ensure_adoc_extension(&sanitized_stem)`.
-  3. Prevent path traversal attempts (`..`, absolute paths) by enforcing canonical path containment within `notes_dir`.
+  In `AgentSession::execute_tool`, handling of `read_note` and `edit_note` ran `page::sanitize_filename(filename)`. Since `sanitize_filename` replaced `.` with `_`, `notes.adoc` became `notes_adoc`, resulting in "File not found" errors or creating corrupted extensionless files.
+- **Remediation:**
+  1. Implemented `sanitize_note_filename` and `safe_note_path` in `page.rs`, properly preserving `.adoc` extensions while replacing path traversal and unsafe characters.
+  2. Updated `execute_tool`, `apply_note_edit`, and snapshot rollbacks in `session.rs` to use safe path resolution and note filename sanitization.
+  3. Enforced strict path containment within `notes_dir`.
 - **Verification:**
-  - Unit test `execute_tool` with `notes.adoc`, `sub/notes.adoc`, `my-note`, and `../../evil.adoc`.
-  - Confirm file is created with `.adoc` intact and strictly within `notes_dir`.
+  - Added unit tests `test_sanitize_note_filename`, `test_safe_note_path`, and `test_read_and_edit_note_with_adoc_extension` confirming `.adoc` extensions are preserved and file operations succeed.
 
 ---
 
-### 1.3 Implement Atomic File Write Strategy
+### 1.3 Implement Atomic File Write Strategy (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/server/routes/pages.rs` (`handle_update_page`, `handle_create_page`)
-  - `notesplusplus-core/src/agent/session.rs` (`execute_tool` -> `edit_note`)
-  - `notesplusplus-core/src/page.rs` (new helper `atomic_write_note`)
+  - `notesplusplus-core/src/server/routes/pages.rs` (`handle_page_detail_api`, `handle_notes_api`)
+  - `notesplusplus-core/src/agent/session.rs` (`create_note`, `apply_note_edit`, `rollback_snapshot`)
+  - `notesplusplus-core/src/page.rs` (`atomic_write`, `create_page`)
 - **Problem & Impact:**
-  Direct calls to `std::fs::write(&file_path, &content)` risk file truncation or corruption if the device powers off, battery dies, or the process crashes during write operations.
-- **Remediation Steps:**
-  1. Implement a shared helper `atomic_write(path: &Path, content: &str) -> std::io::Result<()>`.
-  2. The helper writes to a temporary sibling file (e.g. `path.with_extension("tmp")`), flushes buffers (`sync_all()`), and atomically renames the temporary file over the target path (`std::fs::rename`).
-  3. Replace all direct `std::fs::write` calls across server routes and agent tools with `atomic_write`.
+  Direct calls to `std::fs::write(&file_path, &content)` risked file truncation or corruption if the device powered off, battery died, or the process crashed during write operations.
+- **Remediation:**
+  1. Implemented `page::atomic_write(path: &Path, content: impl AsRef<[u8]>) -> std::io::Result<()>` using a hidden temporary sibling file (`.filename.tmp.<nonce>`), flushing data and metadata to disk with `sync_all()`, and atomically renaming to the destination path.
+  2. Replaced all direct `std::fs::write` calls for note content across `page.rs`, `server/routes/pages.rs`, and `agent/session.rs` with `atomic_write`.
 - **Verification:**
-  - Unit test checking that failed writes leave original file untouched.
-  - Verify file permissions and sync consistency on Linux/Sailfish targets.
+  - Unit test `test_atomic_write` verifies atomic creation, atomic overwriting, and data integrity.
 
 ---
 
 ## Phase 2: Network & Parser Security Hardening (P1)
 
-### 2.1 Robust IP-Based SSRF Mitigation & Redirect Hardening
+### 2.1 Robust IP-Based SSRF Mitigation & Redirect Hardening (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/agent/tools.rs` (`is_blocked_host`, `fetch_url`)
-  - `notesplusplus-core/src/server/routes/agent.rs` (`handle_fetch_url`)
+  - `notesplusplus-core/src/agent/tools.rs` (`is_blocked_ip`, `parse_direct_ip`, `parse_target_host_port`, `is_blocked_host`, `fetch_url`)
+  - `notesplusplus-core/src/agent/session.rs` (`execute_tool` -> `fetch_url`)
 - **Problem & Impact:**
-  SSRF filtering currently matches substrings (e.g. `"10."`, `"localhost"`), causing false positives on legitimate public domains (`top10.com`) and failing against hex/decimal IP encodings, 0.0.0.0, DNS rebinding, and 3xx HTTP redirects.
-- **Remediation Steps:**
-  1. Parse the URL and resolve hostnames to IP addresses via `std::net::ToSocketAddrs` before connecting.
-  2. Check resolved IPs against IP ranges:
-     - Loopback (`127.0.0.0/8`, `::1`)
-     - Private IPv4 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
-     - Link-local / Cloud Metadata (`169.254.0.0/16`, `fe80::/10`)
-     - Unspecified / Broadcast (`0.0.0.0/8`, `255.255.255.255/32`)
-  3. Configure the HTTP agent (`ureq::AgentBuilder`) with `redirects(0)` or validate target IPs on each redirect hop manually.
+  SSRF filtering previously matched simple substrings (e.g. `"10."`, `"localhost"`), causing false positives on legitimate public domains (`top10.com`) and failing against alternative IP encodings (decimal, hex, octal), DNS rebinding, IPv6 ULA, and 3xx HTTP redirects.
+- **Remediation:**
+  1. Implemented `is_blocked_ip` covering all loopback, private, link-local, carrier-grade NAT, test/documentation, and reserved IPv4 and IPv6 CIDRs.
+  2. Implemented `parse_direct_ip` to identify alternative decimal, hexadecimal, octal, and dotted formats.
+  3. Implemented DNS pre-resolution and configured `fetch_url` with manual redirect loop (`redirects(0)`) to re-validate destination IPs on every redirect hop.
 - **Verification:**
-  - Tests covering `http://127.0.0.1`, `http://2130706433`, `http://top10.com`, `http://localtest.me`, `http://169.254.169.254`.
+  - Unit tests covering `localhost`, `10.0.0.1`, `192.168.1.100`, `172.16.0.1`, `169.254.169.254`, decimal `2130706433`, hex `0x7f000001`, `[::1]`, `[fd00::1]`, and verifying no false positives on public hosts.
 
 ---
 
-### 2.2 Whitelist URL Schemes in HTML Link Rendering (Stored XSS)
+### 2.2 Whitelist URL Schemes in HTML Link Rendering (Stored XSS) (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/html.rs` (`render_spans` -> `InlineSpan::Link`)
+  - `notesplusplus-core/src/html.rs` (`render_spans` -> `InlineSpan::Link`, `sanitize_url_scheme`)
 - **Problem & Impact:**
-  AsciiDoc links formatted as `link:javascript:alert(1)[Click]` render directly into `<a href="javascript:alert(1)">`, permitting arbitrary JavaScript execution when notes are previewed or exported to HTML.
-- **Remediation Steps:**
-  1. Inspect the URL scheme in `render_spans` for `InlineSpan::Link`.
-  2. Allow only safe schemes: `http://`, `https://`, `mailto:`, `tel:`, or relative paths (`#`, `/`, `.`).
-  3. For disallowed schemes (e.g. `javascript:`, `data:`, `vbscript:`), strip or sanitize the `href` attribute (e.g. render as `about:invalid` or text span).
+  AsciiDoc links formatted as `link:javascript:alert(1)[Click]` rendered directly into `<a href="javascript:alert(1)">`, permitting arbitrary JavaScript execution when notes were previewed or exported to HTML.
+- **Remediation:**
+  1. Implemented `sanitize_url_scheme` in `html.rs` whitelisting safe schemes (`http`, `https`, `mailto`, `tel`, `ftp`, `ftps`, `geo`, `sms`, and relative/fragment URLs).
+  2. Neutralized disallowed or dangerous schemes (`javascript:`, `vbscript:`, `data:`) by prepending `#blocked:`.
 - **Verification:**
-  - Unit test verifying `link:javascript:steal()[test]` renders as safe HTML without executable scheme.
-  - Verify standard links (`https://example.com`, `mailto:user@test.org`) render normally.
+  - Unit test `test_sanitize_url_scheme` verifies malicious URLs are safely neutralized while legitimate links render correctly.
 
 ---
 
-### 2.3 Constant-Time Comparison for Bearer Token Verification
+### 2.3 Constant-Time Comparison for Bearer Token Verification (Resolved)
 
 - **Target Files:**
   - `notesplusplus-core/src/server/routes/mod.rs` (`is_authorized`)
-  - `notesplusplus-core/src/server/auth.rs`
+  - `notesplusplus-core/src/server/auth.rs` (`constant_time_eq`, `SessionStore::validate_session`)
 - **Problem & Impact:**
-  Standard `==` string equality leaks timing information proportional to the number of matching prefix bytes, facilitating side-channel attacks on secret bearer tokens over low-latency networks.
-- **Remediation Steps:**
-  1. Integrate `subtle` crate or implement a constant-time slice comparison function:
-     ```rust
-     fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-         if a.len() != b.len() { return false; }
-         a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-     }
-     ```
-  2. Apply constant-time validation to all token and session secret comparisons in route auth gates.
+  Standard `==` string equality leaked timing information proportional to the number of matching prefix bytes, facilitating side-channel attacks on secret bearer tokens over low-latency networks.
+- **Remediation:**
+  1. Implemented constant-time string comparison function `constant_time_eq` in `notesplusplus-core/src/server/auth.rs`.
+  2. Applied `constant_time_eq` across bearer token extraction in `is_authorized` and active session lookup in `SessionStore::validate_session`.
 - **Verification:**
-  - Unit tests verifying token equality matches identical tokens and rejects mismatched tokens.
+  - Unit test `test_constant_time_eq` verifies comparison correctness on matching and non-matching secrets of varying lengths.
+
+---
+
+### 2.4 Consolidate Fragmented Title & Slugification Helpers (Resolved)
+
+- **Target Files:**
+  - `notesplusplus-core/src/page.rs` (`extract_doc_title`, `sanitize_note_filename`, `safe_note_path`)
+  - `notesplusplus-core/src/server/routes/pages.rs` (`extract_title_from_adoc`, `make_slug_filename`)
+  - `notesplusplus-core/src/agent/session.rs`
+- **Problem & Impact:**
+  Title extraction and filename sanitization were implemented across multiple modules with diverging edge-case behavior.
+- **Remediation:**
+  1. Consolidated title extraction into `page::extract_doc_title` in `notesplusplus-core/src/page.rs`, parsing document headers with graceful fallback to file stems.
+  2. Consolidated note filename sanitization and safe path resolution into `page::sanitize_note_filename` and `page::safe_note_path`.
+  3. Re-used canonical helpers across `page.rs`, `server/routes/pages.rs`, and `agent/session.rs`.
+- **Verification:**
+  - Unit tests verify title extraction, filename sanitization, and path traversal rejection across the test suite.
+
+---
+
+### 2.5 Replace Redundant Filesystem Scans with SQLite Index Queries (Resolved)
+
+- **Target Files:**
+  - `notesplusplus-core/src/server/routes/pages.rs` (`list_all_notes_json_with_db`, `handle_notes_api`)
+- **Problem & Impact:**
+  `list_all_notes_json` performed a full directory traversal and disk read of every `.adoc` file upon every request to construct note titles and preview snippets, bypassing the SQLite database cache.
+- **Remediation:**
+  1. Implemented `list_all_notes_json_with_db` to query SQLite `pages` and `pages_fts` tables directly when the database is available.
+  2. Maintained filesystem traversal only as a fallback when database path is not provided.
+- **Verification:**
+  - Integration tests in `server/mod.rs` verify fast and accurate note listing and search via SQLite index.
 
 ---
 

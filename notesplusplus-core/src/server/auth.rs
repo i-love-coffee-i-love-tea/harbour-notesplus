@@ -151,7 +151,13 @@ impl SessionStore {
             self.persist(&map);
         }
 
-        map.get(token).cloned()
+        let mut matched = None;
+        for (id, sess) in map.iter() {
+            if constant_time_eq(id, token) {
+                matched = Some(sess.clone());
+            }
+        }
+        matched
     }
 
     /// Creates and stores a new active session for the given username and auth method.

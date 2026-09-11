@@ -8,7 +8,7 @@ use crate::block::Block;
 use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
 use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
-use crate::page::ensure_adoc_extension;
+use crate::page::{safe_note_path, sanitize_note_filename};
 use crate::parser;
 use crate::server::http::{
     escape_html, send_attachment_response, send_json_error, send_json_ok, send_response,
@@ -18,6 +18,43 @@ use crate::server::web_assets::INDEX_HTML;
 use crate::server::ServerContext;
 
 pub fn list_all_notes_json(notes_dir: &Path, search_query: Option<&str>) -> String {
+    list_all_notes_json_with_db(notes_dir, None, search_query)
+}
+
+pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, search_query: Option<&str>) -> String {
+    if let Some(db_p) = db_path {
+        if let Ok(conn) = Connection::open(db_p) {
+            let q_trimmed = search_query.unwrap_or("").trim();
+            if !q_trimmed.is_empty() {
+                if let Ok(results) = crate::search::search_pages(&conn, q_trimmed) {
+                    let json_items: Vec<serde_json::Value> = results
+                        .into_iter()
+                        .map(|r| {
+                            json!({
+                                "title": r.page.title,
+                                "filename": r.page.filename,
+                                "snippet": r.snippet
+                            })
+                        })
+                        .collect();
+                    return serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
+                }
+            } else if let Ok(pages) = page::list_pages(&conn) {
+                let json_items: Vec<serde_json::Value> = pages
+                    .into_iter()
+                    .map(|p| {
+                        json!({
+                            "title": p.title,
+                            "filename": p.filename,
+                            "snippet": ""
+                        })
+                    })
+                    .collect();
+                return serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
+            }
+        }
+    }
+
     let mut notes = Vec::new();
     if let Ok(entries) = fs::read_dir(notes_dir) {
         for entry in entries.flatten() {
@@ -79,13 +116,7 @@ pub fn make_slug_filename(title: &str) -> String {
 }
 
 pub fn extract_title_from_adoc(content: &str, fallback_filename: &str) -> String {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("= ") {
-            return trimmed.trim_start_matches("= ").trim().to_string();
-        }
-    }
-    fallback_filename.trim_end_matches(".adoc").replace('_', " ")
+    page::extract_doc_title(content, fallback_filename)
 }
 
 pub fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filename: &str) -> String {
@@ -169,11 +200,11 @@ pub fn handle_page_detail_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let filename = ensure_adoc_extension(filename);
+    let filename = sanitize_note_filename(filename);
+    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
     match req.method.as_str() {
         "GET" => {
-            let file_path = ctx.notes_subdir.join(&filename);
             if !file_path.is_file() {
                 send_json_error(stream, 404, "Not Found", &format!("Page '{}' not found", filename), cors_origin);
                 return;
@@ -206,7 +237,6 @@ pub fn handle_page_detail_api<W: Write>(
             if let Some(block_idx) = parsed.get("block_index").and_then(|v| v.as_i64()) {
                 let count = parsed.get("count").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
                 let raw_block = parsed.get("raw").and_then(|v| v.as_str()).unwrap_or("");
-                let file_path = ctx.notes_subdir.join(&filename);
 
                 match fs::read_to_string(&file_path) {
                     Ok(content) => {
@@ -217,7 +247,7 @@ pub fn handle_page_detail_api<W: Write>(
                             let new_blocks = parser::parse_blocks(raw_block);
                             blocks.splice(idx..end_idx, new_blocks);
                             let new_content = parser::blocks_to_adoc(&blocks);
-                            if let Err(e) = fs::write(&file_path, &new_content) {
+                            if let Err(e) = page::atomic_write(&file_path, &new_content) {
                                 log::error!("Failed to write page: {}", e);
                                 send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                                 return;
@@ -245,8 +275,7 @@ pub fn handle_page_detail_api<W: Write>(
                 String::from_utf8_lossy(&req.body).into_owned()
             };
 
-            let file_path = ctx.notes_subdir.join(&filename);
-            match fs::write(&file_path, &new_content) {
+            match page::atomic_write(&file_path, &new_content) {
                 Ok(_) => {
                     if let Ok(conn) = Connection::open(&ctx.db_path) {
                         let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
@@ -331,7 +360,7 @@ pub fn handle_notes_api<W: Write>(
                 let q_param = req.query.as_deref().and_then(|q| {
                     q.split('&').find_map(|p| p.strip_prefix("q="))
                 });
-                let json_str = list_all_notes_json(&ctx.notes_subdir, q_param);
+                let json_str = list_all_notes_json_with_db(&ctx.notes_subdir, Some(&ctx.db_path), q_param);
                 send_response(stream, 200, "OK", MIME_JSON, json_str.as_bytes(), cors_origin);
                 return;
             }
@@ -341,7 +370,7 @@ pub fn handle_notes_api<W: Write>(
                 let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
                 let filename = make_slug_filename(title);
-                let file_path = ctx.notes_subdir.join(&filename);
+                let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
                 let initial_content = if content.is_empty() {
                     format!("= {}\n\n", title)
@@ -349,7 +378,7 @@ pub fn handle_notes_api<W: Write>(
                     content.to_string()
                 };
 
-                if let Err(e) = fs::write(&file_path, &initial_content) {
+                if let Err(e) = page::atomic_write(&file_path, &initial_content) {
                     log::error!("Failed to create note: {}", e);
                     send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
@@ -377,8 +406,8 @@ pub fn handle_notes_api<W: Write>(
             .unwrap()
             .strip_suffix("/toggle")
             .unwrap();
-        let filename = ensure_adoc_extension(raw_name);
-        let file_path = ctx.notes_subdir.join(&filename);
+        let filename = sanitize_note_filename(raw_name);
+        let file_path = safe_note_path(&ctx.notes_subdir, &filename);
         if file_path.is_file() {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let json_body = req.json_body();
@@ -426,7 +455,7 @@ pub fn handle_notes_api<W: Write>(
 
                 if updated {
                     let new_adoc = parser::blocks_to_adoc(&blocks);
-                    let _ = fs::write(&file_path, &new_adoc);
+                    let _ = page::atomic_write(&file_path, &new_adoc);
                     if let Ok(conn) = Connection::open(&ctx.db_path) {
                         let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                     }
@@ -442,9 +471,8 @@ pub fn handle_notes_api<W: Write>(
 
     if clean_path.starts_with("api/notes/") {
         let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
-        let filename = ensure_adoc_extension(note_name);
-
-        let file_path = ctx.notes_subdir.join(&filename);
+        let filename = sanitize_note_filename(note_name);
+        let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
         match req.method.as_str() {
             "GET" => {
@@ -465,7 +493,7 @@ pub fn handle_notes_api<W: Write>(
                     body_str.to_string()
                 };
 
-                if let Err(e) = fs::write(&file_path, &content) {
+                if let Err(e) = page::atomic_write(&file_path, &content) {
                     log::error!("Failed to write note: {}", e);
                     send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
@@ -590,9 +618,8 @@ pub fn handle_export_html_api<W: Write>(
         return;
     }
 
-    let adoc_filename = ensure_adoc_extension(&filename);
-
-    let file_path = ctx.notes_subdir.join(&adoc_filename);
+    let adoc_filename = sanitize_note_filename(&filename);
+    let file_path = safe_note_path(&ctx.notes_subdir, &adoc_filename);
     if !file_path.is_file() {
         send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", adoc_filename), cors_origin);
         return;
@@ -648,11 +675,11 @@ pub fn handle_page_url<W: Write>(
         .or_else(|| clean_path.strip_prefix("edit/"))
         .unwrap_or("");
 
-    let filename = ensure_adoc_extension(note_name);
+    let filename = sanitize_note_filename(note_name);
+    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
     if let Some(q) = req.query.as_deref() {
         if q.contains("export=1") || q.contains("download=1") {
-            let file_path = ctx.notes_subdir.join(&filename);
             if file_path.is_file() {
                 if let Ok(content) = fs::read_to_string(&file_path) {
                     let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
@@ -662,7 +689,6 @@ pub fn handle_page_url<W: Write>(
                 }
             }
         } else if q.contains("view=rendered") {
-            let file_path = ctx.notes_subdir.join(&filename);
             if file_path.is_file() {
                 if let Ok(content) = fs::read_to_string(&file_path) {
                     let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
@@ -684,9 +710,9 @@ pub fn handle_raw_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("raw/").unwrap_or("");
-    let filename = ensure_adoc_extension(note_name);
+    let filename = sanitize_note_filename(note_name);
+    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
-    let file_path = ctx.notes_subdir.join(&filename);
     if file_path.is_file() {
         if let Ok(content) = fs::read_to_string(&file_path) {
             send_response(stream, 200, "OK", MIME_TEXT_PLAIN, content.as_bytes(), cors_origin);
@@ -703,13 +729,10 @@ pub fn handle_export_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("export/").unwrap_or("");
-    let filename = if note_name.ends_with(".html") {
-        ensure_adoc_extension(note_name.strip_suffix(".html").unwrap_or(note_name))
-    } else {
-        ensure_adoc_extension(note_name)
-    };
+    let stripped = note_name.strip_suffix(".html").unwrap_or(note_name);
+    let filename = sanitize_note_filename(stripped);
+    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
-    let file_path = ctx.notes_subdir.join(&filename);
     if file_path.is_file() {
         if let Ok(content) = fs::read_to_string(&file_path) {
             let title = filename.strip_suffix(".adoc").unwrap_or(&filename);

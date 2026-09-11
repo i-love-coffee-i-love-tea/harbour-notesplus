@@ -1,5 +1,7 @@
+use std::io::Write;
 use std::path::Path;
 
+use ring::rand::SecureRandom;
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -59,11 +61,11 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
     // Write initial content
     if !is_journal {
         let content = format!("= {}\n", name);
-        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        atomic_write(&path, content).map_err(|e| e.to_string())?;
     } else {
         // Journal starts empty; journal.rs handles content
         if !path.exists() {
-            std::fs::write(&path, "").map_err(|e| e.to_string())?;
+            atomic_write(&path, "").map_err(|e| e.to_string())?;
         }
     }
 
@@ -427,11 +429,6 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
         if path.extension().is_some_and(|ext| ext == "adoc") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             let is_journal = filename == JOURNAL_FILENAME;
-            let title = if is_journal {
-                JOURNAL_TITLE.to_string()
-            } else {
-                filename.trim_end_matches(".adoc").replace('_', " ")
-            };
 
             let file_mtime = std::fs::metadata(&path)
                 .ok()
@@ -456,6 +453,11 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
                 None => {
                     // New page file not yet in database
                     let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    let title = if is_journal {
+                        JOURNAL_TITLE.to_string()
+                    } else {
+                        extract_doc_title(&content, &filename)
+                    };
                     let now = file_mtime.map(|m| m.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
                     conn.execute(
@@ -490,6 +492,80 @@ pub fn ensure_adoc_extension(name: &str) -> String {
     } else {
         format!("{}.adoc", name)
     }
+}
+
+/// Sanitizes a note filename or title, ensuring it has an `.adoc` extension and no path traversal characters.
+pub fn sanitize_note_filename(name_or_path: &str) -> String {
+    let trimmed = name_or_path.trim();
+    let stem = if let Some(s) = trimmed.strip_suffix(".adoc") {
+        s
+    } else if let Some(s) = trimmed.strip_suffix(".ADOC") {
+        s
+    } else {
+        trimmed
+    };
+
+    let sanitized = sanitize_filename(stem);
+    let final_stem = sanitized.trim_matches('_');
+    if final_stem.is_empty() {
+        "Untitled.adoc".to_string()
+    } else {
+        format!("{}.adoc", final_stem)
+    }
+}
+
+/// Extracts document title from AsciiDoc content (first `= Title` heading), falling back to filename.
+pub fn extract_doc_title(content: &str, fallback_filename: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("= ") {
+            return trimmed.trim_start_matches("= ").trim().to_string();
+        }
+    }
+    fallback_filename.trim_end_matches(".adoc").replace('_', " ")
+}
+
+/// Returns a safe PathBuf within `notes_dir` for a note, guaranteed not to escape via path traversal.
+pub fn safe_note_path(notes_dir: &Path, name_or_path: &str) -> std::path::PathBuf {
+    notes_dir.join(sanitize_note_filename(name_or_path))
+}
+
+/// Atomically write content to a file using a temporary sibling file, fsync, and rename.
+pub fn atomic_write(path: &Path, content: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "temp_file".to_string());
+
+    let mut random_bytes = [0u8; 8];
+    let rng = ring::rand::SystemRandom::new();
+    let nonce = if rng.fill(&mut random_bytes).is_ok() {
+        u64::from_ne_bytes(random_bytes)
+    } else {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+    };
+
+    let tmp_path = parent.join(format!(".{}.tmp.{:016x}", file_name, nonce));
+
+    let mut file = std::fs::File::create(&tmp_path)?;
+    file.write_all(content.as_ref())?;
+    file.sync_all()?;
+    drop(file);
+
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -682,7 +758,7 @@ mod tests {
         sync_and_index_pages(&conn, &notes).unwrap();
 
         let page = get_page(&conn, "manual_doc.adoc").unwrap().expect("manual doc should be registered");
-        assert_eq!(page.title, "manual doc");
+        assert_eq!(page.title, "Manual Doc");
 
         let journal = get_page(&conn, JOURNAL_FILENAME).unwrap().expect("journal should be registered");
         assert!(journal.is_journal);
@@ -690,7 +766,7 @@ mod tests {
         // Verify FTS search finds the content
         let results = crate::search::search_pages(&conn, "thermodynamics").unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].page.title, "manual doc");
+        assert_eq!(results[0].page.title, "Manual Doc");
 
         // Now modify the file and verify sync_and_index_pages updates FTS
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -699,7 +775,7 @@ mod tests {
 
         let updated_results = crate::search::search_pages(&conn, "quantum").unwrap();
         assert_eq!(updated_results.len(), 1);
-        assert_eq!(updated_results[0].page.title, "manual doc");
+        assert_eq!(updated_results[0].page.title, "Manual Doc");
     }
 
     #[test]
@@ -711,5 +787,46 @@ mod tests {
         assert_eq!(json_val["title"], "JSON Test Page");
         assert_eq!(json_val["filename"], "JSON_Test_Page.adoc");
         assert_eq!(json_val["is_journal"], false);
+    }
+
+    #[test]
+    fn test_sanitize_note_filename() {
+        assert_eq!(sanitize_note_filename("notes.adoc"), "notes.adoc");
+        assert_eq!(sanitize_note_filename("notes"), "notes.adoc");
+        assert_eq!(sanitize_note_filename("sub/notes.adoc"), "sub_notes.adoc");
+        assert_eq!(sanitize_note_filename("my-note"), "my-note.adoc");
+        assert_eq!(sanitize_note_filename("my-note.adoc"), "my-note.adoc");
+        assert_eq!(sanitize_note_filename("../../evil.adoc"), "evil.adoc");
+        assert_eq!(sanitize_note_filename("../../../"), "Untitled.adoc");
+        assert_eq!(sanitize_note_filename(""), "Untitled.adoc");
+        assert_eq!(sanitize_note_filename("   "), "Untitled.adoc");
+        assert_eq!(sanitize_note_filename("JOURNAL.ADOC"), "JOURNAL.adoc");
+    }
+
+    #[test]
+    fn test_safe_note_path() {
+        let notes = Path::new("/tmp/test_notes");
+        let safe1 = safe_note_path(notes, "meeting.adoc");
+        assert_eq!(safe1, notes.join("meeting.adoc"));
+
+        let safe2 = safe_note_path(notes, "../../evil.adoc");
+        assert_eq!(safe2, notes.join("evil.adoc"));
+        assert!(safe2.starts_with(notes));
+    }
+
+    #[test]
+    fn test_atomic_write() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("atomic_test.adoc");
+
+        atomic_write(&target, "= Atomic Note\nContent here").unwrap();
+        assert!(target.exists());
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, "= Atomic Note\nContent here");
+
+        // Overwrite atomically
+        atomic_write(&target, "= Updated Atomic Note\nNew content").unwrap();
+        let updated = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(updated, "= Updated Atomic Note\nNew content");
     }
 }
