@@ -7,6 +7,7 @@ Item {
     id: sidebarDelegate
     property var blockData: ({})
     property int blockIndex: -1
+    property string searchTerm: ""
     property string blockType: blockData && blockData.type ? blockData.type : "sidebar"
     property bool isSidebar: blockType === "sidebar"
     property bool isExample: blockType === "example"
@@ -66,7 +67,7 @@ Item {
 
                 InlineText {
                     width: parent.width - Theme.paddingSmall * 2
-                    spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
+                    preRenderedHtml: (blockData && blockData.html) ? blockData.html.replace(/__LINK_COLOR__/g, Theme.highlightColor) : ""
                     color: Theme.highlightColor
                     font.bold: true
                     font.family: app.resolvedFontFamily()
@@ -79,7 +80,7 @@ Item {
             InlineText {
                 visible: Boolean(!isSidebar && blockData && ((blockData.title_spans && blockData.title_spans.length > 0) || (blockData.title && blockData.title.length > 0)))
                 width: parent.width
-                spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
+                preRenderedHtml: (blockData && blockData.html) ? blockData.html.replace(/__LINK_COLOR__/g, Theme.highlightColor) : ""
                 color: isExample ? Theme.secondaryColor : Theme.highlightColor
                 font.bold: true
                 font.family: app.resolvedFontFamily()
@@ -92,7 +93,15 @@ Item {
                 width: parent.width
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 textFormat: Text.RichText
-                text: BlockHtmlUtils.blocksToHtml((blockData && blockData.blocks) ? blockData.blocks : [], 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true)
+                text: {
+                    // Use Rust pre-rendered content, strip outer wrapper (border/title — QML provides these)
+                    var html = (blockData && blockData.html) ? blockData.html : ""
+                    html = html.replace(/<div[^>]*>/, "").replace(/<\/div>$/, "")
+                    html = html.replace(/<b[^>]*>[^<]*<\/b><br\/>/, "")
+                    html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    return html
+                }
                 font.family: app.resolvedFontFamily()
                 font.pixelSize: app.scaledFontSize(isOpen ? Theme.fontSizeMedium : Theme.fontSizeSmall)
                 color: Theme.primaryColor

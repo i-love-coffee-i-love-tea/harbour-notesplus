@@ -9,6 +9,8 @@ pub enum AdmonitionKind {
     Note,
     Tip,
     Warning,
+    Caution,
+    Important,
 }
 
 impl AdmonitionKind {
@@ -17,6 +19,8 @@ impl AdmonitionKind {
             AdmonitionKind::Note => "NOTE",
             AdmonitionKind::Tip => "TIP",
             AdmonitionKind::Warning => "WARNING",
+            AdmonitionKind::Caution => "CAUTION",
+            AdmonitionKind::Important => "IMPORTANT",
         }
     }
 }
@@ -32,6 +36,8 @@ impl From<&str> for AdmonitionKind {
         match s.to_uppercase().as_str() {
             "TIP" => AdmonitionKind::Tip,
             "WARNING" => AdmonitionKind::Warning,
+            "CAUTION" => AdmonitionKind::Caution,
+            "IMPORTANT" => AdmonitionKind::Important,
             _ => AdmonitionKind::Note,
         }
     }
@@ -200,31 +206,95 @@ pub enum Block {
     EmptyLine,
 }
 
-impl Block {
-    pub fn block_type(&self) -> &'static str {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockKind {
+    Heading,
+    Paragraph,
+    OrderedListItem,
+    UnorderedListItem,
+    DescriptionListItem,
+    CalloutListItem,
+    CodeBlock,
+    LiteralBlock,
+    Blockquote,
+    Verse,
+    Sidebar,
+    Example,
+    Table,
+    Image,
+    HorizontalRule,
+    Admonition,
+    Open,
+    PageBreak,
+    Comment,
+    Toc,
+    EmptyLine,
+}
+
+impl BlockKind {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            Block::Heading { .. } => "heading",
-            Block::Paragraph { .. } => "paragraph",
-            Block::OrderedListItem { .. } => "ordered_list_item",
-            Block::UnorderedListItem { .. } => "unordered_list_item",
-            Block::DescriptionListItem { .. } => "description_list_item",
-            Block::CalloutListItem { .. } => "callout_list_item",
-            Block::CodeBlock { .. } => "code_block",
-            Block::LiteralBlock { .. } => "literal_block",
-            Block::Blockquote { .. } => "blockquote",
-            Block::Verse { .. } => "verse",
-            Block::Sidebar { .. } => "sidebar",
-            Block::Example { .. } => "example",
-            Block::Table { .. } => "table",
-            Block::Image { .. } => "image",
-            Block::HorizontalRule { .. } => "horizontal_rule",
-            Block::Admonition { .. } => "admonition",
-            Block::Open { .. } => "open",
-            Block::PageBreak { .. } => "page_break",
-            Block::Comment { .. } => "comment",
-            Block::Toc { .. } => "toc",
-            Block::EmptyLine => "empty_line",
+            BlockKind::Heading => "heading",
+            BlockKind::Paragraph => "paragraph",
+            BlockKind::OrderedListItem => "ordered_list_item",
+            BlockKind::UnorderedListItem => "unordered_list_item",
+            BlockKind::DescriptionListItem => "description_list_item",
+            BlockKind::CalloutListItem => "callout_list_item",
+            BlockKind::CodeBlock => "code_block",
+            BlockKind::LiteralBlock => "literal_block",
+            BlockKind::Blockquote => "blockquote",
+            BlockKind::Verse => "verse",
+            BlockKind::Sidebar => "sidebar",
+            BlockKind::Example => "example",
+            BlockKind::Table => "table",
+            BlockKind::Image => "image",
+            BlockKind::HorizontalRule => "horizontal_rule",
+            BlockKind::Admonition => "admonition",
+            BlockKind::Open => "open",
+            BlockKind::PageBreak => "page_break",
+            BlockKind::Comment => "comment",
+            BlockKind::Toc => "toc",
+            BlockKind::EmptyLine => "empty_line",
         }
+    }
+}
+
+impl fmt::Display for BlockKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Block {
+    pub fn kind(&self) -> BlockKind {
+        match self {
+            Block::Heading { .. } => BlockKind::Heading,
+            Block::Paragraph { .. } => BlockKind::Paragraph,
+            Block::OrderedListItem { .. } => BlockKind::OrderedListItem,
+            Block::UnorderedListItem { .. } => BlockKind::UnorderedListItem,
+            Block::DescriptionListItem { .. } => BlockKind::DescriptionListItem,
+            Block::CalloutListItem { .. } => BlockKind::CalloutListItem,
+            Block::CodeBlock { .. } => BlockKind::CodeBlock,
+            Block::LiteralBlock { .. } => BlockKind::LiteralBlock,
+            Block::Blockquote { .. } => BlockKind::Blockquote,
+            Block::Verse { .. } => BlockKind::Verse,
+            Block::Sidebar { .. } => BlockKind::Sidebar,
+            Block::Example { .. } => BlockKind::Example,
+            Block::Table { .. } => BlockKind::Table,
+            Block::Image { .. } => BlockKind::Image,
+            Block::HorizontalRule { .. } => BlockKind::HorizontalRule,
+            Block::Admonition { .. } => BlockKind::Admonition,
+            Block::Open { .. } => BlockKind::Open,
+            Block::PageBreak { .. } => BlockKind::PageBreak,
+            Block::Comment { .. } => BlockKind::Comment,
+            Block::Toc { .. } => BlockKind::Toc,
+            Block::EmptyLine => BlockKind::EmptyLine,
+        }
+    }
+
+    pub fn block_type(&self) -> &'static str {
+        self.kind().as_str()
     }
 
     pub fn raw_text(&self) -> &str {

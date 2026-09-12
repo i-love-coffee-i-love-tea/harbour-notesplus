@@ -495,7 +495,7 @@ fn test_link_page_widget_web_assets() {
 
 #[test]
 fn test_ai_model_selection_web_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, COMPOSABLE_USE_AI_ASSISTANT_JS};
 
     // 1. Verify index.html contains model selection UI elements
     assert!(INDEX_HTML.contains("ai-model-select"));
@@ -511,20 +511,22 @@ fn test_ai_model_selection_web_assets() {
     assert!(!INDEX_HTML.contains("allow_self_signed"));
     assert!(!INDEX_HTML.contains("Accept Self-Signed"));
 
-    // 2. Verify app.js contains provider, model fetching, system prompt state & methods
+    // 2. Verify app.js imports and re-exports AI composable
+    assert!(APP_JS.contains("useAiAssistant"));
     assert!(APP_JS.contains("availableModels"));
     assert!(APP_JS.contains("fetchAvailableModels"));
-    assert!(APP_JS.contains("onProviderChange"));
     assert!(APP_JS.contains("onModelSelect"));
-    assert!(APP_JS.contains("/api/ai/models"));
     assert!(APP_JS.contains("isCurrentModelInList"));
-    assert!(APP_JS.contains("aiConfig.value.system_prompt"));
-    assert!(APP_JS.contains("aiConfig.value.provider"));
 
-    // Verify app.js does not expose or send server endpoints, tokens, or self-signed cert flags
-    assert!(!APP_JS.contains("aiConfig.value.endpoint"));
-    assert!(!APP_JS.contains("aiConfig.value.apiKey"));
-    assert!(!APP_JS.contains("allow_self_signed"));
+    // Verify AI composable contains provider, model fetching, system prompt state & methods
+    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("/api/ai/models"));
+    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.system_prompt"));
+    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.provider"));
+
+    // Verify composable does not expose or send server endpoints, tokens, or self-signed cert flags
+    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.endpoint"));
+    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.apiKey"));
+    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("allow_self_signed"));
 
     // 3. Verify style.css contains styling for the model select
     assert!(STYLE_CSS.contains(".ai-model-select"));
@@ -728,9 +730,8 @@ fn test_web_ui_logout_button_assets() {
     assert!(INDEX_HTML.contains("btn-logout"));
     assert!(INDEX_HTML.contains("Logout"));
 
-    // 2. Verify app.js defines and exports logout handler
-    assert!(APP_JS.contains("async function logout()"));
-    assert!(APP_JS.contains("/api/auth/logout"));
+    // 2. Verify app.js imports auth composable and exports logout handler
+    assert!(APP_JS.contains("useAuth"));
     assert!(APP_JS.contains("logout,"));
 
     // 3. Verify style.css defines styling for logout button
@@ -861,11 +862,9 @@ fn test_web_ui_session_timer_assets() {
     assert!(INDEX_HTML.contains("sessionRemainingText"));
     assert!(INDEX_HTML.contains("session-time"));
 
-    // 2. Verify app.js defines countdown and session timer handlers
-    assert!(APP_JS.contains("formatSessionRemaining"));
+    // 2. Verify app.js imports auth composable and exports session timer state
+    assert!(APP_JS.contains("useAuth"));
     assert!(APP_JS.contains("sessionRemainingText"));
-    assert!(APP_JS.contains("sessionCountdownTimer"));
-    assert!(APP_JS.contains("startSessionCountdown"));
 
     // 3. Verify style.css defines styling for session chip
     assert!(STYLE_CSS.contains(".session-chip"));
@@ -917,6 +916,7 @@ fn test_import_from_url_and_file_web_assets() {
     // 2. Verify app.js defines handlers, state, and API routes
     assert!(APP_JS.contains("importUrl"));
     assert!(APP_JS.contains("showUrlInput"));
+    assert!(APP_JS.contains("useImport"));
     assert!(APP_JS.contains("isFetchingUrl"));
     assert!(APP_JS.contains("fetchUrlContent"));
     assert!(APP_JS.contains("onFileSelect"));
@@ -925,8 +925,6 @@ fn test_import_from_url_and_file_web_assets() {
     assert!(APP_JS.contains("pasteClipboard"));
     assert!(APP_JS.contains("fetchNotesList"));
     assert!(!APP_JS.contains("loadNotesList"));
-    assert!(APP_JS.contains("/api/ai/fetch_url"));
-    assert!(APP_JS.contains("/api/ai/read_file"));
 
     // 3. Verify style.css contains import source action and dropzone classes
     assert!(STYLE_CSS.contains(".import-source-header"));

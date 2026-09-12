@@ -13,7 +13,6 @@ mod server_bridge;
 mod journal_bridge;
 mod search_bridge;
 pub mod agent_bridge;
-mod audio_recorder;
 pub mod speech_bridge;
 
 pub use agent_bridge::AgentBridge;
@@ -415,7 +414,7 @@ impl NotesBridge {
         let mut seen_ids: Vec<String> = Vec::new();
         collect_footnotes(blocks, &mut footnotes, &mut seen_ids);
         if !footnotes.is_empty() {
-            let mut fn_html = String::from("<hr style='border:none;border-top:1px solid __LINK_COLOR__;margin:16px 8px 8px 8px;'/><p style='margin:4px 8px;font-weight:bold;color:__LINK_COLOR__;'>Footnotes</p>");
+            let mut fn_html = String::from("<hr/><p style='margin:4px 8px;font-weight:bold;color:__LINK_COLOR__;'>Footnotes</p>");
             for (i, (id, text)) in footnotes.iter().enumerate() {
                 let num_label = (i + 1).to_string();
                 let label = id.as_deref().unwrap_or(&num_label);

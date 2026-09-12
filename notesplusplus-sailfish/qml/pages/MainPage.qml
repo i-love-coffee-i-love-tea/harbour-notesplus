@@ -526,6 +526,21 @@ Page {
                 }
             })
         }
+        onPasteRequested: {
+            var clipText = Clipboard.text
+            if (!clipText || clipText.length === 0) {
+                remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
+                return
+            }
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.newJournalBlockText = (mainPage.newJournalBlockText && mainPage.newJournalBlockText.length > 0 ? mainPage.newJournalBlockText + "\n" : "") + clipText
+            } else if (mainPage.editingJournalBlockIndex >= 0) {
+                var cur = mainPage.editingCurrentText || ""
+                var updated = (cur.length > 0 ? cur + "\n" : "") + clipText
+                mainPage.editingRawText = updated
+                mainPage.editingCurrentText = updated
+            }
+        }
     }
 
     RemorsePopup { id: remorsePopup }

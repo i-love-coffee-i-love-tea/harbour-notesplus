@@ -12,7 +12,7 @@ use notesplusplus_core::stt::{
     WhisperEngine,
 };
 
-use super::audio_recorder::AudioRecorder;
+use crate::audio_recorder::AudioRecorder;
 
 const DEFAULT_WAVEFORM_JSON: &str = "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]";
 

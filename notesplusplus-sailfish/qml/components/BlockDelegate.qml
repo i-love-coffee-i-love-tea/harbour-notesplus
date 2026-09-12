@@ -187,7 +187,10 @@ Item {
         id: verseQuoteComponent
         VerseQuoteDelegate {
             blockData: delegate.localBlockData
+            blockIndex: delegate.blockIndex
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
+            onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }
     }
 
@@ -195,6 +198,7 @@ Item {
         id: tableComponent
         TableDelegate {
             blockData: delegate.localBlockData
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -203,7 +207,10 @@ Item {
         id: admonitionComponent
         AdmonitionDelegate {
             blockData: delegate.localBlockData
+            blockIndex: delegate.blockIndex
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
+            onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }
     }
 
@@ -212,6 +219,7 @@ Item {
         SidebarDelegate {
             blockData: delegate.localBlockData
             blockIndex: delegate.blockIndex
+            searchTerm: delegate.searchTerm
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }

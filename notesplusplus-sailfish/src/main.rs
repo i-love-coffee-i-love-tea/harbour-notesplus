@@ -2,6 +2,7 @@ use qmetaobject::*;
 use std::ffi::CStr;
 use std::path::PathBuf;
 
+mod audio_recorder;
 mod bridge;
 
 fn main() {

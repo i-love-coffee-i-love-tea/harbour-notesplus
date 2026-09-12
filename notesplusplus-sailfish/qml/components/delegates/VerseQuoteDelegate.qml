@@ -6,8 +6,11 @@ import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 Column {
     id: verseQuoteDelegate
     property var blockData: ({})
+    property int blockIndex: -1
+    property string searchTerm: ""
     property bool isVerse: blockData && blockData.type === "verse"
     signal xrefActivated(string target)
+    signal checkboxToggled(int blockIndex, string itemPath)
 
     anchors.left: parent ? parent.left : undefined
     anchors.right: parent ? parent.right : undefined
@@ -18,7 +21,7 @@ Column {
 
     InlineText {
         visible: Boolean(blockData && ((blockData.title_spans && blockData.title_spans.length > 0) || (blockData.title && blockData.title.length > 0)))
-        spans: (blockData && blockData.title_spans && blockData.title_spans.length > 0) ? blockData.title_spans : ((blockData && blockData.title) ? [{ type: "text", value: blockData.title }] : undefined)
+        preRenderedHtml: (blockData && blockData.html) ? blockData.html.replace(/__LINK_COLOR__/g, Theme.highlightColor) : ""
         font.family: app.resolvedFontFamily()
         font.pixelSize: app.scaledFontSize(Theme.fontSizeExtraSmall)
         font.bold: true
@@ -58,47 +61,49 @@ Column {
             }
             spacing: Theme.paddingSmall / 3
 
-            Repeater {
-                visible: isVerse
-                model: isVerse ? ((blockData && blockData.lines_spans && blockData.lines_spans.length > 0) ? blockData.lines_spans : ((blockData && blockData.lines) ? blockData.lines : [])) : []
-                delegate: Label {
-                    width: innerCol.width
-                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                    textFormat: Text.RichText
-                    text: {
-                        if (modelData && typeof modelData !== "string") {
-                            return BlockHtmlUtils.spansToHtml(modelData, { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge && bridge.notes_dir) ? bridge.notes_dir : "", (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true)
-                        } else if (typeof modelData === "string") {
-                            return BlockHtmlUtils.escapeHtml(modelData)
-                        }
-                        return ""
-                    }
-                    font.italic: true
-                    font.family: app.resolvedFontFamily()
-                    font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
-                    color: Theme.primaryColor
-                    linkColor: Theme.highlightColor
-                    onLinkActivated: function(link) {
-                        BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, null)
-                    }
-                }
-            }
-
             Label {
                 visible: !isVerse
                 width: parent.width
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 textFormat: Text.RichText
-                text: (!isVerse && blockData && blockData.blocks && blockData.blocks.length > 0)
-                      ? BlockHtmlUtils.blocksToHtml(blockData.blocks, 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge && bridge.notes_dir) ? bridge.notes_dir : "", (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true)
-                      : ("<i>" + BlockHtmlUtils.escapeHtml((blockData && (blockData.raw || "")) || "") + "</i>")
+                text: {
+                    // Use Rust HTML for blockquote body, strip outer blockquote wrapper (QML provides border)
+                    var html = (blockData && blockData.html) ? blockData.html : ""
+                    html = html.replace(/<blockquote[^>]*>/, "").replace(/<\/blockquote>$/, "")
+                    html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    return html || ("<i>" + ((blockData && (blockData.raw || "")) || "") + "</i>")
+                }
                 font.italic: true
                 font.family: app.resolvedFontFamily()
                 font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                 color: Theme.primaryColor
                 linkColor: Theme.highlightColor
                 onLinkActivated: function(link) {
-                    BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, null)
+                    BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, function(path) { verseQuoteDelegate.checkboxToggled(verseQuoteDelegate.blockIndex, path) })
+                }
+            }
+
+            Label {
+                visible: isVerse
+                width: parent.width
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                textFormat: Text.RichText
+                text: {
+                    // Use Rust HTML for verse body, strip outer blockquote wrapper
+                    var html = (blockData && blockData.html) ? blockData.html : ""
+                    html = html.replace(/<blockquote[^>]*>/, "").replace(/<\/blockquote>$/, "")
+                    html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    return html
+                }
+                font.italic: true
+                font.family: app.resolvedFontFamily()
+                font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
+                color: Theme.primaryColor
+                linkColor: Theme.highlightColor
+                onLinkActivated: function(link) {
+                    BlockHtmlUtils.handleLink(link, function(target) { verseQuoteDelegate.xrefActivated(target) }, function(path) { verseQuoteDelegate.checkboxToggled(verseQuoteDelegate.blockIndex, path) })
                 }
             }
 

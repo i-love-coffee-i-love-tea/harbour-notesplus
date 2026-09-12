@@ -239,7 +239,7 @@ pub fn parse_blocks_from_lines(lines: &[&str]) -> Vec<Block> {
                         && cur + 1 < lines.len()
                         && is_example_delimiter(lines[cur + 1].trim()))
                 {
-                    let (mut block, consumed) = parse_admonition_block(&kind, &lines[cur..], title);
+                    let (mut block, consumed) = parse_admonition_block(kind, &lines[cur..], title);
                     if cur > i {
                         let prefix_raw = lines[i..cur].join("\n");
                         if let Block::Admonition { ref mut raw, .. } = block {
@@ -251,7 +251,7 @@ pub fn parse_blocks_from_lines(lines: &[&str]) -> Vec<Block> {
                     continue;
                 } else {
                     let (mut block, consumed) =
-                        parse_admonition_paragraph(&kind, &lines[cur..], title);
+                        parse_admonition_paragraph(kind, &lines[cur..], title);
                     if cur > i {
                         let prefix_raw = lines[i..cur].join("\n");
                         if let Block::Admonition { ref mut raw, .. } = block {

@@ -4,39 +4,6 @@ use std::path::PathBuf;
 use notesplusplus_core::block::Block;
 use notesplusplus_core::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
 
-/// Navigate to a block within `blocks[idx]` using a dot-separated `item_path`
-/// and toggle its checkbox state. Returns `true` if a checkbox was toggled.
-fn toggle_check_in_blocks(blocks: &mut [Block], idx: usize, item_path: &str) -> bool {
-    if idx >= blocks.len() { return false; }
-    let mut curr = Some(&mut blocks[idx]);
-    if !item_path.is_empty() {
-        for part in item_path.split('.') {
-            if let Ok(child_idx) = part.parse::<usize>() {
-                curr = match curr {
-                    Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                    Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
-                    _ => None,
-                };
-            } else {
-                return false;
-            }
-        }
-    }
-    if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
-        if let Some(c) = checked {
-            *checked = Some(!*c);
-            if raw.contains("[ ] ") {
-                *raw = raw.replacen("[ ] ", "[x] ", 1);
-            } else if raw.contains("[x] ") {
-                *raw = raw.replacen("[x] ", "[ ] ", 1);
-            } else if raw.contains("[X] ") {
-                *raw = raw.replacen("[X] ", "[ ] ", 1);
-            }
-            return true;
-        }
-    }
-    false
-}
 use notesplusplus_core::db;
 use notesplusplus_core::journal;
 use notesplusplus_core::page;
@@ -185,21 +152,7 @@ impl NotesBridge {
         }
 
         let is_journal = self.is_journal_page || self.current_page_name.eq_ignore_ascii_case(JOURNAL_TITLE);
-        let line_to_append = if is_task {
-            if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
-                trimmed.to_string()
-            } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
-                format!("* {}", &trimmed[2..])
-            } else if let Some(stripped) = trimmed.strip_prefix("* ") {
-                format!("* [ ] {}", stripped)
-            } else if let Some(stripped) = trimmed.strip_prefix("- ") {
-                format!("* [ ] {}", stripped)
-            } else {
-                format!("* [ ] {}", trimmed)
-            }
-        } else {
-            trimmed.to_string()
-        };
+        let line_to_append = journal::format_task_line(trimmed, is_task);
 
         if is_journal {
             if let Err(e) = journal::append_to_journal_today(&self.notes_dir(), &line_to_append) {
@@ -270,7 +223,7 @@ impl NotesBridge {
         let path = self.notes_dir().join(&filename);
 
         if idx < self.journal_blocks_data.len() {
-            toggle_check_in_blocks(&mut self.journal_blocks_data, idx, &item_path);
+            parser::toggle_check_in_blocks(&mut self.journal_blocks_data, idx, &item_path);
         }
 
         let content = match std::fs::read_to_string(&path) {
@@ -279,7 +232,7 @@ impl NotesBridge {
         };
 
         let mut blocks = parser::parse_blocks(&content);
-        if toggle_check_in_blocks(&mut blocks, idx, &item_path) {
+        if parser::toggle_check_in_blocks(&mut blocks, idx, &item_path) {
             let new_content = parser::blocks_to_adoc(&blocks);
             let _ = page::atomic_write(&path, &new_content);
             if let Some(conn) = self.conn() {
@@ -298,21 +251,7 @@ impl NotesBridge {
             return;
         }
 
-        let line_to_append = if is_task {
-            if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
-                trimmed.to_string()
-            } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
-                format!("* {}", &trimmed[2..])
-            } else if let Some(stripped) = trimmed.strip_prefix("* ") {
-                format!("* [ ] {}", stripped)
-            } else if let Some(stripped) = trimmed.strip_prefix("- ") {
-                format!("* [ ] {}", stripped)
-            } else {
-                format!("* [ ] {}", trimmed)
-            }
-        } else {
-            trimmed.to_string()
-        };
+        let line_to_append = journal::format_task_line(trimmed, is_task);
 
         if let Err(e) = journal::append_to_journal_today(&self.notes_dir(), &line_to_append) {
             self.report_error(format!("Failed to append to journal: {}", e));
@@ -366,7 +305,7 @@ impl NotesBridge {
         let path = self.notes_dir().join(&filename);
 
         if idx < self.current_blocks_data.len() {
-            toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
+            parser::toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
             let options = notesplusplus_core::html::qt_html::QtRenderOptions {
                 notes_dir: Some(self.notes_path.to_string_lossy().to_string()),
                 allow_external_images: true,

@@ -273,8 +273,13 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
         }
         Block::Admonition { kind, children, .. } => {
             let inner = render_blocks_slice(&children.iter().collect::<Vec<_>>(), ctx);
-            format!("<div style='margin:4px 0;padding:6px;border-left:3px solid {};background:{};'><b>{}:</b> {}</div>",
-                highlight, highlight_bg, escape_html(kind.as_str()), inner)
+            let (border_color, bg_color) = match kind {
+                crate::block::AdmonitionKind::Warning => ("#d9534f", "rgba(217,83,79,0.12)"),
+                crate::block::AdmonitionKind::Tip => ("#f0ad4e", "rgba(240,173,78,0.12)"),
+                _ => ("__LINK_COLOR__", highlight_bg.as_str()),
+            };
+            format!("<div style='margin:4px 0;padding:6px;border-left:3px solid {};background:{};'><b style='color:{};'>{}:</b> {}</div>",
+                border_color, bg_color, border_color, escape_html(kind.as_str()), inner)
         }
         Block::Sidebar { title, children, .. } | Block::Example { title, children, .. } | Block::Open { title, children, .. } => {
             let title_html = match title {
@@ -312,40 +317,46 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
 
 fn render_table(rows: &[Vec<crate::block::TableCell>], col_widths: &[f64], ctx: &mut QtHtmlCtx) -> String {
     let mut html = String::new();
-    html.push_str("<table width='100%' style='width:100%;border-collapse:collapse;margin:4px 0;'>");
+    // Use HTML border attribute (Qt RichText supports this, not CSS border)
+    html.push_str("<table border='1' cellspacing='0' cellpadding='4' width='100%' style='margin:4px 0;'>");
     for (row_idx, row) in rows.iter().enumerate() {
         html.push_str("<tr>");
         for (cell_idx, cell) in row.iter().enumerate() {
             let tag = if row_idx == 0 { "th" } else { "td" };
             let cell_html = render_blocks_slice(&cell.blocks.iter().collect::<Vec<_>>(), ctx);
             let colspan_attr = if cell.colspan > 1 { format!(" colspan='{}'", cell.colspan) } else { String::new() };
-            let align_style = match cell.align.as_deref() {
-                Some("center") => "text-align:center;",
-                Some("right") => "text-align:right;",
+            let align_attr = match cell.align.as_deref() {
+                Some("center") => " align='center'",
+                Some("right") => " align='right'",
                 _ => "",
             };
-            let bg = if row_idx == 0 {
-                "background:rgba(0,136,204,0.1);"
+            let bg_attr = if row_idx == 0 {
+                " bgcolor='rgba(0,136,204,0.1)'"
             } else if row_idx % 2 == 1 {
-                "background:rgba(255,255,255,0.03);"
+                " bgcolor='rgba(255,255,255,0.03)'"
             } else {
                 ""
             };
-            let bold = if row_idx == 0 || (row_idx == 1 && rows.first().map_or(false, |r| r.is_empty())) {
-                "font-weight:bold;"
+            let bold_open = if row_idx == 0 || (row_idx == 1 && rows.first().map_or(false, |r| r.is_empty())) {
+                "<b>"
+            } else {
+                ""
+            };
+            let bold_close = if row_idx == 0 || (row_idx == 1 && rows.first().map_or(false, |r| r.is_empty())) {
+                "</b>"
             } else {
                 ""
             };
             // Column width
-            let width_style = if !col_widths.is_empty() && cell_idx < col_widths.len() {
+            let width_attr = if !col_widths.is_empty() && cell_idx < col_widths.len() {
                 let total: f64 = col_widths.iter().sum();
                 if total > 0.0 {
                     let pct = (col_widths[cell_idx] / total * 100.0) as u32;
-                    format!("width:{}%;", pct)
+                    format!(" width='{}%'", pct)
                 } else { String::new() }
             } else { String::new() };
-            write!(html, "<{} {} style='border:1px solid rgba(255,255,255,0.3);padding:8px;vertical-align:top;{}{}{}{}'>{}</{}>",
-                tag, colspan_attr, width_style, align_style, bg, bold, cell_html, tag).unwrap();
+            write!(html, "<{}{}{}{}{}>{}{}{}</{}>",
+                tag, colspan_attr, width_attr, align_attr, bg_attr, bold_open, cell_html, bold_close, tag).unwrap();
         }
         html.push_str("</tr>");
     }

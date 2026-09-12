@@ -1,4 +1,46 @@
-pub const ADMONITION_KINDS: &[&str] = &["NOTE", "TIP", "WARNING"];
+use crate::block::AdmonitionKind;
+
+pub const ADMONITION_KINDS: &[&str] = &["NOTE", "TIP", "WARNING", "CAUTION", "IMPORTANT"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DelimiterKind {
+    Code,       // ----
+    Literal,    // ....
+    Table,      // |===
+    Sidebar,    // ****
+    Example,    // ====
+    Quote,      // ____
+    Open,       // --
+    Comment,    // ////
+}
+
+impl DelimiterKind {
+    pub fn opener_str(&self) -> &'static str {
+        match self {
+            DelimiterKind::Code => "----",
+            DelimiterKind::Literal => "....",
+            DelimiterKind::Table => "|===",
+            DelimiterKind::Sidebar => "****",
+            DelimiterKind::Example => "====",
+            DelimiterKind::Quote => "____",
+            DelimiterKind::Open => "--",
+            DelimiterKind::Comment => "////",
+        }
+    }
+
+    pub fn from_line(line: &str) -> Option<Self> {
+        let t = line.trim();
+        if is_code_delimiter(t) { return Some(DelimiterKind::Code); }
+        if is_literal_delimiter(t) { return Some(DelimiterKind::Literal); }
+        if is_table_delimiter(t) { return Some(DelimiterKind::Table); }
+        if is_sidebar_delimiter(t) { return Some(DelimiterKind::Sidebar); }
+        if is_example_delimiter(t) { return Some(DelimiterKind::Example); }
+        if is_quote_delimiter(t) { return Some(DelimiterKind::Quote); }
+        if is_open_delimiter(t) { return Some(DelimiterKind::Open); }
+        if is_comment_delimiter(t) { return Some(DelimiterKind::Comment); }
+        None
+    }
+}
 
 pub fn is_code_delimiter(t: &str) -> bool {
     let t = t.trim();
@@ -85,27 +127,14 @@ pub fn is_admonition_kind(line: &str) -> bool {
     ADMONITION_KINDS.contains(&kind_name)
 }
 
-pub fn extract_admonition_kind(attr_line: &str) -> String {
+pub fn extract_admonition_kind(attr_line: &str) -> AdmonitionKind {
     let t = attr_line.trim().trim_start_matches('[').trim_end_matches(']');
     let name = t.split('%').next().unwrap_or("NOTE").split(',').next().unwrap_or("NOTE").trim();
-    if ADMONITION_KINDS.contains(&name) {
-        name.to_string()
-    } else {
-        "NOTE".to_string()
-    }
+    AdmonitionKind::from(name)
 }
 
 /// Returns the canonical delimiter opener if `line` is a block delimiter, or `None`.
 /// Useful for tracking open/close state without a separate check per delimiter type.
 pub fn as_delimiter_opener(line: &str) -> Option<&'static str> {
-    let t = line.trim();
-    if is_code_delimiter(t) { return Some("----"); }
-    if is_literal_delimiter(t) { return Some("...."); }
-    if is_table_delimiter(t) { return Some("|==="); }
-    if is_sidebar_delimiter(t) { return Some("****"); }
-    if is_example_delimiter(t) { return Some("===="); }
-    if is_quote_delimiter(t) { return Some("____"); }
-    if is_open_delimiter(t) { return Some("--"); }
-    if is_comment_delimiter(t) { return Some("////"); }
-    None
+    DelimiterKind::from_line(line).map(|d| d.opener_str())
 }

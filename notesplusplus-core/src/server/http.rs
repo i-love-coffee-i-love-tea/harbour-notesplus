@@ -2,11 +2,78 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 
-use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_JSON, MIME_TEXT_PLAIN};
+use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
+use crate::error::ApiErrorCode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+    Options,
+    Head,
+    Patch,
+    Unknown,
+}
+
+impl HttpMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HttpMethod::Get => "GET",
+            HttpMethod::Post => "POST",
+            HttpMethod::Put => "PUT",
+            HttpMethod::Delete => "DELETE",
+            HttpMethod::Options => "OPTIONS",
+            HttpMethod::Head => "HEAD",
+            HttpMethod::Patch => "PATCH",
+            HttpMethod::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+impl From<&str> for HttpMethod {
+    fn from(s: &str) -> Self {
+        match s.to_ascii_uppercase().as_str() {
+            "GET" => HttpMethod::Get,
+            "POST" => HttpMethod::Post,
+            "PUT" => HttpMethod::Put,
+            "DELETE" => HttpMethod::Delete,
+            "OPTIONS" => HttpMethod::Options,
+            "HEAD" => HttpMethod::Head,
+            "PATCH" => HttpMethod::Patch,
+            _ => HttpMethod::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<&str> for HttpMethod {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str().eq_ignore_ascii_case(other)
+    }
+}
+
+impl PartialEq<str> for HttpMethod {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str().eq_ignore_ascii_case(other)
+    }
+}
+
+impl PartialEq<HttpMethod> for &str {
+    fn eq(&self, other: &HttpMethod) -> bool {
+        self.eq_ignore_ascii_case(other.as_str())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParsedHttpRequest {
-    pub method: String,
+    pub method: HttpMethod,
     pub path: String,
     pub query: Option<String>,
     pub headers: HashMap<String, String>,
@@ -16,7 +83,7 @@ pub struct ParsedHttpRequest {
 
 impl ParsedHttpRequest {
     pub fn from_tiny_http(req: &mut tiny_http::Request) -> Result<Self, String> {
-        let method = req.method().as_str().to_string();
+        let method = HttpMethod::from(req.method().as_str());
         let raw_url = req.url();
         let (path, query) = match raw_url.split_once('?') {
             Some((p, q)) => (url_decode(p), Some(url_decode(q))),
@@ -157,6 +224,85 @@ pub fn extract_cookie_value(cookie_header: &str, key: &str) -> Option<String> {
     None
 }
 
+#[derive(Debug, Clone)]
+pub struct HttpResponse {
+    pub status_code: u16,
+    pub status_text: &'static str,
+    pub content_type: &'static str,
+    pub body: Vec<u8>,
+    pub extra_headers: Vec<(String, String)>,
+}
+
+impl HttpResponse {
+    pub fn new(status_code: u16, status_text: &'static str, content_type: &'static str, body: Vec<u8>) -> Self {
+        Self {
+            status_code,
+            status_text,
+            content_type,
+            body,
+            extra_headers: Vec::new(),
+        }
+    }
+
+    pub fn ok_json(data: &serde_json::Value) -> Self {
+        Self::new(200, "OK", MIME_JSON, data.to_string().into_bytes())
+    }
+
+    pub fn ok_html(html: impl Into<Vec<u8>>) -> Self {
+        Self::new(200, "OK", MIME_HTML, html.into())
+    }
+
+    pub fn ok_text(text: impl Into<Vec<u8>>) -> Self {
+        Self::new(200, "OK", MIME_TEXT_PLAIN, text.into())
+    }
+
+    pub fn error(code: ApiErrorCode, msg: &str) -> Self {
+        let body = serde_json::json!({
+            "error": msg,
+            "code": code.as_str()
+        }).to_string().into_bytes();
+        Self::new(code.status_code(), code.reason(), MIME_JSON, body)
+    }
+
+    pub fn unauthorized(msg: &str) -> Self {
+        Self::error(ApiErrorCode::Unauthorized, msg)
+    }
+
+    pub fn forbidden(msg: &str) -> Self {
+        Self::error(ApiErrorCode::Forbidden, msg)
+    }
+
+    pub fn not_found(msg: &str) -> Self {
+        Self::error(ApiErrorCode::NotFound, msg)
+    }
+
+    pub fn bad_request(msg: &str) -> Self {
+        Self::error(ApiErrorCode::BadRequest, msg)
+    }
+
+    pub fn internal_error(msg: &str) -> Self {
+        Self::error(ApiErrorCode::InternalError, msg)
+    }
+
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra_headers.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn send<W: Write>(&self, stream: &mut W, cors_origin: &str) {
+        let headers: Vec<(&str, &str)> = self.extra_headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        send_response_full(
+            stream,
+            self.status_code,
+            self.status_text,
+            self.content_type,
+            &self.body,
+            cors_origin,
+            &headers,
+        );
+    }
+}
+
 pub fn send_response_full<W: Write>(
     stream: &mut W,
     status_code: u16,
@@ -173,7 +319,7 @@ pub fn send_response_full<W: Write>(
         extra.push_str(&format!("{}: {}\r\n", k, sanitized));
     }
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
         status_code,
         status_text,
         content_type,

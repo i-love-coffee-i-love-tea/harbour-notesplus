@@ -1,6 +1,7 @@
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
+import { consumeSseStream } from './utils.js';
 
-export function useAiAssistant() {
+export function useAiAssistant({ currentFilename, rawContent, notesList, markPhoneReachable, markPhoneUnreachable, fetchNotesList, loadNote }) {
   const openAiDrawer = ref(false);
   const showAiSettings = ref(false);
   const isAiBusy = ref(false);
@@ -14,6 +15,7 @@ export function useAiAssistant() {
   const availableModels = ref([]);
   const isLoadingModels = ref(false);
   const modelsError = ref('');
+  const chatMessagesContainer = ref(null);
 
   const aiConfig = ref({
     provider: 'ollama',
@@ -21,21 +23,39 @@ export function useAiAssistant() {
     system_prompt: ''
   });
 
+  const aiTab = ref('chat');
+
   const isCurrentModelInList = computed(() => {
     if (!aiConfig.value.model) return false;
     return availableModels.value.some(m => m.id === aiConfig.value.model || m.name === aiConfig.value.model);
   });
 
+  function scrollChatToBottom() {
+    nextTick(() => {
+      if (chatMessagesContainer.value) {
+        chatMessagesContainer.value.scrollTop = chatMessagesContainer.value.scrollHeight;
+      }
+    });
+  }
+
   async function fetchAiConfig() {
     try {
       const res = await fetch('/api/ai/config');
       if (res.ok) {
+        if (markPhoneReachable) markPhoneReachable();
         const data = await res.json();
         if (data.provider) aiConfig.value.provider = data.provider;
         if (data.model) aiConfig.value.model = data.model;
-        if (data.system_prompt !== undefined) aiConfig.value.system_prompt = data.system_prompt;
+        aiConfig.value.system_prompt = data.system_prompt || '';
+        canUndo.value = !!data.can_undo;
+        await fetchAvailableModels();
+      } else {
+        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('Could not load AI config:', err);
+      if (markPhoneUnreachable) markPhoneUnreachable(err);
+    }
   }
 
   async function fetchAvailableModels() {
@@ -44,137 +64,234 @@ export function useAiAssistant() {
     try {
       const res = await fetch('/api/ai/models');
       if (res.ok) {
+        if (markPhoneReachable) markPhoneReachable();
         const data = await res.json();
-        availableModels.value = data.models || [];
+        availableModels.value = (data && Array.isArray(data.models)) ? data.models : [];
       } else {
-        modelsError.value = 'Failed to load models';
+        console.warn('Could not fetch models from server:', res.status);
       }
-    } catch (e) {
-      modelsError.value = 'Failed to load models: ' + e.message;
+    } catch (err) {
+      console.warn('Failed to fetch models from server:', err);
     } finally {
       isLoadingModels.value = false;
     }
   }
 
-  function onProviderChange() {
-    fetchAvailableModels();
+  async function onProviderChange() {
+    await saveAiSettings();
   }
 
-  function onModelSelect(modelId) {
-    aiConfig.value.model = modelId;
+  async function onModelSelect() {
+    await saveAiSettings();
   }
 
-  async function sendAiPrompt(prompt, currentFilename, rawContent) {
-    if (!prompt.trim() || isAiBusy.value) return;
-    isAiBusy.value = true;
-    aiError.value = '';
-    messages.value.push({ role: 'user', content: prompt });
-    aiPromptInput.value = '';
-
+  async function saveAiSettings() {
     try {
-      const res = await fetch('/api/ai/chat', {
+      const res = await fetch('/api/ai/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: prompt,
-          filename: currentFilename,
-          content: rawContent,
-          messages: messages.value.slice(0, -1),
+          provider: aiConfig.value.provider,
+          model: aiConfig.value.model,
+          system_prompt: aiConfig.value.system_prompt
         })
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream')) {
-        isAiStreaming.value = true;
-        streamingText.value = '';
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop();
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') break;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.text) streamingText.value += parsed.text;
-                if (parsed.action) pendingAction.value = parsed.action;
-                if (parsed.can_undo !== undefined) canUndo.value = parsed.can_undo;
-              } catch (_) {}
-            }
-          }
-        }
-
-        messages.value.push({ role: 'assistant', content: streamingText.value });
-        isAiStreaming.value = false;
-        streamingText.value = '';
+      if (res.ok) {
+        if (markPhoneReachable) markPhoneReachable();
+        showAiSettings.value = false;
+        await fetchAvailableModels();
       } else {
-        const data = await res.json();
-        messages.value.push({ role: 'assistant', content: data.response || data.message || '' });
-        if (data.action) pendingAction.value = data.action;
-        if (data.can_undo !== undefined) canUndo.value = data.can_undo;
+        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
       }
-    } catch (e) {
-      aiError.value = e.message;
-    } finally {
-      isAiBusy.value = false;
+    } catch (err) {
+      alert('Failed to save AI config: ' + err.message);
+      if (markPhoneUnreachable) markPhoneUnreachable(err);
     }
   }
 
-  async function confirmAction(currentFilename) {
-    if (!pendingAction.value) return;
-    try {
-      const res = await fetch('/api/ai/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: pendingAction.value, filename: currentFilename })
-      });
-      if (res.ok) {
-        pendingAction.value = null;
-        canUndo.value = true;
-      }
-    } catch (_) {}
+  function toggleAiDrawer() {
+    openAiDrawer.value = !openAiDrawer.value;
+    if (openAiDrawer.value) {
+      aiTab.value = 'chat';
+      scrollChatToBottom();
+      if (availableModels.value.length === 0) fetchAvailableModels();
+    }
   }
 
-  async function undoAction(currentFilename) {
-    try {
-      const res = await fetch('/api/ai/undo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: currentFilename })
-      });
-      if (res.ok) {
-        canUndo.value = false;
-        return await res.json();
-      }
-    } catch (_) {}
-    return null;
+  function toggleAiDrawerImport() {
+    openAiDrawer.value = !openAiDrawer.value;
+    if (openAiDrawer.value) {
+      aiTab.value = 'import';
+      if (availableModels.value.length === 0) fetchAvailableModels();
+    }
   }
 
-  function clearChat() {
-    messages.value = [];
-    pendingAction.value = null;
-    canUndo.value = false;
+  async function sendUserPrompt(customInstruction = null) {
+    const instructionText = typeof customInstruction === 'string' ? customInstruction : null;
+    const prompt = (instructionText || aiPromptInput.value || '').trim();
+    if (!prompt || isAiBusy.value) return;
+
+    messages.value.push({ role: 'user', content: prompt });
+    if (!instructionText) aiPromptInput.value = '';
     aiError.value = '';
+    isAiBusy.value = true;
+    isAiStreaming.value = true;
+    streamingText.value = '';
+    scrollChatToBottom();
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt,
+          context_filename: currentFilename.value,
+          context_content: rawContent.value
+        })
+      });
+
+      if (!response.ok) {
+        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${response.status}`));
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+      }
+      if (markPhoneReachable) markPhoneReachable();
+
+      let fullAnswer = '';
+
+      await consumeSseStream(
+        response,
+        (token) => {
+          streamingText.value += token;
+          fullAnswer += token;
+          scrollChatToBottom();
+        },
+        async (payload) => {
+          if (payload.type === 'pending_confirmation') {
+            pendingAction.value = payload.action;
+            openAiDrawer.value = true;
+          } else if (payload.type === 'finished') {
+            if (payload.content) fullAnswer = payload.content;
+            if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
+            if (payload.last_snapshot_id || payload.last_created_note) {
+              await fetchNotesList();
+              await loadNote(currentFilename.value);
+            }
+          } else if (payload.type === 'error') {
+            aiError.value = payload.error;
+          }
+        }
+      );
+
+      if (fullAnswer.trim()) {
+        messages.value.push({ role: 'assistant', content: fullAnswer });
+      }
+    } catch (err) {
+      aiError.value = `Server AI Error: ${err.message}`;
+    } finally {
+      isAiBusy.value = false;
+      isAiStreaming.value = false;
+      streamingText.value = '';
+      scrollChatToBottom();
+    }
+  }
+
+  async function triggerTemplate(templateId) {
+    if (isAiBusy.value) return;
+    openAiDrawer.value = true;
+
+    const templatePrompts = {
+      summarize: 'Please provide a clear, structured summary of this AsciiDoc document.',
+      fix_grammar: 'Review this AsciiDoc document, fixing all grammar and spelling errors while preserving formatting, headings, and structure.',
+      add_admonition: 'Analyze this document and add relevant AsciiDoc [NOTE], [TIP], or [WARNING] blocks to highlight key takeaways.',
+      format_table: 'Convert the main data or list points in this document into a well-structured AsciiDoc table |=== ... |===',
+      continue_writing: 'Continue writing the next logical section of this AsciiDoc document.'
+    };
+
+    const prompt = templatePrompts[templateId] || `Run template ${templateId} on this note.`;
+    await sendUserPrompt(prompt);
+  }
+
+  async function confirmAction(approved) {
+    if (isAiBusy.value) return;
+    isAiBusy.value = true;
+    isAiStreaming.value = true;
+    streamingText.value = '';
+    pendingAction.value = null;
+
+    try {
+      const response = await fetch('/api/ai/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved })
+      });
+
+      if (!response.ok) {
+        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${response.status}`));
+        throw new Error(`HTTP ${response.status}`);
+      }
+      if (markPhoneReachable) markPhoneReachable();
+
+      let fullAnswer = '';
+
+      await consumeSseStream(
+        response,
+        (token) => {
+          streamingText.value += token;
+          fullAnswer += token;
+          scrollChatToBottom();
+        },
+        async (payload) => {
+          if (payload.type === 'finished') {
+            if (payload.content) fullAnswer = payload.content;
+            if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
+            await fetchNotesList();
+            await loadNote(currentFilename.value);
+          } else if (payload.type === 'error') {
+            aiError.value = payload.error;
+          }
+        }
+      );
+
+      if (fullAnswer.trim()) {
+        messages.value.push({ role: 'assistant', content: fullAnswer });
+      }
+    } catch (err) {
+      aiError.value = `Failed to confirm action: ${err.message}`;
+    } finally {
+      isAiBusy.value = false;
+      isAiStreaming.value = false;
+      streamingText.value = '';
+      scrollChatToBottom();
+    }
+  }
+
+  async function undoLastAiAction() {
+    try {
+      const res = await fetch('/api/ai/undo', { method: 'POST' });
+      if (res.ok) {
+        if (markPhoneReachable) markPhoneReachable();
+        const data = await res.json();
+        canUndo.value = !!data.can_undo;
+        await loadNote(currentFilename.value);
+        messages.value.push({ role: 'assistant', content: `\u21a9 ${data.message}` });
+      } else {
+        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        alert('Undo failed: Server error');
+      }
+    } catch (err) {
+      alert('Undo error: ' + err.message);
+      if (markPhoneUnreachable) markPhoneUnreachable(err);
+    }
   }
 
   return {
     openAiDrawer, showAiSettings, isAiBusy, isAiStreaming,
     streamingText, aiPromptInput, aiError, messages,
     pendingAction, canUndo, availableModels, isLoadingModels,
-    modelsError, aiConfig, isCurrentModelInList,
+    modelsError, aiConfig, isCurrentModelInList, aiTab,
+    chatMessagesContainer, scrollChatToBottom,
     fetchAiConfig, fetchAvailableModels, onProviderChange,
-    onModelSelect, sendAiPrompt, confirmAction, undoAction, clearChat,
+    onModelSelect, saveAiSettings, toggleAiDrawer, toggleAiDrawerImport,
+    sendUserPrompt, triggerTemplate, confirmAction, undoLastAiAction,
   };
 }

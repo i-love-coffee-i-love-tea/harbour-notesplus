@@ -427,6 +427,21 @@ Page {
                 }
             })
         }
+        onPasteRequested: {
+            var clipText = Clipboard.text
+            if (!clipText || clipText.length === 0) {
+                remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
+                return
+            }
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + "\n" : "") + clipText
+            } else if (pageView.editingBlockIndex >= 0) {
+                var cur = pageView.editingCurrentText || ""
+                var updated = (cur.length > 0 ? cur + "\n" : "") + clipText
+                pageView.editingRawText = updated
+                pageView.editingCurrentText = updated
+            }
+        }
     }
 
     function findConsecutiveListRange(idx) {

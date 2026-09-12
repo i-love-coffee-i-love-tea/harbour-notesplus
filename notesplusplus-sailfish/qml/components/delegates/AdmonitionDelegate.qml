@@ -6,7 +6,10 @@ import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 Item {
     id: admonitionDelegate
     property var blockData: ({})
+    property int blockIndex: -1
+    property string searchTerm: ""
     signal xrefActivated(string target)
+    signal checkboxToggled(int blockIndex, string itemPath)
     property string kind: (blockData && blockData.kind) ? blockData.kind : "NOTE"
     property color borderColor: {
         switch (kind) {
@@ -80,7 +83,15 @@ Item {
             }
 
             Label {
-                text: BlockHtmlUtils.blocksToHtml((blockData && blockData.blocks) ? blockData.blocks : [], 0, "", { highlightColor: Theme.highlightColor, primaryColor: Theme.primaryColor, highlightBackgroundColor: Theme.highlightBackgroundColor }, (typeof bridge !== "undefined" && bridge) ? bridge.notes_dir : "", (typeof app !== "undefined" && app) ? app.allowExternalImages : true)
+                text: {
+                    var html = (blockData && blockData.html) ? blockData.html : ""
+                    // Strip outer wrapper (border, background, kind label) — QML provides these
+                    html = html.replace(/<div[^>]*>/, "").replace(/<\/div>$/, "")
+                    html = html.replace(/<b[^>]*>[^<]*:<\/b>\s*/, "")
+                    html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    return html
+                }
                 width: parent.width
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 textFormat: Text.RichText
@@ -89,7 +100,7 @@ Item {
                 color: Theme.primaryColor
                 linkColor: Theme.highlightColor
                 onLinkActivated: function(link) {
-                    BlockHtmlUtils.handleLink(link, function(target) { admonitionDelegate.xrefActivated(target) }, null)
+                    BlockHtmlUtils.handleLink(link, function(target) { admonitionDelegate.xrefActivated(target) }, function(path) { admonitionDelegate.checkboxToggled(admonitionDelegate.blockIndex, path) })
                 }
             }
         }

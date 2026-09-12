@@ -11,6 +11,7 @@ Item {
     signal canceled()
     signal prefixRequested(string prefix, bool multiLine)
     signal linkRequested()
+    signal pasteRequested()
 
     Rectangle {
         anchors.fill: parent
@@ -188,9 +189,29 @@ Item {
 
             Image {
                 anchors.centerIn: parent
-                source: "image://theme/icon-s-link?" + (parent.highlighted ? Theme.highlightColor : Theme.primaryColor)
+                source: "image://theme/icon-m-link?" + (parent.highlighted ? Theme.highlightColor : Theme.primaryColor)
                 width: Theme.iconSizeSmall * 0.8
                 height: Theme.iconSizeSmall * 0.8
+            }
+        }
+
+        // --- Spacing before Paste ---
+        Item {
+            width: parent.width
+            height: 2
+        }
+
+        BackgroundItem {
+            width: parent.width
+            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
+            anchors.horizontalCenter: parent.horizontalCenter
+            onClicked: inPlaceSidebar.pasteRequested()
+
+            Label {
+                anchors.centerIn: parent
+                text: "📋"
+                font.pixelSize: Theme.fontSizeExtraSmall
+                color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
             }
         }
     }

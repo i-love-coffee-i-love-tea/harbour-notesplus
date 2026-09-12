@@ -23,7 +23,7 @@ fn is_paragraph_break(line: &str, consumed: usize) -> bool {
         || parse_unordered_list_item(line).is_some()
 }
 
-pub fn parse_admonition_block(kind: &str, lines: &[&str], title: Option<String>) -> (Block, usize) {
+pub fn parse_admonition_block(kind: AdmonitionKind, lines: &[&str], title: Option<String>) -> (Block, usize) {
     // lines[0] is the [KIND] line, lines[1] should be ====
     let mut consumed = 0;
     let mut raw_parts = Vec::new();
@@ -73,7 +73,7 @@ pub fn parse_admonition_block(kind: &str, lines: &[&str], title: Option<String>)
     (
         Block::Admonition {
             title,
-            kind: AdmonitionKind::from(kind),
+            kind,
             children,
             raw,
         },
@@ -82,7 +82,7 @@ pub fn parse_admonition_block(kind: &str, lines: &[&str], title: Option<String>)
 }
 
 pub fn parse_admonition_paragraph(
-    kind: &str,
+    kind: AdmonitionKind,
     lines: &[&str],
     title: Option<String>,
 ) -> (Block, usize) {
@@ -118,7 +118,7 @@ pub fn parse_admonition_paragraph(
     (
         Block::Admonition {
             title,
-            kind: AdmonitionKind::from(kind),
+            kind,
             children,
             raw,
         },

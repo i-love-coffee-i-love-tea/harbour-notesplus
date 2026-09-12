@@ -1,5 +1,11 @@
 import { createApp, ref, computed, watch, nextTick, onMounted } from 'vue';
-import { formatMarkdown, extractSlides, getRequestedNote, consumeSseStream } from '/composables/utils.js';
+import { formatMarkdown, getRequestedNote, consumeSseStream } from '/composables/utils.js';
+import { useAuth } from '/composables/useAuth.js';
+import { useHealthCheck } from '/composables/useHealthCheck.js';
+import { usePresentation } from '/composables/usePresentation.js';
+import { useLinkModal } from '/composables/useLinkModal.js';
+import { useAiAssistant } from '/composables/useAiAssistant.js';
+import { useImport } from '/composables/useImport.js';
 
 // Initialize Asciidoctor compiler instance if available
 let asciidoctorInstance = null;
@@ -13,505 +19,81 @@ try {
 
 createApp({
   setup() {
-    // Note & View State
+    // Core Note & View State
     const currentFilename = ref(getRequestedNote() || 'welcome.adoc');
     const notesList = ref([]);
     const rawContent = ref('= Welcome to Notes++\n\nStart writing documentation in AsciiDoc.\n');
-    const viewMode = ref('split'); // 'split' | 'inplace' | 'preview'
+    const viewMode = ref('split');
     const isSaving = ref(false);
     const saveStatusText = ref('Saved');
     const saveStatusClass = ref('saved');
     const showExportMenu = ref(false);
     const showAccountMenu = ref(false);
 
-    // Authentication State
-    const isAuthenticated = ref(false);
-    const authUser = ref('');
-    const authError = ref('');
-    const authStatus = ref('');
-    const authVerificationCode = ref('');
-    const authChallengeId = ref('');
-    const authCanRetry = ref(false);
-    const authPollTimer = ref(null);
-
-    // Session Expiry & Timer State
-    const sessionExpiresAt = ref(0);
-    const sessionRemainingText = ref('');
-    const sessionRemainingFullText = ref('');
-    const sessionCountdownTimer = ref(null);
-
-    function formatSessionRemaining(seconds) {
-      if (seconds <= 0) return 'Expired';
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor((seconds % 86400) / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const secs = Math.floor(seconds % 60);
-
-      if (days >= 1) {
-        return `${days}d ${hours}h`;
-      } else if (hours >= 1) {
-        return `${hours}h ${minutes}m`;
-      } else if (minutes >= 1) {
-        return `${minutes}m ${secs}s`;
-      } else {
-        return `${secs}s`;
-      }
-    }
-
-    function formatSessionRemainingFull(seconds) {
-      if (seconds <= 0) return 'Expired';
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor((seconds % 86400) / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const secs = Math.floor(seconds % 60);
-      const parts = [];
-      if (days > 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
-      if (hours > 0) parts.push(`${hours} hr${hours > 1 ? 's' : ''}`);
-      if (minutes > 0) parts.push(`${minutes} min`);
-      if (secs > 0 || parts.length === 0) parts.push(`${secs} sec`);
-      return parts.join(' ');
-    }
-
-    function updateSessionCountdown() {
-      if (!isAuthenticated.value || !sessionExpiresAt.value) {
-        sessionRemainingText.value = '';
-        sessionRemainingFullText.value = '';
-        return;
-      }
-      const now = Math.floor(Date.now() / 1000);
-      const diff = sessionExpiresAt.value - now;
-      if (diff <= 0) {
-        sessionRemainingText.value = 'Expired';
-        sessionRemainingFullText.value = 'Session expired';
-        stopSessionCountdown();
-        logout();
-      } else {
-        sessionRemainingText.value = formatSessionRemaining(diff);
-        sessionRemainingFullText.value = formatSessionRemainingFull(diff);
-      }
-    }
-
-    function startSessionCountdown(expiresAt) {
-      stopSessionCountdown();
-      if (expiresAt) {
-        sessionExpiresAt.value = expiresAt;
-      }
-      updateSessionCountdown();
-      sessionCountdownTimer.value = setInterval(updateSessionCountdown, 1000);
-    }
-
-    function stopSessionCountdown() {
-      if (sessionCountdownTimer.value) {
-        clearInterval(sessionCountdownTimer.value);
-        sessionCountdownTimer.value = null;
-      }
-    }
-
-    async function fetchAuthConfig() {
-      try {
-        const res = await fetch('/api/auth/config', { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          isAuthenticated.value = !!data.authenticated;
-          authUser.value = data.user || '';
-          if (isAuthenticated.value && data.expires_at) {
-            startSessionCountdown(data.expires_at);
-          } else {
-            stopSessionCountdown();
-            sessionRemainingText.value = '';
-            sessionRemainingFullText.value = '';
-          }
-          if (!isAuthenticated.value) {
-            startPhoneAuth();
-          }
-          return data.authenticated;
-        }
-      } catch (err) {
-        console.warn('Failed to fetch auth config:', err);
-      }
-      return false;
-    }
-
-    async function logout() {
-      try {
-        await fetch('/api/auth/logout', { method: 'POST' });
-      } catch (_) {}
-      isAuthenticated.value = false;
-      authUser.value = '';
-      stopAuthPolling();
-      stopSessionCountdown();
-      sessionRemainingText.value = '';
-      sessionRemainingFullText.value = '';
-      sessionExpiresAt.value = 0;
-      authChallengeId.value = '';
-      authVerificationCode.value = '';
-      await fetchAuthConfig();
-    }
-
-    // Phone authentication challenge flow
-    async function startPhoneAuth() {
-      stopAuthPolling();
-      authError.value = '';
-      authStatus.value = 'Connecting to phone...';
-      authCanRetry.value = false;
-      try {
-        const res = await fetch('/api/auth/code/initiate', { method: 'POST' });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          authChallengeId.value = data.challenge_id;
-          authVerificationCode.value = data.verification_code || '';
-          authStatus.value = 'Please tap Accept on your phone';
-          startAuthPolling();
-        } else {
-          authStatus.value = '';
-          authError.value = data.error || 'Failed to initiate login authorization';
-          authCanRetry.value = true;
-        }
-      } catch (err) {
-        authStatus.value = '';
-        authError.value = 'Authorization request failed: ' + err.message;
-        authCanRetry.value = true;
-      }
-    }
-
-    function startAuthPolling() {
-      stopAuthPolling();
-      authPollTimer.value = setInterval(async () => {
-        if (!authChallengeId.value) {
-          stopAuthPolling();
-          return;
-        }
-        try {
-          const res = await fetch('/api/auth/code/status?challenge_id=' + encodeURIComponent(authChallengeId.value));
-          const data = await res.json();
-          if (data.status === 'approved') {
-            stopAuthPolling();
-            isAuthenticated.value = true;
-            authUser.value = data.user || 'phone-user';
-            authChallengeId.value = '';
-            authVerificationCode.value = '';
-            authStatus.value = '';
-            authError.value = '';
-            authCanRetry.value = false;
-            if (data.expires_at) {
-              startSessionCountdown(data.expires_at);
-            }
-            await fetchNotesList();
-            await fetchAiConfig();
-          } else if (data.status === 'denied') {
-            stopAuthPolling();
-            authStatus.value = 'Login request was denied on the phone.';
-            authCanRetry.value = true;
-          } else if (data.status === 'expired') {
-            stopAuthPolling();
-            authStatus.value = 'Code expired. Requesting a new code...';
-            setTimeout(() => { startPhoneAuth(); }, 1200);
-          }
-        } catch (_) {}
-      }, 1000);
-    }
-
-    function stopAuthPolling() {
-      if (authPollTimer.value) {
-        clearInterval(authPollTimer.value);
-        authPollTimer.value = null;
-      }
-    }
-
-    // Connection & Health Check State
-    const isPhoneReachable = ref(true);
-    const isCheckingConnection = ref(false);
-    const connectionError = ref('');
-    let heartbeatTimer = null;
-
-    function markPhoneReachable() {
-      if (!isPhoneReachable.value) {
-        isPhoneReachable.value = true;
-        connectionError.value = '';
-        fetchNotesList();
-        updateRenderedHtml(rawContent.value);
-      } else {
-        isPhoneReachable.value = true;
-        connectionError.value = '';
-      }
-    }
-
-    function markPhoneUnreachable(err) {
-      isPhoneReachable.value = false;
-      if (err) {
-        connectionError.value = typeof err === 'string' ? err : (err.message || 'Phone unreachable');
-      }
-    }
-
-    async function checkConnection(quiet) {
-      if (isCheckingConnection.value) return;
-      if (!quiet) isCheckingConnection.value = true;
-      try {
-        let signal = undefined;
-        let timer = null;
-        if (typeof AbortController !== 'undefined') {
-          const ctrl = new AbortController();
-          timer = setTimeout(() => ctrl.abort(), 3000);
-          signal = ctrl.signal;
-        }
-        const res = await fetch('/api/ping', {
-          method: 'GET',
-          signal: signal,
-          cache: 'no-store'
-        });
-        if (timer) clearTimeout(timer);
-        if (res.ok) {
-          markPhoneReachable();
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        markPhoneUnreachable(err);
-      } finally {
-        if (!quiet) isCheckingConnection.value = false;
-      }
-    }
+    // Modal State
+    const openNewNoteModal = ref(false);
+    const newNoteTitle = ref('');
+    const newNoteTemplate = ref('blank');
 
     // In-Place Block Editing State
     const inPlaceBlocks = ref([]);
     const editingBlockIndex = ref(-1);
     const activeBlockText = ref('');
 
-    // Presentation Mode State
-    const previousViewMode = ref('split');
-    const slides = ref([]);
-    const currentSlideIndex = ref(0);
-    const showSlideOverview = ref(false);
-    const isPresentationFullscreen = ref(false);
-    const presentationStageRef = ref(null);
-    const slideHtmlCache = new Map();
-
-    const currentSlideHtml = computed(() => {
-      if (!slides.value || slides.value.length === 0) return '';
-      const slide = slides.value[currentSlideIndex.value];
-      return slide ? (slide.html || '') : '';
-    });
-
-    async function renderSlideHtml(idx) {
-      if (idx < 0 || idx >= slides.value.length) return;
-      const slide = slides.value[idx];
-      if (slideHtmlCache.has(slide.raw)) {
-        slide.html = slideHtmlCache.get(slide.raw);
-        return;
-      }
-      try {
-        const res = await fetch('/api/render', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: slide.raw, full: false })
-        });
-        if (res.ok) {
-          markPhoneReachable();
-          const html = await res.text();
-          slideHtmlCache.set(slide.raw, html);
-          slide.html = html;
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (e) {
-        console.warn('Failed to render slide:', e);
-        markPhoneUnreachable(e);
-      }
-    }
-
-    async function renderAllSlides() {
-      for (let i = 0; i < slides.value.length; i++) {
-        if (!slides.value[i].html) {
-          await renderSlideHtml(i);
-        }
-      }
-    }
-
-    function prepareSlides(text) {
-      const content = text !== undefined ? text : rawContent.value;
-      const parsed = extractSlides(content);
-      
-      for (const s of parsed) {
-        if (slideHtmlCache.has(s.raw)) {
-          s.html = slideHtmlCache.get(s.raw);
-        }
-      }
-
-      slides.value = parsed;
-      if (currentSlideIndex.value >= parsed.length) {
-        currentSlideIndex.value = Math.max(0, parsed.length - 1);
-      } else if (currentSlideIndex.value < 0) {
-        currentSlideIndex.value = 0;
-      }
-
-      renderSlideHtml(currentSlideIndex.value);
-      if (currentSlideIndex.value + 1 < parsed.length) {
-        renderSlideHtml(currentSlideIndex.value + 1);
-      }
-      if (currentSlideIndex.value - 1 >= 0) {
-        renderSlideHtml(currentSlideIndex.value - 1);
-      }
-    }
-
-    function nextSlide() {
-      if (currentSlideIndex.value < slides.value.length - 1) {
-        currentSlideIndex.value++;
-        renderSlideHtml(currentSlideIndex.value);
-        if (currentSlideIndex.value + 1 < slides.value.length) {
-          renderSlideHtml(currentSlideIndex.value + 1);
-        }
-      }
-    }
-
-    function prevSlide() {
-      if (currentSlideIndex.value > 0) {
-        currentSlideIndex.value--;
-        renderSlideHtml(currentSlideIndex.value);
-        if (currentSlideIndex.value - 1 >= 0) {
-          renderSlideHtml(currentSlideIndex.value - 1);
-        }
-      }
-    }
-
-    function goToSlide(idx) {
-      if (idx >= 0 && idx < slides.value.length) {
-        currentSlideIndex.value = idx;
-        showSlideOverview.value = false;
-        renderSlideHtml(idx);
-      }
-    }
-
-    async function enterPresentationMode() {
-      if (viewMode.value !== 'present') {
-        previousViewMode.value = viewMode.value;
-      }
-      viewMode.value = 'present';
-      prepareSlides();
-      renderAllSlides();
-    }
-
-    function exitPresentationMode() {
-      if (isPresentationFullscreen.value) {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
-        }
-      }
-      viewMode.value = previousViewMode.value || 'split';
-      showSlideOverview.value = false;
-    }
-
-    function togglePresentationFullscreen() {
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        const el = presentationStageRef.value || document.documentElement;
-        if (el.requestFullscreen) {
-          el.requestFullscreen().catch(() => {});
-        } else if (el.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen();
-        }
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen().catch(() => {});
-        } else if (document.webkitExitFullscreen) {
-          document.webkitExitFullscreen();
-        }
-      }
-    }
-
-    function onFullscreenChange() {
-      isPresentationFullscreen.value = !!(document.fullscreenElement || document.webkitFullscreenElement);
-    }
-
-    // Touch Swipe Navigation for Presentation Mode
-    let touchStartX = 0;
-    let touchStartY = 0;
-
-    function handleTouchStart(e) {
-      if (!e.changedTouches || !e.changedTouches.length) return;
-      touchStartX = e.changedTouches[0].screenX;
-      touchStartY = e.changedTouches[0].screenY;
-    }
-
-    function handleTouchEnd(e) {
-      if (!e.changedTouches || !e.changedTouches.length) return;
-      const deltaX = e.changedTouches[0].screenX - touchStartX;
-      const deltaY = e.changedTouches[0].screenY - touchStartY;
-      if (Math.abs(deltaX) > 45 && Math.abs(deltaY) < 60) {
-        if (deltaX < 0) {
-          nextSlide();
-        } else {
-          prevSlide();
-        }
-      }
-    }
-
-    // Modal State
-    const openNewNoteModal = ref(false);
-    const newNoteTitle = ref('');
-    const newNoteTemplate = ref('blank');
-
-    // Link Modal State
-    const openLinkModal = ref(false);
-    const linkSearchQuery = ref('');
-    const selectedLinkFilename = ref('');
-    const selectedLinkTitle = ref('');
-    const linkDisplayText = ref('');
-    const linkFocusedIndex = ref(0);
-    const linkEditorContext = ref({ mode: 'split', start: 0, end: 0, blockIndex: null });
-    const linkSearchInputRef = ref(null);
-    const linkPagesListRef = ref(null);
-
-    // AI Assistant State
-    const openAiDrawer = ref(false);
-    const showAiSettings = ref(false);
-    const isAiBusy = ref(false);
-    const isAiStreaming = ref(false);
-    const streamingText = ref('');
-    const aiPromptInput = ref('');
-    const aiError = ref('');
-    const messages = ref([]);
-    const pendingAction = ref(null);
-    const canUndo = ref(false);
-    const availableModels = ref([]);
-    const isLoadingModels = ref(false);
-    const modelsError = ref('');
-
-    const aiConfig = ref({
-      provider: 'ollama',
-      model: 'llama3.2',
-      system_prompt: ''
-    });
-
-    // Import Assistant State
-    const aiTab = ref('chat'); // 'chat' or 'import'
-    const importSourceText = ref('');
-    const importTitle = ref('');
-    const importMode = ref('convert_full');
-    const importCustomInstruction = ref('');
-    const importUrl = ref('');
-    const showUrlInput = ref(false);
-    const isFetchingUrl = ref(false);
-    const urlFetchError = ref('');
-    const showFileInput = ref(false);
-    const importFilePath = ref('');
-    const isLoadingFile = ref(false);
-    const fileFetchError = ref('');
-    const fileInputRef = ref(null);
-    const isDraggingFile = ref(false);
-
-    const isCurrentModelInList = computed(() => {
-      if (!aiConfig.value.model) return false;
-      return availableModels.value.some(m => m.id === aiConfig.value.model || m.name === aiConfig.value.model);
-    });
-
-    // Refs
-    const editorTextarea = ref(null);
-    const chatMessagesContainer = ref(null);
-
     // Compute preview HTML via native Rust /api/render
     const renderedHtml = ref('');
     let renderTimer = null;
+
+    // Editor ref
+    const editorTextarea = ref(null);
+
+    // ─── Composables ───────────────────────────────────────────────────
+
+    const {
+      isAuthenticated, authUser, authError, authStatus,
+      authVerificationCode, authChallengeId, authCanRetry,
+      sessionRemainingText, sessionRemainingFullText,
+      fetchAuthConfig, logout, startPhoneAuth, stopAuthPolling,
+    } = useAuth({
+      onAuthenticated: async () => {
+        await fetchNotesList();
+        await ai.fetchAiConfig();
+      }
+    });
+
+    const {
+      isPhoneReachable, isCheckingConnection, connectionError,
+      markPhoneReachable, markPhoneUnreachable, checkConnection,
+    } = useHealthCheck({
+      onReachable: () => {
+        fetchNotesList();
+        updateRenderedHtml(rawContent.value);
+      }
+    });
+
+    const presentation = usePresentation({
+      rawContent, viewMode, markPhoneReachable, markPhoneUnreachable
+    });
+
+    const linkModal = useLinkModal({ notesList });
+
+    const ai = useAiAssistant({
+      currentFilename, rawContent, notesList,
+      markPhoneReachable, markPhoneUnreachable,
+      fetchNotesList: () => fetchNotesList(),
+      loadNote: (fn) => loadNote(fn),
+    });
+
+    const imp = useImport({
+      rawContent, currentFilename,
+      saveCurrentNote: () => saveCurrentNote(),
+      viewMode,
+      markPhoneReachable, markPhoneUnreachable,
+      fetchNotesList: () => fetchNotesList(),
+      loadNote: (fn) => loadNote(fn),
+    });
+
+    // ─── Core App Logic ────────────────────────────────────────────────
 
     async function updateRenderedHtml(text) {
       if (text === undefined || text === null) return;
@@ -524,9 +106,7 @@ createApp({
         if (res.ok) {
           markPhoneReachable();
           renderedHtml.value = await res.text();
-          nextTick(() => {
-            setupInteractiveFeatures();
-          });
+          nextTick(() => { setupInteractiveFeatures(); });
         } else {
           markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
@@ -541,114 +121,171 @@ createApp({
       renderTimer = setTimeout(() => {
         updateRenderedHtml(newVal);
         if (viewMode.value === 'present') {
-          prepareSlides(newVal);
+          presentation.prepareSlides(newVal);
         }
       }, 80);
     }, { immediate: true });
 
     // Computed filename for new note modal
     const computedNewFilename = computed(() => {
-      const slug = newNoteTitle.value
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
+      const slug = newNoteTitle.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
       return (slug || 'untitled') + '.adoc';
     });
 
-    // Link Search & Selection Dialog State & Computeds
-    const isExternalUrl = computed(() => {
-      const q = (linkSearchQuery.value || '').trim();
-      return /^(https?:\/\/|mailto:|ftp:\/\/)/i.test(q);
-    });
+    // ─── Note CRUD ─────────────────────────────────────────────────────
 
-    const computedCustomFilename = computed(() => {
-      const q = (linkSearchQuery.value || '').trim();
-      if (!q) return '';
-      if (isExternalUrl.value) return q;
-      if (q.toLowerCase().endsWith('.adoc')) return q;
-      const slug = q.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
-      return (slug || 'untitled') + '.adoc';
-    });
-
-    const filteredLinkPages = computed(() => {
-      const q = (linkSearchQuery.value || '').trim().toLowerCase();
-      if (!q) {
-        return notesList.value;
-      }
-      return notesList.value.filter(n => {
-        const titleMatch = (n.title || '').toLowerCase().includes(q);
-        const fileMatch = (n.filename || '').toLowerCase().includes(q);
-        const snippetMatch = (n.snippet || '').toLowerCase().includes(q);
-        return titleMatch || fileMatch || snippetMatch;
-      });
-    });
-
-    const isExactMatch = computed(() => {
-      const q = (linkSearchQuery.value || '').trim().toLowerCase();
-      if (!q) return false;
-      const targetFn = q.endsWith('.adoc') ? q : `${q}.adoc`;
-      return filteredLinkPages.value.some(n => 
-        (n.filename || '').toLowerCase() === targetFn || 
-        (n.title || '').toLowerCase() === q
-      );
-    });
-
-    const formattedLinkPreview = computed(() => {
-      if (selectedLinkFilename.value) {
-        const text = (linkDisplayText.value || '').trim() || selectedLinkTitle.value || selectedLinkFilename.value;
-        return `xref:${selectedLinkFilename.value}[${text}]`;
-      }
-      const q = (linkSearchQuery.value || '').trim();
-      if (q) {
-        const text = (linkDisplayText.value || '').trim() || q;
-        if (isExternalUrl.value) {
-          return `${q}[${text}]`;
-        }
-        const fn = computedCustomFilename.value;
-        return `xref:${fn}[${text}]`;
-      }
-      return '';
-    });
-
-    async function loadInPlaceBlocks(text) {
+    async function fetchNotesList() {
       try {
-        const res = await fetch('/api/blocks/parse', {
+        const res = await fetch('/api/notes');
+        if (res.ok) {
+          markPhoneReachable();
+          const list = await res.json();
+          notesList.value = list;
+          if (list.length > 0) {
+            const requested = getRequestedNote();
+            let target = null;
+            if (requested && list.find(n => n.filename === requested)) {
+              target = requested;
+            } else if (currentFilename.value && list.find(n => n.filename === currentFilename.value)) {
+              target = currentFilename.value;
+            } else {
+              target = list[0].filename;
+            }
+            if (target && (target !== currentFilename.value || !rawContent.value || rawContent.value.startsWith('= Welcome to Notes++\n\nStart writing'))) {
+              await loadNote(target);
+            }
+          }
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
+      } catch (err) {
+        console.error('Failed to fetch notes list:', err);
+        markPhoneUnreachable(err);
+      }
+    }
+
+    async function loadNote(filename, updateHistory = true) {
+      if (!filename) return;
+      currentFilename.value = filename;
+      try { localStorage.setItem('notesplusplus_last_note', filename); } catch (_) {}
+
+      if (updateHistory && typeof history !== 'undefined' && history.replaceState) {
+        const desiredHash = '#' + encodeURIComponent(filename);
+        if (window.location.hash !== desiredHash) {
+          history.replaceState(null, '', desiredHash);
+        }
+      }
+
+      try {
+        const res = await fetch(`/api/notes/${filename}`);
+        if (res.ok) {
+          markPhoneReachable();
+          rawContent.value = await res.text();
+          saveStatusText.value = 'Saved';
+          saveStatusClass.value = 'saved';
+          if (viewMode.value === 'inplace') {
+            await loadInPlaceBlocks(rawContent.value);
+          } else if (viewMode.value === 'present') {
+            presentation.prepareSlides(rawContent.value);
+            presentation.renderAllSlides();
+          }
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
+      } catch (err) {
+        console.error(`Failed to load note ${filename}:`, err);
+        markPhoneUnreachable(err);
+      }
+    }
+
+    function onNoteSelect() {
+      loadNote(currentFilename.value);
+    }
+
+    async function saveCurrentNote() {
+      if (!currentFilename.value || isSaving.value) return;
+      isSaving.value = true;
+      saveStatusText.value = 'Saving...';
+      saveStatusClass.value = 'saving';
+
+      try {
+        const res = await fetch(`/api/notes/${currentFilename.value}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: rawContent.value
+        });
+        if (res.ok) {
+          markPhoneReachable();
+          saveStatusText.value = 'Saved';
+          saveStatusClass.value = 'saved';
+          fetchNotesList();
+        } else {
+          saveStatusText.value = 'Error saving';
+          saveStatusClass.value = 'unsaved';
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
+      } catch (err) {
+        saveStatusText.value = 'Save failed';
+        saveStatusClass.value = 'unsaved';
+        console.error('Save error:', err);
+        markPhoneUnreachable(err);
+      } finally {
+        isSaving.value = false;
+      }
+    }
+
+    function onContentChange() {
+      saveStatusText.value = 'Unsaved changes';
+      saveStatusClass.value = 'unsaved';
+    }
+
+    async function createNote() {
+      const title = newNoteTitle.value.trim();
+      if (!title) return;
+
+      let starterContent = `= ${title}\n\n`;
+      if (newNoteTemplate.value === 'technical') {
+        starterContent = `= ${title}\n:toc: left\n:icons: font\n\n== Overview\nDescribe system architecture and design.\n\n== Requirements\n* [ ] Core functionality\n* [ ] Performance goals\n\n[source,rust]\n----\nfn main() {\n    println!("Hello Notes++!");\n}\n----\n`;
+      } else if (newNoteTemplate.value === 'meeting') {
+        starterContent = `= Meeting: ${title}\n:icons: font\n\nDate: ${new Date().toISOString().slice(0, 10)}\nAttendees: User\n\n== Agenda\n. Topic 1\n. Topic 2\n\n== Action Items\n* [ ] Task 1\n* [ ] Task 2\n`;
+      } else if (newNoteTemplate.value === 'journal') {
+        starterContent = `= Journal: ${title}\n:icons: font\n\n== ${new Date().toLocaleDateString()}\n\nWrite your thoughts here...\n`;
+      } else if (newNoteTemplate.value === 'presentation') {
+        starterContent = `= ${title}\n:icons: font\n\nWelcome to ${title}.\n\n== Agenda\n* Introduction\n* Key Architecture\n* Demonstration\n* Summary\n\n== Key Architecture\n[source,rust]\n----\n// Clean & Modular\npub fn present_deck() {\n    println!("Presenting slides offline");\n}\n----\n\n== Summary\n* Responsive presentation view\n* AsciiDoc page break & heading support\n* Pure local execution\n`;
+      }
+
+      try {
+        const res = await fetch('/api/notes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: text !== undefined ? text : rawContent.value })
+          body: JSON.stringify({ title, content: starterContent })
         });
         if (res.ok) {
           markPhoneReachable();
           const data = await res.json();
-          inPlaceBlocks.value = data.blocks || [];
-          nextTick(() => {
-            setupInteractiveFeatures();
-          });
-          return;
+          openNewNoteModal.value = false;
+          newNoteTitle.value = '';
+          await fetchNotesList();
+          loadNote(data.filename);
         } else {
           markPhoneUnreachable(new Error(`HTTP ${res.status}`));
         }
-      } catch (e) {
-        console.error('Failed to parse blocks from server:', e);
-        markPhoneUnreachable(e);
+      } catch (err) {
+        alert('Failed to create note: ' + err.message);
+        markPhoneUnreachable(err);
       }
-      // Fallback
-      const raw = parseBlocksFromText(text !== undefined ? text : rawContent.value);
-      inPlaceBlocks.value = raw.map((r, i) => ({ index: i, raw: r, html: r }));
     }
 
-    // Split text into discrete AsciiDoc blocks for in-place editor fallback
+    // ─── In-Place Block Editor ─────────────────────────────────────────
+
     function parseBlocksFromText(text) {
       if (!text || !text.trim()) return [''];
       const rawBlocks = text.split(/\n\s*\n/);
       const blocks = [];
       let currentAcc = '';
-
       for (let i = 0; i < rawBlocks.length; i++) {
         const b = rawBlocks[i].trim();
         if (!b) continue;
-
         if (currentAcc) {
           currentAcc += '\n\n' + rawBlocks[i];
           const delimMatches = currentAcc.match(/^(=|--|-|\*|\.|_){4,}|^\|===/gm);
@@ -665,12 +302,32 @@ createApp({
           }
         }
       }
-
-      if (currentAcc) {
-        blocks.push(currentAcc);
-      }
-
+      if (currentAcc) blocks.push(currentAcc);
       return blocks.length > 0 ? blocks : [text];
+    }
+
+    async function loadInPlaceBlocks(text) {
+      try {
+        const res = await fetch('/api/blocks/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text !== undefined ? text : rawContent.value })
+        });
+        if (res.ok) {
+          markPhoneReachable();
+          const data = await res.json();
+          inPlaceBlocks.value = data.blocks || [];
+          nextTick(() => { setupInteractiveFeatures(); });
+          return;
+        } else {
+          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+        }
+      } catch (e) {
+        console.error('Failed to parse blocks from server:', e);
+        markPhoneUnreachable(e);
+      }
+      const raw = parseBlocksFromText(text !== undefined ? text : rawContent.value);
+      inPlaceBlocks.value = raw.map((r, i) => ({ index: i, raw: r, html: r }));
     }
 
     async function switchToInPlaceMode() {
@@ -734,58 +391,28 @@ createApp({
       editBlock(inPlaceBlocks.value.length - 1);
     }
 
+    // ─── Interactive Features ──────────────────────────────────────────
+
     function setupInteractiveFeatures() {
       const codeBlocks = document.querySelectorAll('.preview-pane pre, .full-preview-pane pre, .inplace-rendered-card pre');
       codeBlocks.forEach(pre => {
         if (pre.querySelector('.copy-code-btn')) return;
         pre.style.position = 'relative';
-
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-code-btn';
-        copyBtn.innerText = '📋 Copy';
+        copyBtn.innerText = '\ud83d\udccb Copy';
         copyBtn.title = 'Copy code to clipboard';
         copyBtn.onclick = (e) => {
           e.stopPropagation();
           const codeEl = pre.querySelector('code') || pre;
           const text = codeEl.innerText || codeEl.textContent;
           navigator.clipboard.writeText(text).then(() => {
-            copyBtn.innerText = '✓ Copied!';
-            setTimeout(() => { copyBtn.innerText = '📋 Copy'; }, 2000);
+            copyBtn.innerText = '\u2713 Copied!';
+            setTimeout(() => { copyBtn.innerText = '\ud83d\udccb Copy'; }, 2000);
           });
         };
         pre.appendChild(copyBtn);
       });
-    }
-
-    function handlePreviewClick(e) {
-      // 1. Checklist checkbox click
-      const checkbox = e.target.closest('input[type="checkbox"]');
-      if (checkbox) {
-        const allCheckboxes = Array.from(document.querySelectorAll('.preview-pane input[type="checkbox"], .full-preview-pane input[type="checkbox"], .inplace-container input[type="checkbox"]'));
-        const itemIdx = allCheckboxes.indexOf(checkbox);
-        if (itemIdx >= 0) {
-          e.preventDefault();
-          toggleChecklistItem(itemIdx, !checkbox.checked);
-        }
-        return;
-      }
-
-      // 2. Cross-reference or anchor click
-      const link = e.target.closest('a');
-      if (link) {
-        const href = link.getAttribute('href') || '';
-        if (href.startsWith('#')) {
-          const targetEl = document.getElementById(href.slice(1));
-          if (targetEl) {
-            e.preventDefault();
-            targetEl.scrollIntoView({ behavior: 'smooth' });
-          }
-        } else if (href.endsWith('.adoc') || href.endsWith('.html')) {
-          e.preventDefault();
-          const targetNote = href.replace(/\.html$/, '.adoc');
-          loadNote(targetNote);
-        }
-      }
     }
 
     async function toggleChecklistItem(itemIdx, targetChecked) {
@@ -801,9 +428,7 @@ createApp({
           if (data.content) {
             rawContent.value = data.content;
             if (data.html) renderedHtml.value = data.html;
-            if (viewMode.value === 'inplace') {
-              await loadInPlaceBlocks(data.content);
-            }
+            if (viewMode.value === 'inplace') await loadInPlaceBlocks(data.content);
           }
         } else {
           markPhoneUnreachable(new Error(`HTTP ${res.status}`));
@@ -814,363 +439,42 @@ createApp({
       }
     }
 
-    // Load Note List
-    async function fetchNotesList() {
-      try {
-        const res = await fetch('/api/notes');
-        if (res.ok) {
-          markPhoneReachable();
-          const list = await res.json();
-          notesList.value = list;
-          if (list.length > 0) {
-            const requested = getRequestedNote();
-            let target = null;
-            if (requested && list.find(n => n.filename === requested)) {
-              target = requested;
-            } else if (currentFilename.value && list.find(n => n.filename === currentFilename.value)) {
-              target = currentFilename.value;
-            } else {
-              target = list[0].filename;
-            }
-
-            if (target && (target !== currentFilename.value || !rawContent.value || rawContent.value.startsWith('= Welcome to Notes++\n\nStart writing'))) {
-              await loadNote(target);
-            }
-          }
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
+    function handlePreviewClick(e) {
+      const checkbox = e.target.closest('input[type="checkbox"]');
+      if (checkbox) {
+        const allCheckboxes = Array.from(document.querySelectorAll('.preview-pane input[type="checkbox"], .full-preview-pane input[type="checkbox"], .inplace-container input[type="checkbox"]'));
+        const itemIdx = allCheckboxes.indexOf(checkbox);
+        if (itemIdx >= 0) {
+          e.preventDefault();
+          toggleChecklistItem(itemIdx, !checkbox.checked);
         }
-      } catch (err) {
-        console.error('Failed to fetch notes list:', err);
-        markPhoneUnreachable(err);
+        return;
       }
-    }
-
-    // Load Single Note
-    async function loadNote(filename, updateHistory = true) {
-      if (!filename) return;
-      currentFilename.value = filename;
-
-      try {
-        localStorage.setItem('notesplusplus_last_note', filename);
-      } catch (_) {}
-
-      if (updateHistory && typeof history !== 'undefined' && history.replaceState) {
-        const desiredHash = '#' + encodeURIComponent(filename);
-        if (window.location.hash !== desiredHash) {
-          history.replaceState(null, '', desiredHash);
-        }
-      }
-
-      try {
-        const res = await fetch(`/api/notes/${filename}`);
-        if (res.ok) {
-          markPhoneReachable();
-          rawContent.value = await res.text();
-          saveStatusText.value = 'Saved';
-          saveStatusClass.value = 'saved';
-          if (viewMode.value === 'inplace') {
-            inPlaceBlocks.value = parseBlocksFromText(rawContent.value);
-            editingBlockIndex.value = -1;
-          } else if (viewMode.value === 'present') {
-            prepareSlides(rawContent.value);
-            renderAllSlides();
-          }
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        console.error(`Failed to load note ${filename}:`, err);
-        markPhoneUnreachable(err);
-      }
-    }
-
-    function onNoteSelect() {
-      loadNote(currentFilename.value);
-    }
-
-    // Save Note to Server
-    async function saveCurrentNote() {
-      if (!currentFilename.value || isSaving.value) return;
-      isSaving.value = true;
-      saveStatusText.value = 'Saving...';
-      saveStatusClass.value = 'saving';
-
-      try {
-        const res = await fetch(`/api/notes/${currentFilename.value}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          body: rawContent.value
-        });
-        if (res.ok) {
-          markPhoneReachable();
-          saveStatusText.value = 'Saved';
-          saveStatusClass.value = 'saved';
-          // Refresh list snippets
-          fetchNotesList();
-        } else {
-          saveStatusText.value = 'Error saving';
-          saveStatusClass.value = 'unsaved';
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        saveStatusText.value = 'Save failed';
-        saveStatusClass.value = 'unsaved';
-        console.error('Save error:', err);
-        markPhoneUnreachable(err);
-      } finally {
-        isSaving.value = false;
-      }
-    }
-
-    function onContentChange() {
-      saveStatusText.value = 'Unsaved changes';
-      saveStatusClass.value = 'unsaved';
-    }
-
-    // Create New Note
-    async function createNote() {
-      const title = newNoteTitle.value.trim();
-      if (!title) return;
-
-      let starterContent = `= ${title}\n\n`;
-      if (newNoteTemplate.value === 'technical') {
-        starterContent = `= ${title}\n:toc: left\n:icons: font\n\n== Overview\nDescribe system architecture and design.\n\n== Requirements\n* [ ] Core functionality\n* [ ] Performance goals\n\n[source,rust]\n----\nfn main() {\n    println!("Hello Notes++!");\n}\n----\n`;
-      } else if (newNoteTemplate.value === 'meeting') {
-        starterContent = `= Meeting: ${title}\n:icons: font\n\nDate: ${new Date().toISOString().slice(0, 10)}\nAttendees: User\n\n== Agenda\n. Topic 1\n. Topic 2\n\n== Action Items\n* [ ] Task 1\n* [ ] Task 2\n`;
-      } else if (newNoteTemplate.value === 'journal') {
-        starterContent = `= Journal: ${title}\n:icons: font\n\n== ${new Date().toLocaleDateString()}\n\nWrite your thoughts here...\n`;
-      } else if (newNoteTemplate.value === 'presentation') {
-        starterContent = `= ${title}\n:icons: font\n\nWelcome to ${title}.\n\n== Agenda\n* Introduction\n* Key Architecture\n* Demonstration\n* Summary\n\n== Key Architecture\n[source,rust]\n----\n// Clean & Modular\npub fn present_deck() {\n    println!("Presenting slides offline");\n}\n----\n\n== Summary\n* Responsive presentation view\n* AsciiDoc page break & heading support\n* Pure local execution\n`;
-      }
-
-      try {
-        const res = await fetch('/api/notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: title,
-            content: starterContent
-          })
-        });
-
-        if (res.ok) {
-          markPhoneReachable();
-          const data = await res.json();
-          openNewNoteModal.value = false;
-          newNoteTitle.value = '';
-          await fetchNotesList();
-          loadNote(data.filename);
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        alert('Failed to create note: ' + err.message);
-        markPhoneUnreachable(err);
-      }
-    }
-
-    // AI Configuration & State
-    async function fetchAiConfig() {
-      try {
-        const res = await fetch('/api/ai/config');
-        if (res.ok) {
-          markPhoneReachable();
-          const data = await res.json();
-          if (data.provider) {
-            aiConfig.value.provider = data.provider;
-          }
-          if (data.model) {
-            aiConfig.value.model = data.model;
-          }
-          aiConfig.value.system_prompt = data.system_prompt || '';
-          canUndo.value = !!data.can_undo;
-          await fetchAvailableModels();
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        console.warn('Could not load AI config:', err);
-        markPhoneUnreachable(err);
-      }
-    }
-
-    async function fetchAvailableModels() {
-      isLoadingModels.value = true;
-      modelsError.value = '';
-      try {
-        const res = await fetch('/api/ai/models');
-        if (res.ok) {
-          markPhoneReachable();
-          const data = await res.json();
-          if (data && Array.isArray(data.models)) {
-            availableModels.value = data.models;
-          } else {
-            availableModels.value = [];
-          }
-        } else {
-          console.warn('Could not fetch models from server:', res.status);
-        }
-      } catch (err) {
-        console.warn('Failed to fetch models from server:', err);
-      } finally {
-        isLoadingModels.value = false;
-      }
-    }
-
-    async function onProviderChange() {
-      await saveAiSettings();
-    }
-
-    async function onModelSelect() {
-      await saveAiSettings();
-    }
-
-    async function saveAiSettings() {
-      try {
-        const res = await fetch('/api/ai/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: aiConfig.value.provider,
-            model: aiConfig.value.model,
-            system_prompt: aiConfig.value.system_prompt
-          })
-        });
-        if (res.ok) {
-          markPhoneReachable();
-          showAiSettings.value = false;
-          await fetchAvailableModels();
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        }
-      } catch (err) {
-        alert('Failed to save AI config: ' + err.message);
-        markPhoneUnreachable(err);
-      }
-    }
-
-    function toggleAiDrawer() {
-      openAiDrawer.value = !openAiDrawer.value;
-      if (openAiDrawer.value) {
-        aiTab.value = 'chat';
-        scrollChatToBottom();
-        if (availableModels.value.length === 0) {
-          fetchAvailableModels();
+      const link = e.target.closest('a');
+      if (link) {
+        const href = link.getAttribute('href') || '';
+        if (href.startsWith('#')) {
+          const targetEl = document.getElementById(href.slice(1));
+          if (targetEl) { e.preventDefault(); targetEl.scrollIntoView({ behavior: 'smooth' }); }
+        } else if (href.endsWith('.adoc') || href.endsWith('.html')) {
+          e.preventDefault();
+          loadNote(href.replace(/\.html$/, '.adoc'));
         }
       }
     }
 
-    function toggleAiDrawerImport() {
-      openAiDrawer.value = !openAiDrawer.value;
-      if (openAiDrawer.value) {
-        aiTab.value = 'import';
-        if (availableModels.value.length === 0) {
-          fetchAvailableModels();
-        }
-      }
-    }
+    // ─── Import with SSE Streaming ─────────────────────────────────────
 
-
-    // AI Chat & Execution via SSE Stream
-    async function sendUserPrompt(customInstruction = null) {
-      const instructionText = typeof customInstruction === 'string' ? customInstruction : null;
-      const prompt = (instructionText || aiPromptInput.value || '').trim();
-      if (!prompt || isAiBusy.value) return;
-
-      messages.value.push({ role: 'user', content: prompt });
-      if (!instructionText) aiPromptInput.value = '';
-      aiError.value = '';
-      isAiBusy.value = true;
-      isAiStreaming.value = true;
-      streamingText.value = '';
-      scrollChatToBottom();
-
-      try {
-        const response = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: prompt,
-            context_filename: currentFilename.value,
-            context_content: rawContent.value
-          })
-        });
-
-        if (!response.ok) {
-          markPhoneUnreachable(new Error(`HTTP ${response.status}`));
-          throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-        }
-        markPhoneReachable();
-
-        let fullAnswer = '';
-
-        await consumeSseStream(
-          response,
-          (token) => {
-            streamingText.value += token;
-            fullAnswer += token;
-            scrollChatToBottom();
-          },
-          async (payload) => {
-            if (payload.type === 'pending_confirmation') {
-              pendingAction.value = payload.action;
-              openAiDrawer.value = true;
-            } else if (payload.type === 'finished') {
-              if (payload.content) fullAnswer = payload.content;
-              if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
-              // If note was updated or created, reload note
-              if (payload.last_snapshot_id || payload.last_created_note) {
-                await fetchNotesList();
-                await loadNote(currentFilename.value);
-              }
-            } else if (payload.type === 'error') {
-              aiError.value = payload.error;
-            }
-          }
-        );
-
-        if (fullAnswer.trim()) {
-          messages.value.push({ role: 'assistant', content: fullAnswer });
-        }
-      } catch (err) {
-        aiError.value = `Server AI Error: ${err.message}`;
-      } finally {
-        isAiBusy.value = false;
-        isAiStreaming.value = false;
-        streamingText.value = '';
-        scrollChatToBottom();
-      }
-    }
-
-    // Trigger Quick AI Templates
-    async function triggerTemplate(templateId) {
-      if (isAiBusy.value) return;
-      openAiDrawer.value = true;
-
-      const templatePrompts = {
-        summarize: 'Please provide a clear, structured summary of this AsciiDoc document.',
-        fix_grammar: 'Review this AsciiDoc document, fixing all grammar and spelling errors while preserving formatting, headings, and structure.',
-        add_admonition: 'Analyze this document and add relevant AsciiDoc [NOTE], [TIP], or [WARNING] blocks to highlight key takeaways.',
-        format_table: 'Convert the main data or list points in this document into a well-structured AsciiDoc table |=== ... |===',
-        continue_writing: 'Continue writing the next logical section of this AsciiDoc document.'
-      };
-
-      const prompt = templatePrompts[templateId] || `Run template ${templateId} on this note.`;
-      await sendUserPrompt(prompt);
-    }
-
-    // Import External Text as Note
     async function importText() {
-      if (isAiBusy.value || !importSourceText.value.trim()) return;
-      openAiDrawer.value = true;
-      isAiBusy.value = true;
-      isAiStreaming.value = true;
-      streamingText.value = '';
-      aiError.value = '';
+      if (ai.isAiBusy.value || !imp.importSourceText.value.trim()) return;
+      ai.openAiDrawer.value = true;
+      ai.isAiBusy.value = true;
+      ai.isAiStreaming.value = true;
+      ai.streamingText.value = '';
+      ai.aiError.value = '';
 
-      const userMsg = `Import: ${importSourceText.value.substring(0, 80)}${importSourceText.value.length > 80 ? '...' : ''}`;
-      messages.value.push({ role: 'user', content: userMsg });
+      const userMsg = `Import: ${imp.importSourceText.value.substring(0, 80)}${imp.importSourceText.value.length > 80 ? '...' : ''}`;
+      ai.messages.value.push({ role: 'user', content: userMsg });
 
       try {
         const response = await fetch('/api/ai/template', {
@@ -1178,11 +482,11 @@ createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             template_id: 'import_convert',
-            content: importSourceText.value,
-            context_filename: importTitle.value ? importTitle.value.replace(/\s+/g, '-').toLowerCase() + '.adoc' : 'imported-note.adoc',
-            target_title: importTitle.value || undefined,
-            mode: importMode.value,
-            custom_instruction: importCustomInstruction.value || undefined
+            content: imp.importSourceText.value,
+            context_filename: imp.importTitle.value ? imp.importTitle.value.replace(/\s+/g, '-').toLowerCase() + '.adoc' : 'imported-note.adoc',
+            target_title: imp.importTitle.value || undefined,
+            mode: imp.importMode.value,
+            custom_instruction: imp.importCustomInstruction.value || undefined
           })
         });
 
@@ -1197,290 +501,132 @@ createApp({
 
         await consumeSseStream(
           response,
-          (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
+          (token) => { ai.streamingText.value += token; fullAnswer += token; ai.scrollChatToBottom(); },
           (payload) => {
             if (payload.type === 'finished') {
               if (payload.content) fullAnswer = payload.content;
-              canUndo.value = payload.can_undo || false;
-              if (payload.last_created_note) {
-                createdNote = payload.last_created_note;
-              }
+              ai.canUndo.value = payload.can_undo || false;
+              if (payload.last_created_note) createdNote = payload.last_created_note;
             } else if (payload.type === 'pending_confirmation') {
-              pendingAction.value = payload.action;
+              ai.pendingAction.value = payload.action;
             } else if (payload.type === 'error') {
-              aiError.value = payload.error;
+              ai.aiError.value = payload.error;
             }
           }
         );
 
-        if (fullAnswer.trim()) messages.value.push({ role: 'assistant', content: fullAnswer });
+        if (fullAnswer.trim()) ai.messages.value.push({ role: 'assistant', content: fullAnswer });
         await fetchNotesList();
         if (createdNote) {
           await loadNote(createdNote);
         } else if (currentFilename.value) {
           await loadNote(currentFilename.value);
         }
-        importSourceText.value = '';
+        imp.importSourceText.value = '';
       } catch (err) {
-        aiError.value = `Import Error: ${err.message}`;
+        ai.aiError.value = `Import Error: ${err.message}`;
       } finally {
-        isAiBusy.value = false;
-        isAiStreaming.value = false;
-        streamingText.value = '';
-        scrollChatToBottom();
+        ai.isAiBusy.value = false;
+        ai.isAiStreaming.value = false;
+        ai.streamingText.value = '';
+        ai.scrollChatToBottom();
       }
-    }
-
-    function toggleUrlInput() {
-      showUrlInput.value = !showUrlInput.value;
-      if (showUrlInput.value) {
-        showFileInput.value = false;
-        urlFetchError.value = '';
-      }
-    }
-
-    function toggleFileInput() {
-      showFileInput.value = !showFileInput.value;
-      if (showFileInput.value) {
-        showUrlInput.value = false;
-        fileFetchError.value = '';
-      }
-    }
-
-    function triggerFilePicker() {
-      if (fileInputRef.value) {
-        fileInputRef.value.click();
-      }
-    }
-
-    function clearImportSource() {
-      importSourceText.value = '';
-      importTitle.value = '';
-      urlFetchError.value = '';
-      fileFetchError.value = '';
-      aiError.value = '';
     }
 
     function openImportFromNewModal() {
       openNewNoteModal.value = false;
-      openAiDrawer.value = true;
-      aiTab.value = 'import';
+      ai.openAiDrawer.value = true;
+      ai.aiTab.value = 'import';
     }
 
-    async function fetchUrlContent() {
-      const url = (importUrl.value || '').trim();
-      if (!url) return;
-      isFetchingUrl.value = true;
-      urlFetchError.value = '';
-      aiError.value = '';
-      try {
-        const res = await fetch('/api/ai/fetch_url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
-        });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          importSourceText.value = data.content || '';
-          if (!importTitle.value.trim()) {
-            try {
-              const parsedUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
-              const pathParts = parsedUrl.pathname.split('/').filter(p => p.length > 0);
-              if (pathParts.length > 0) {
-                const lastPart = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-                if (lastPart.length > 2) {
-                  importTitle.value = lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
-                }
-              } else if (parsedUrl.hostname) {
-                importTitle.value = parsedUrl.hostname;
-              }
-            } catch (_) {}
-          }
-          showUrlInput.value = false;
+    // ─── Link Insertion ────────────────────────────────────────────────
+
+    function openLinkDialog() {
+      let initialText = '';
+      let ctx = { mode: 'split', start: 0, end: 0, blockIndex: null };
+
+      if (viewMode.value === 'inplace' && editingBlockIndex.value !== null && editingBlockIndex.value >= 0) {
+        ctx.mode = 'inplace';
+        ctx.blockIndex = editingBlockIndex.value;
+        const blockEl = document.querySelector('.inplace-editor-card textarea');
+        if (blockEl) {
+          ctx.start = blockEl.selectionStart || 0;
+          ctx.end = blockEl.selectionEnd || 0;
+          if (ctx.start !== ctx.end) initialText = (activeBlockText.value || '').substring(ctx.start, ctx.end);
         } else {
-          urlFetchError.value = data.error || 'Failed to fetch URL';
+          ctx.start = (activeBlockText.value || '').length;
+          ctx.end = ctx.start;
         }
-      } catch (e) {
-        urlFetchError.value = `Network error: ${e.message}`;
-      } finally {
-        isFetchingUrl.value = false;
-      }
-    }
-
-    function readFileObject(file) {
-      if (!file) return;
-      const isHtml = file.name.endsWith('.html') || file.name.endsWith('.htm') || (file.type && file.type.includes('html'));
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        let text = event.target.result || '';
-        if (isHtml || (text.trim().startsWith('<') && (text.includes('<p') || text.includes('<div') || text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<!doctype')))) {
-          try {
-            const res = await fetch('/api/ai/preprocess_html', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ html: text })
-            });
-            const data = await res.json();
-            if (res.ok && data.ok) {
-              text = data.content;
-            }
-          } catch (_) {}
-        }
-        importSourceText.value = text;
-        if (!importTitle.value.trim()) {
-          const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-          if (cleanName.length > 0) {
-            importTitle.value = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
-          }
-        }
-        showFileInput.value = false;
-      };
-      reader.onerror = () => {
-        aiError.value = 'Failed to read file contents';
-      };
-      reader.readAsText(file);
-    }
-
-    function onFileSelect(e) {
-      const file = e.target && e.target.files && e.target.files[0];
-      if (file) {
-        readFileObject(file);
-      }
-      if (e.target) {
-        e.target.value = '';
-      }
-    }
-
-    function onFileDrop(e) {
-      isDraggingFile.value = false;
-      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (file) {
-        readFileObject(file);
-      }
-    }
-
-    async function loadServerFile() {
-      const path = (importFilePath.value || '').trim();
-      if (!path) return;
-      isLoadingFile.value = true;
-      fileFetchError.value = '';
-      aiError.value = '';
-      try {
-        const res = await fetch('/api/ai/read_file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_path: path })
-        });
-        const data = await res.json();
-        if (res.ok && data.ok) {
-          importSourceText.value = data.content || '';
-          if (!importTitle.value.trim()) {
-            const parts = path.split(/[\/\\]/);
-            const lastPart = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-            if (lastPart.length > 0) {
-              importTitle.value = lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
-            }
-          }
-          showFileInput.value = false;
+      } else {
+        ctx.mode = 'split';
+        const el = editorTextarea.value;
+        if (el) {
+          ctx.start = el.selectionStart || 0;
+          ctx.end = el.selectionEnd || 0;
+          if (ctx.start !== ctx.end) initialText = (rawContent.value || '').substring(ctx.start, ctx.end);
         } else {
-          fileFetchError.value = data.error || 'Failed to read server file';
+          ctx.start = (rawContent.value || '').length;
+          ctx.end = ctx.start;
         }
-      } catch (e) {
-        fileFetchError.value = `Network error: ${e.message}`;
-      } finally {
-        isLoadingFile.value = false;
       }
+
+      linkModal.linkEditorContext.value = ctx;
+      linkModal.linkDisplayText.value = initialText;
+      linkModal.linkSearchQuery.value = '';
+      linkModal.selectedLinkFilename.value = '';
+      linkModal.selectedLinkTitle.value = '';
+      linkModal.linkFocusedIndex.value = 0;
+      linkModal.openLinkModal.value = true;
+
+      nextTick(() => {
+        if (linkModal.linkSearchInputRef.value) linkModal.linkSearchInputRef.value.focus();
+      });
     }
 
-    async function pasteClipboard() {
-      try {
-        if (navigator.clipboard && navigator.clipboard.readText) {
-          const text = await navigator.clipboard.readText();
-          if (text) {
-            importSourceText.value = text;
-          }
-        }
-      } catch (e) {
-        console.warn('Clipboard read error:', e);
-      }
-    }
+    function confirmLinkInsert() {
+      const linkText = linkModal.formattedLinkPreview.value;
+      if (!linkText) return;
 
-    // Confirm or Deny Pending Tool Call
-    async function confirmAction(approved) {
-      if (isAiBusy.value) return;
-      isAiBusy.value = true;
-      isAiStreaming.value = true;
-      streamingText.value = '';
-      pendingAction.value = null;
-
-      try {
-        const response = await fetch('/api/ai/confirm', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ approved })
+      const ctx = linkModal.linkEditorContext.value;
+      if (ctx.mode === 'inplace') {
+        const s = ctx.start, e = ctx.end;
+        activeBlockText.value = (activeBlockText.value || '').slice(0, s) + linkText + (activeBlockText.value || '').slice(e);
+        linkModal.openLinkModal.value = false;
+        nextTick(() => {
+          const blockEl = document.querySelector('.inplace-editor-card textarea');
+          if (blockEl) { blockEl.focus(); blockEl.setSelectionRange(s + linkText.length, s + linkText.length); }
         });
-
-        if (!response.ok) {
-          markPhoneUnreachable(new Error(`HTTP ${response.status}`));
-          throw new Error(`HTTP ${response.status}`);
-        }
-        markPhoneReachable();
-
-        let fullAnswer = '';
-
-        await consumeSseStream(
-          response,
-          (token) => {
-            streamingText.value += token;
-            fullAnswer += token;
-            scrollChatToBottom();
-          },
-          async (payload) => {
-            if (payload.type === 'finished') {
-              if (payload.content) fullAnswer = payload.content;
-              if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
-              await fetchNotesList();
-              await loadNote(currentFilename.value);
-            } else if (payload.type === 'error') {
-              aiError.value = payload.error;
-            }
-          }
-        );
-
-        if (fullAnswer.trim()) {
-          messages.value.push({ role: 'assistant', content: fullAnswer });
-        }
-      } catch (err) {
-        aiError.value = `Failed to confirm action: ${err.message}`;
-      } finally {
-        isAiBusy.value = false;
-        isAiStreaming.value = false;
-        streamingText.value = '';
-        scrollChatToBottom();
+      } else {
+        const el = editorTextarea.value;
+        const s = ctx.start, e = ctx.end;
+        rawContent.value = (rawContent.value || '').slice(0, s) + linkText + (rawContent.value || '').slice(e);
+        onContentChange();
+        linkModal.openLinkModal.value = false;
+        nextTick(() => {
+          if (el) { el.focus(); el.setSelectionRange(s + linkText.length, s + linkText.length); }
+        });
       }
     }
 
-    // Undo AI Action
-    async function undoLastAiAction() {
-      try {
-        const res = await fetch('/api/ai/undo', { method: 'POST' });
-        if (res.ok) {
-          markPhoneReachable();
-          const data = await res.json();
-          canUndo.value = !!data.can_undo;
-          await loadNote(currentFilename.value);
-          messages.value.push({ role: 'assistant', content: `↩ ${data.message}` });
-        } else {
-          markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-          alert('Undo failed: Server error');
-        }
-      } catch (err) {
-        alert('Undo error: ' + err.message);
-        markPhoneUnreachable(err);
+    function selectLinkTarget(note) {
+      if (!note) return;
+      linkModal.selectedLinkFilename.value = note.filename;
+      linkModal.selectedLinkTitle.value = note.title || note.filename;
+      if (!linkModal.linkDisplayText.value.trim()) {
+        linkModal.linkDisplayText.value = note.title || note.filename;
       }
     }
 
-    // Formatting Toolbar Helpers
+    function selectCustomLinkTarget(query) {
+      linkModal.selectedLinkFilename.value = '';
+      linkModal.selectedLinkTitle.value = query;
+      if (!linkModal.linkDisplayText.value.trim()) {
+        linkModal.linkDisplayText.value = query;
+      }
+    }
+
+    // ─── Toolbar Helpers ───────────────────────────────────────────────
+
     function insertPrefix(prefix) {
       const el = editorTextarea.value;
       if (!el) return;
@@ -1522,9 +668,7 @@ createApp({
       const s = el.selectionStart, end = el.selectionEnd;
       rawContent.value = rawContent.value.slice(0, s) + '  ' + rawContent.value.slice(end);
       onContentChange();
-      nextTick(() => {
-        el.setSelectionRange(s + 2, s + 2);
-      });
+      nextTick(() => { el.setSelectionRange(s + 2, s + 2); });
     }
 
     function insertTableTemplate() {
@@ -1536,165 +680,51 @@ createApp({
       onContentChange();
     }
 
-    function selectLinkTarget(note) {
-      if (!note) return;
-      selectedLinkFilename.value = note.filename;
-      selectedLinkTitle.value = note.title || note.filename;
-      if (!linkDisplayText.value.trim()) {
-        linkDisplayText.value = note.title || note.filename;
-      }
-    }
-
-    function selectCustomLinkTarget(query) {
-      selectedLinkFilename.value = '';
-      selectedLinkTitle.value = query;
-      if (!linkDisplayText.value.trim()) {
-        linkDisplayText.value = query;
-      }
-    }
-
-    function openLinkDialog() {
-      let initialText = '';
-      let ctx = { mode: 'split', start: 0, end: 0, blockIndex: null };
-
-      if (viewMode.value === 'inplace' && editingBlockIndex.value !== null && editingBlockIndex.value >= 0) {
-        ctx.mode = 'inplace';
-        ctx.blockIndex = editingBlockIndex.value;
-        const blockEl = document.querySelector('.inplace-editor-card textarea');
-        if (blockEl) {
-          ctx.start = blockEl.selectionStart || 0;
-          ctx.end = blockEl.selectionEnd || 0;
-          if (ctx.start !== ctx.end) {
-            initialText = (activeBlockText.value || '').substring(ctx.start, ctx.end);
-          }
-        } else {
-          ctx.start = (activeBlockText.value || '').length;
-          ctx.end = (activeBlockText.value || '').length;
-        }
-      } else {
-        ctx.mode = 'split';
-        const el = editorTextarea.value;
-        if (el) {
-          ctx.start = el.selectionStart || 0;
-          ctx.end = el.selectionEnd || 0;
-          if (ctx.start !== ctx.end) {
-            initialText = (rawContent.value || '').substring(ctx.start, ctx.end);
-          }
-        } else {
-          ctx.start = (rawContent.value || '').length;
-          ctx.end = (rawContent.value || '').length;
-        }
-      }
-
-      linkEditorContext.value = ctx;
-      linkDisplayText.value = initialText;
-      linkSearchQuery.value = '';
-      selectedLinkFilename.value = '';
-      selectedLinkTitle.value = '';
-      linkFocusedIndex.value = 0;
-      openLinkModal.value = true;
-
-      nextTick(() => {
-        if (linkSearchInputRef.value) {
-          linkSearchInputRef.value.focus();
-        }
-      });
-    }
+    // ─── Link Keydown & Helpers ────────────────────────────────────────
 
     function handleLinkKeydown(e) {
-      const hasFallback = (linkSearchQuery.value || '').trim() && !isExactMatch.value;
-      const totalCount = filteredLinkPages.value.length + (hasFallback ? 1 : 0);
+      const hasFallback = (linkModal.linkSearchQuery.value || '').trim() && !linkModal.isExactMatch.value;
+      const totalCount = linkModal.filteredLinkPages.value.length + (hasFallback ? 1 : 0);
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         if (totalCount > 0) {
-          linkFocusedIndex.value = (linkFocusedIndex.value + 1) % totalCount;
-          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
-            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+          linkModal.linkFocusedIndex.value = (linkModal.linkFocusedIndex.value + 1) % totalCount;
+          if (linkModal.linkFocusedIndex.value < linkModal.filteredLinkPages.value.length) {
+            selectLinkTarget(linkModal.filteredLinkPages.value[linkModal.linkFocusedIndex.value]);
           } else {
-            selectCustomLinkTarget((linkSearchQuery.value || '').trim());
+            selectCustomLinkTarget((linkModal.linkSearchQuery.value || '').trim());
           }
         }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (totalCount > 0) {
-          linkFocusedIndex.value = (linkFocusedIndex.value - 1 + totalCount) % totalCount;
-          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
-            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+          linkModal.linkFocusedIndex.value = (linkModal.linkFocusedIndex.value - 1 + totalCount) % totalCount;
+          if (linkModal.linkFocusedIndex.value < linkModal.filteredLinkPages.value.length) {
+            selectLinkTarget(linkModal.filteredLinkPages.value[linkModal.linkFocusedIndex.value]);
           } else {
-            selectCustomLinkTarget((linkSearchQuery.value || '').trim());
+            selectCustomLinkTarget((linkModal.linkSearchQuery.value || '').trim());
           }
         }
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (totalCount > 0 && !selectedLinkFilename.value && !isExternalUrl.value) {
-          if (linkFocusedIndex.value < filteredLinkPages.value.length) {
-            selectLinkTarget(filteredLinkPages.value[linkFocusedIndex.value]);
+        if (totalCount > 0 && !linkModal.selectedLinkFilename.value && !linkModal.isExternalUrl.value) {
+          if (linkModal.linkFocusedIndex.value < linkModal.filteredLinkPages.value.length) {
+            selectLinkTarget(linkModal.filteredLinkPages.value[linkModal.linkFocusedIndex.value]);
           }
         }
         confirmLinkInsert();
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        openLinkModal.value = false;
+        linkModal.openLinkModal.value = false;
       }
     }
 
-    function confirmLinkInsert() {
-      const linkText = formattedLinkPreview.value;
-      if (!linkText) return;
+    // ─── Keyboard Shortcuts ────────────────────────────────────────────
 
-      const ctx = linkEditorContext.value;
-      if (ctx.mode === 'inplace') {
-        const s = ctx.start;
-        const e = ctx.end;
-        activeBlockText.value = (activeBlockText.value || '').slice(0, s) + linkText + (activeBlockText.value || '').slice(e);
-        openLinkModal.value = false;
-        nextTick(() => {
-          const blockEl = document.querySelector('.inplace-editor-card textarea');
-          if (blockEl) {
-            blockEl.focus();
-            blockEl.setSelectionRange(s + linkText.length, s + linkText.length);
-          }
-        });
-      } else {
-        const el = editorTextarea.value;
-        const s = ctx.start;
-        const e = ctx.end;
-        rawContent.value = (rawContent.value || '').slice(0, s) + linkText + (rawContent.value || '').slice(e);
-        onContentChange();
-        openLinkModal.value = false;
-        nextTick(() => {
-          if (el) {
-            el.focus();
-            el.setSelectionRange(s + linkText.length, s + linkText.length);
-          }
-        });
-      }
-    }
-
-    function insertLink() {
-      openLinkDialog();
-    }
-
-    function scrollChatToBottom() {
-      nextTick(() => {
-        if (chatMessagesContainer.value) {
-          chatMessagesContainer.value.scrollTop = chatMessagesContainer.value.scrollHeight;
-        }
-      });
-    }
-
-    function formatMessageContent(content) {
-      return formatMarkdown(content);
-    }
-
-    // Keyboard Shortcuts
     function handleGlobalKeyDown(e) {
-      if (openLinkModal.value) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          openLinkModal.value = false;
-        }
+      if (linkModal.openLinkModal.value) {
+        if (e.key === 'Escape') { e.preventDefault(); linkModal.openLinkModal.value = false; }
         return;
       }
 
@@ -1712,95 +742,31 @@ createApp({
 
       if (viewMode.value === 'present') {
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
-
         switch (e.key) {
-          case 'ArrowRight':
-          case 'ArrowDown':
-          case 'PageDown':
-          case ' ':
-          case 'Enter':
-          case 'l':
-          case 'L':
-          case 'j':
-          case 'J':
-            e.preventDefault();
-            nextSlide();
-            break;
-          case 'ArrowLeft':
-          case 'ArrowUp':
-          case 'PageUp':
-          case 'Backspace':
-          case 'h':
-          case 'H':
-          case 'k':
-          case 'K':
-            e.preventDefault();
-            prevSlide();
-            break;
-          case 'Home':
-            e.preventDefault();
-            goToSlide(0);
-            break;
-          case 'End':
-            e.preventDefault();
-            goToSlide(slides.value.length - 1);
-            break;
-          case 'f':
-          case 'F':
-          case 'F11':
-            e.preventDefault();
-            togglePresentationFullscreen();
-            break;
-          case 'o':
-          case 'O':
-          case 'g':
-          case 'G':
-            e.preventDefault();
-            showSlideOverview.value = !showSlideOverview.value;
-            break;
+          case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': case 'Enter': case 'l': case 'L': case 'j': case 'J':
+            e.preventDefault(); presentation.nextSlide(); break;
+          case 'ArrowLeft': case 'ArrowUp': case 'PageUp': case 'Backspace': case 'h': case 'H': case 'k': case 'K':
+            e.preventDefault(); presentation.prevSlide(); break;
+          case 'Home': e.preventDefault(); presentation.goToSlide(0); break;
+          case 'End': e.preventDefault(); presentation.goToSlide(presentation.slides.value.length - 1); break;
+          case 'f': case 'F': case 'F11': e.preventDefault(); presentation.togglePresentationFullscreen(); break;
+          case 'o': case 'O': case 'g': case 'G': e.preventDefault(); presentation.showSlideOverview.value = !presentation.showSlideOverview.value; break;
           case 'Escape':
             e.preventDefault();
-            if (showSlideOverview.value) {
-              showSlideOverview.value = false;
-            } else {
-              exitPresentationMode();
-            }
+            if (presentation.showSlideOverview.value) { presentation.showSlideOverview.value = false; }
+            else { presentation.exitPresentationMode(); }
             break;
         }
       }
     }
 
-    onMounted(async () => {
-      window.addEventListener('keydown', handleGlobalKeyDown);
-      document.addEventListener('fullscreenchange', onFullscreenChange);
-      document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.export-dropdown')) {
-          showExportMenu.value = false;
-        }
-        if (!e.target.closest('.account-dropdown-wrapper')) {
-          showAccountMenu.value = false;
-        }
-      });
-      window.addEventListener('hashchange', () => {
-        const req = getRequestedNote();
-        if (req && req !== currentFilename.value) {
-          loadNote(req, false);
-        }
-      });
-      const authed = await fetchAuthConfig();
-      if (authed) {
-        await fetchNotesList();
-        await fetchAiConfig();
-      }
+    // ─── Message Formatting ────────────────────────────────────────────
 
-      // Start periodic health check heartbeat (every 4 seconds)
-      heartbeatTimer = setInterval(() => checkConnection(true), 4000);
+    function formatMessageContent(content) {
+      return formatMarkdown(content);
+    }
 
-      // Fetch Sailfish ambience theme and apply as CSS overrides
-      fetchTheme();
-      setInterval(fetchTheme, 10000);
-    });
+    // ─── Theme ─────────────────────────────────────────────────────────
 
     async function fetchTheme() {
       try {
@@ -1815,149 +781,148 @@ createApp({
       } catch (_) {}
     }
 
+    // ─── Lifecycle ─────────────────────────────────────────────────────
+
+    let heartbeatTimer = null;
+
+    onMounted(async () => {
+      window.addEventListener('keydown', handleGlobalKeyDown);
+      document.addEventListener('fullscreenchange', presentation.onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', presentation.onFullscreenChange);
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.export-dropdown')) showExportMenu.value = false;
+        if (!e.target.closest('.account-dropdown-wrapper')) showAccountMenu.value = false;
+      });
+      window.addEventListener('hashchange', () => {
+        const req = getRequestedNote();
+        if (req && req !== currentFilename.value) loadNote(req, false);
+      });
+
+      const authed = await fetchAuthConfig();
+      if (authed) {
+        await fetchNotesList();
+        await ai.fetchAiConfig();
+      }
+
+      heartbeatTimer = setInterval(() => checkConnection(true), 4000);
+      fetchTheme();
+      setInterval(fetchTheme, 10000);
+    });
+
+    // ─── Return All Template Bindings ──────────────────────────────────
+
     return {
-      isAuthenticated,
-      authUser,
-      authError,
-      authStatus,
-      authVerificationCode,
-      authChallengeId,
-      authCanRetry,
-      sessionRemainingText,
-      sessionRemainingFullText,
-      fetchAuthConfig,
-      logout,
-      startPhoneAuth,
-      isPhoneReachable,
-      isCheckingConnection,
-      connectionError,
-      checkConnection,
-      currentFilename,
-      notesList,
-      rawContent,
-      viewMode,
-      previousViewMode,
-      slides,
-      currentSlideIndex,
-      showSlideOverview,
-      isPresentationFullscreen,
-      presentationStageRef,
-      currentSlideHtml,
-      prepareSlides,
-      nextSlide,
-      prevSlide,
-      goToSlide,
-      enterPresentationMode,
-      exitPresentationMode,
-      togglePresentationFullscreen,
-      handleTouchStart,
-      handleTouchEnd,
-      isSaving,
-      saveStatusText,
-      saveStatusClass,
-      showExportMenu,
-      showAccountMenu,
-      inPlaceBlocks,
-      editingBlockIndex,
-      activeBlockText,
-      openNewNoteModal,
-      newNoteTitle,
-      newNoteTemplate,
-      computedNewFilename,
-      openLinkModal,
-      linkSearchQuery,
-      selectedLinkFilename,
-      selectedLinkTitle,
-      linkDisplayText,
-      linkFocusedIndex,
-      linkEditorContext,
-      linkSearchInputRef,
-      linkPagesListRef,
-      isExternalUrl,
-      computedCustomFilename,
-      filteredLinkPages,
-      isExactMatch,
-      formattedLinkPreview,
-      selectLinkTarget,
-      selectCustomLinkTarget,
-      openLinkDialog,
-      handleLinkKeydown,
-      confirmLinkInsert,
-      openAiDrawer,
-      showAiSettings,
-      isAiBusy,
-      isAiStreaming,
-      streamingText,
-      aiPromptInput,
-      aiError,
-      messages,
-      pendingAction,
-      canUndo,
-      availableModels,
-      isLoadingModels,
-      modelsError,
-      isCurrentModelInList,
-      fetchAvailableModels,
-      onProviderChange,
-      onModelSelect,
-      aiConfig,
-      editorTextarea,
-      chatMessagesContainer,
-      renderedHtml,
-      switchToInPlaceMode,
-      editBlock,
-      saveBlockEdit,
-      cancelBlockEdit,
-      insertBlockAfter,
-      deleteBlock,
-      addBlockAtEnd,
-      onNoteSelect,
-      saveCurrentNote,
-      onContentChange,
-      createNote,
-      saveAiSettings,
-      toggleAiDrawer,
-      toggleAiDrawerImport,
-      sendUserPrompt,
-      triggerTemplate,
-      confirmAction,
-      undoLastAiAction,
-      aiTab,
-      importSourceText,
-      importTitle,
-      importMode,
-      importCustomInstruction,
-      importUrl,
-      showUrlInput,
-      isFetchingUrl,
-      urlFetchError,
-      showFileInput,
-      importFilePath,
-      isLoadingFile,
-      fileFetchError,
-      fileInputRef,
-      isDraggingFile,
-      toggleUrlInput,
-      toggleFileInput,
-      triggerFilePicker,
-      clearImportSource,
-      openImportFromNewModal,
-      fetchUrlContent,
-      onFileSelect,
-      onFileDrop,
-      loadServerFile,
-      pasteClipboard,
+      // Auth
+      isAuthenticated, authUser, authError, authStatus,
+      authVerificationCode, authChallengeId, authCanRetry,
+      sessionRemainingText, sessionRemainingFullText,
+      fetchAuthConfig, logout, startPhoneAuth,
+      // Health
+      isPhoneReachable, isCheckingConnection, connectionError, checkConnection,
+      // Notes
+      currentFilename, notesList, rawContent, viewMode,
+      isSaving, saveStatusText, saveStatusClass, showExportMenu, showAccountMenu,
+      computedNewFilename, renderedHtml, editorTextarea,
+      // Presentation
+      previousViewMode: presentation.previousViewMode,
+      slides: presentation.slides,
+      currentSlideIndex: presentation.currentSlideIndex,
+      showSlideOverview: presentation.showSlideOverview,
+      isPresentationFullscreen: presentation.isPresentationFullscreen,
+      presentationStageRef: presentation.presentationStageRef,
+      currentSlideHtml: presentation.currentSlideHtml,
+      prepareSlides: presentation.prepareSlides,
+      nextSlide: presentation.nextSlide,
+      prevSlide: presentation.prevSlide,
+      goToSlide: presentation.goToSlide,
+      enterPresentationMode: presentation.enterPresentationMode,
+      exitPresentationMode: presentation.exitPresentationMode,
+      togglePresentationFullscreen: presentation.togglePresentationFullscreen,
+      handleTouchStart: presentation.handleTouchStart,
+      handleTouchEnd: presentation.handleTouchEnd,
+      // Link Modal
+      openLinkModal: linkModal.openLinkModal,
+      linkSearchQuery: linkModal.linkSearchQuery,
+      selectedLinkFilename: linkModal.selectedLinkFilename,
+      selectedLinkTitle: linkModal.selectedLinkTitle,
+      linkDisplayText: linkModal.linkDisplayText,
+      linkFocusedIndex: linkModal.linkFocusedIndex,
+      linkEditorContext: linkModal.linkEditorContext,
+      linkSearchInputRef: linkModal.linkSearchInputRef,
+      linkPagesListRef: linkModal.linkPagesListRef,
+      isExternalUrl: linkModal.isExternalUrl,
+      computedCustomFilename: linkModal.computedCustomFilename,
+      filteredLinkPages: linkModal.filteredLinkPages,
+      isExactMatch: linkModal.isExactMatch,
+      formattedLinkPreview: linkModal.formattedLinkPreview,
+      // AI
+      openAiDrawer: ai.openAiDrawer,
+      showAiSettings: ai.showAiSettings,
+      isAiBusy: ai.isAiBusy,
+      isAiStreaming: ai.isAiStreaming,
+      streamingText: ai.streamingText,
+      aiPromptInput: ai.aiPromptInput,
+      aiError: ai.aiError,
+      messages: ai.messages,
+      pendingAction: ai.pendingAction,
+      canUndo: ai.canUndo,
+      availableModels: ai.availableModels,
+      isLoadingModels: ai.isLoadingModels,
+      modelsError: ai.modelsError,
+      isCurrentModelInList: ai.isCurrentModelInList,
+      aiConfig: ai.aiConfig,
+      aiTab: ai.aiTab,
+      chatMessagesContainer: ai.chatMessagesContainer,
+      fetchAvailableModels: ai.fetchAvailableModels,
+      onProviderChange: ai.onProviderChange,
+      onModelSelect: ai.onModelSelect,
+      saveAiSettings: ai.saveAiSettings,
+      toggleAiDrawer: ai.toggleAiDrawer,
+      toggleAiDrawerImport: ai.toggleAiDrawerImport,
+      sendUserPrompt: ai.sendUserPrompt,
+      triggerTemplate: ai.triggerTemplate,
+      confirmAction: ai.confirmAction,
+      undoLastAiAction: ai.undoLastAiAction,
+      // Import
+      importSourceText: imp.importSourceText,
+      importTitle: imp.importTitle,
+      importMode: imp.importMode,
+      importCustomInstruction: imp.importCustomInstruction,
+      importUrl: imp.importUrl,
+      showUrlInput: imp.showUrlInput,
+      isFetchingUrl: imp.isFetchingUrl,
+      urlFetchError: imp.urlFetchError,
+      showFileInput: imp.showFileInput,
+      importFilePath: imp.importFilePath,
+      isLoadingFile: imp.isLoadingFile,
+      fileFetchError: imp.fileFetchError,
+      fileInputRef: imp.fileInputRef,
+      isDraggingFile: imp.isDraggingFile,
+      toggleUrlInput: imp.toggleUrlInput,
+      toggleFileInput: imp.toggleFileInput,
+      triggerFilePicker: imp.triggerFilePicker,
+      clearImportSource: imp.clearImportSource,
+      fetchUrlContent: imp.fetchUrlContent,
+      onFileSelect: imp.onFileSelect,
+      onFileDrop: imp.onFileDrop,
+      loadServerFile: imp.loadServerFile,
+      pasteClipboard: imp.pasteClipboard,
       importText,
-      insertPrefix,
-      wrapSelection,
-      insertInPlacePrefix,
-      wrapInPlaceSelection,
-      insertTab,
-      insertTableTemplate,
-      insertLink,
+      openImportFromNewModal,
+      // Block editor
+      inPlaceBlocks, editingBlockIndex, activeBlockText,
+      switchToInPlaceMode, editBlock, saveBlockEdit, cancelBlockEdit,
+      insertBlockAfter, deleteBlock, addBlockAtEnd,
+      // Toolbar
+      insertPrefix, wrapSelection, insertInPlacePrefix, wrapInPlaceSelection,
+      insertTab, insertTableTemplate, insertLink: openLinkDialog,
+      // Modals
+      openNewNoteModal, newNoteTitle, newNoteTemplate, createNote,
+      // Actions
+      onNoteSelect, saveCurrentNote, onContentChange,
+      handlePreviewClick, handleLinkKeydown, confirmLinkInsert,
+      selectLinkTarget, selectCustomLinkTarget,
       formatMessageContent,
-      handlePreviewClick,
-      toggleChecklistItem
     };
   }
 }).mount('#app');

@@ -48,13 +48,13 @@ pub struct ServerConfig {
     pub reject_public_networks: bool,
 }
 
-impl Default for ServerConfig {
-    fn default() -> Self {
-        let paths = crate::paths::AppPaths::new();
-        let backup_dir = paths.data_dir.join("backups");
+impl ServerConfig {
+    pub fn from_paths(paths: crate::paths::AppPaths) -> Self {
+        let backup_dir = paths.backup_dir();
+        let notes_subdir = paths.notes_subdir();
         Self {
-            notes_subdir: paths.notes_dir.join("notes"),
             notes_dir: paths.notes_dir,
+            notes_subdir,
             db_path: paths.db_path,
             backup_dir,
             port: crate::constants::DEFAULT_SERVER_PORT,
@@ -67,6 +67,55 @@ impl Default for ServerConfig {
             tls_key_path: None,
             reject_public_networks: true,
         }
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self::from_paths(crate::paths::AppPaths::new())
+    }
+}
+
+/// Lightweight concurrency limiter for bounding the number of simultaneous active HTTP client threads.
+#[derive(Clone)]
+pub struct ConcurrencyLimiter {
+    state: Arc<(Mutex<usize>, std::sync::Condvar)>,
+    max_permits: usize,
+}
+
+impl ConcurrencyLimiter {
+    pub fn new(max_permits: usize) -> Self {
+        Self {
+            state: Arc::new((Mutex::new(0), std::sync::Condvar::new())),
+            max_permits,
+        }
+    }
+
+    pub fn acquire(&self) -> PermitGuard {
+        let (lock, cvar) = &*self.state;
+        let mut count = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while *count >= self.max_permits {
+            count = cvar.wait(count).unwrap_or_else(|e| e.into_inner());
+        }
+        *count += 1;
+        PermitGuard {
+            state: self.state.clone(),
+        }
+    }
+}
+
+pub struct PermitGuard {
+    state: Arc<(Mutex<usize>, std::sync::Condvar)>,
+}
+
+impl Drop for PermitGuard {
+    fn drop(&mut self) {
+        let (lock, cvar) = &*self.state;
+        let mut count = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if *count > 0 {
+            *count -= 1;
+        }
+        cvar.notify_one();
     }
 }
 
@@ -388,6 +437,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
 
     let context_clone = context.clone();
     let server_clone = server.clone();
+    let limiter = ConcurrencyLimiter::new(16);
 
     thread::spawn(move || {
         while is_running_clone.load(Ordering::SeqCst) {
@@ -407,7 +457,9 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
                         }
                     }
                     let ctx = context_clone.clone();
+                    let permit = limiter.acquire();
                     thread::spawn(move || {
+                        let _permit = permit;
                         handle_http_client(req, ctx);
                     });
                 }

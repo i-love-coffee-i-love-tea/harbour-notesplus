@@ -1,7 +1,6 @@
 import { ref } from 'vue';
 
-export function useImport({ rawContent, currentFilename, saveCurrentNote, loadInPlaceBlocks, viewMode, markPhoneReachable, markPhoneUnreachable, fetchNotesList, loadNote }) {
-  const aiTab = ref('chat');
+export function useImport({ rawContent, currentFilename, saveCurrentNote, viewMode, markPhoneReachable, markPhoneUnreachable, fetchNotesList, loadNote }) {
   const importSourceText = ref('');
   const importTitle = ref('');
   const importMode = ref('convert_full');
@@ -19,133 +18,162 @@ export function useImport({ rawContent, currentFilename, saveCurrentNote, loadIn
 
   function toggleUrlInput() {
     showUrlInput.value = !showUrlInput.value;
-    if (showUrlInput.value) showFileInput.value = false;
-    urlFetchError.value = '';
+    if (showUrlInput.value) {
+      showFileInput.value = false;
+      urlFetchError.value = '';
+    }
   }
 
   function toggleFileInput() {
     showFileInput.value = !showFileInput.value;
-    if (showFileInput.value) showUrlInput.value = false;
+    if (showFileInput.value) {
+      showUrlInput.value = false;
+      fileFetchError.value = '';
+    }
+  }
+
+  function triggerFilePicker() {
+    if (fileInputRef.value) fileInputRef.value.click();
+  }
+
+  function clearImportSource() {
+    importSourceText.value = '';
+    importTitle.value = '';
+    urlFetchError.value = '';
     fileFetchError.value = '';
   }
 
   async function fetchUrlContent() {
-    if (!importUrl.value.trim() || isFetchingUrl.value) return;
+    const url = (importUrl.value || '').trim();
+    if (!url) return;
     isFetchingUrl.value = true;
     urlFetchError.value = '';
     try {
       const res = await fetch('/api/ai/fetch_url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.value.trim() })
+        body: JSON.stringify({ url })
       });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (res.ok && data.ok) {
         importSourceText.value = data.content || '';
-        if (data.title) importTitle.value = data.title;
+        if (!importTitle.value.trim()) {
+          try {
+            const parsedUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
+            const pathParts = parsedUrl.pathname.split('/').filter(p => p.length > 0);
+            if (pathParts.length > 0) {
+              const lastPart = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
+              if (lastPart.length > 2) {
+                importTitle.value = lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+              }
+            } else if (parsedUrl.hostname) {
+              importTitle.value = parsedUrl.hostname;
+            }
+          } catch (_) {}
+        }
         showUrlInput.value = false;
-        importUrl.value = '';
       } else {
-        const data = await res.json().catch(() => ({}));
-        urlFetchError.value = data.error || `HTTP ${res.status}`;
+        urlFetchError.value = data.error || 'Failed to fetch URL';
       }
     } catch (e) {
-      urlFetchError.value = 'Failed to fetch URL: ' + e.message;
+      urlFetchError.value = `Network error: ${e.message}`;
     } finally {
       isFetchingUrl.value = false;
     }
   }
 
   async function loadServerFile() {
-    if (!importFilePath.value.trim() || isLoadingFile.value) return;
+    const path = (importFilePath.value || '').trim();
+    if (!path) return;
     isLoadingFile.value = true;
     fileFetchError.value = '';
     try {
       const res = await fetch('/api/ai/read_file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_path: importFilePath.value.trim() })
+        body: JSON.stringify({ file_path: path })
       });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (res.ok && data.ok) {
         importSourceText.value = data.content || '';
+        if (!importTitle.value.trim()) {
+          const parts = path.split(/[\/\\]/);
+          const lastPart = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
+          if (lastPart.length > 0) {
+            importTitle.value = lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+          }
+        }
         showFileInput.value = false;
-        importFilePath.value = '';
       } else {
-        const data = await res.json().catch(() => ({}));
-        fileFetchError.value = data.error || `HTTP ${res.status}`;
+        fileFetchError.value = data.error || 'Failed to read server file';
       }
     } catch (e) {
-      fileFetchError.value = 'Failed to load file: ' + e.message;
+      fileFetchError.value = `Network error: ${e.message}`;
     } finally {
       isLoadingFile.value = false;
     }
   }
 
-  function onFileSelect(e) {
-    const file = e.target.files[0];
+  function readFileObject(file) {
     if (!file) return;
+    const isHtml = file.name.endsWith('.html') || file.name.endsWith('.htm') || (file.type && file.type.includes('html'));
     const reader = new FileReader();
-    reader.onload = () => { importSourceText.value = reader.result; };
+    reader.onload = async (event) => {
+      let text = event.target.result || '';
+      if (isHtml || (text.trim().startsWith('<') && (text.includes('<p') || text.includes('<div') || text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<!doctype')))) {
+        try {
+          const res = await fetch('/api/ai/preprocess_html', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ html: text })
+          });
+          const data = await res.json();
+          if (res.ok && data.ok) text = data.content;
+        } catch (_) {}
+      }
+      importSourceText.value = text;
+      if (!importTitle.value.trim()) {
+        const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
+        if (cleanName.length > 0) {
+          importTitle.value = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+        }
+      }
+      showFileInput.value = false;
+    };
     reader.readAsText(file);
+  }
+
+  function onFileSelect(e) {
+    const file = e.target && e.target.files && e.target.files[0];
+    if (file) readFileObject(file);
+    if (e.target) e.target.value = '';
   }
 
   function onFileDrop(e) {
     isDraggingFile.value = false;
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => { importSourceText.value = reader.result; };
-    reader.readAsText(file);
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) readFileObject(file);
   }
 
-  function pasteClipboard() {
-    navigator.clipboard.readText().then(text => {
-      if (text) importSourceText.value = text;
-    }).catch(() => {});
-  }
-
-  async function importContent() {
-    if (!importSourceText.value.trim()) return;
+  async function pasteClipboard() {
     try {
-      const res = await fetch('/api/ai/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: importSourceText.value,
-          title: importTitle.value,
-          mode: importMode.value,
-          custom_instruction: importCustomInstruction.value,
-          filename: currentFilename.value,
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.content) {
-          rawContent.value = data.content;
-          saveCurrentNote();
-          if (loadInPlaceBlocks && viewMode.value === 'inplace') {
-            await loadInPlaceBlocks(data.content);
-          }
-        }
-        if (data.filename && data.filename !== currentFilename.value) {
-          await loadNote(data.filename);
-        }
-        importSourceText.value = '';
-        importTitle.value = '';
-        if (fetchNotesList) await fetchNotesList();
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text) importSourceText.value = text;
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn('Clipboard read error:', e);
+    }
   }
 
   return {
-    aiTab, importSourceText, importTitle, importMode,
+    importSourceText, importTitle, importMode,
     importCustomInstruction, importUrl, showUrlInput,
     isFetchingUrl, urlFetchError, showFileInput,
     importFilePath, isLoadingFile, fileFetchError,
     fileInputRef, isDraggingFile,
-    toggleUrlInput, toggleFileInput, fetchUrlContent,
+    toggleUrlInput, toggleFileInput, triggerFilePicker,
+    clearImportSource, fetchUrlContent,
     loadServerFile, onFileSelect, onFileDrop, pasteClipboard,
-    importContent,
   };
 }

@@ -142,7 +142,7 @@ pub fn init_journal(notes_dir: &Path) -> Result<(), CoreError> {
 
     let cleaned = clean_journal_content(&content, &today);
     if cleaned != content {
-        std::fs::write(&path, cleaned)?;
+        crate::page::atomic_write(&path, &cleaned)?;
     }
     Ok(())
 }
@@ -260,8 +260,29 @@ pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), CoreE
     if !new_content.ends_with('\n') {
         new_content.push('\n');
     }
-    std::fs::write(&path, new_content)?;
+    crate::page::atomic_write(&path, &new_content)?;
     Ok(())
+}
+
+/// Normalize a user-entered line into a task list item if `is_task` is true.
+/// Handles various input formats (`- [ ]`, `* `, bare text) and ensures the
+/// output always starts with `* [ ] ` or `* [x] `.
+pub fn format_task_line(text: &str, is_task: bool) -> String {
+    let trimmed = text.trim();
+    if !is_task {
+        return trimmed.to_string();
+    }
+    if trimmed.starts_with("* [ ] ") || trimmed.starts_with("* [x] ") || trimmed.starts_with("* [X] ") {
+        trimmed.to_string()
+    } else if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
+        format!("* {}", &trimmed[2..])
+    } else if let Some(stripped) = trimmed.strip_prefix("* ") {
+        format!("* [ ] {}", stripped)
+    } else if let Some(stripped) = trimmed.strip_prefix("- ") {
+        format!("* [ ] {}", stripped)
+    } else {
+        format!("* [ ] {}", trimmed)
+    }
 }
 
 fn is_date_string(s: &str) -> bool {

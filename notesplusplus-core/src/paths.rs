@@ -1,6 +1,75 @@
 use std::path::{Path, PathBuf};
 use crate::constants::{APP_DIR_NAME, DB_FILENAME, JOURNAL_FILENAME, NOTES_DIR_NAME};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct NoteFilename(pub String);
+
+impl NoteFilename {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for NoteFilename {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for NoteFilename {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for NoteFilename {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct SessionToken(pub String);
+
+impl SessionToken {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SessionToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ChallengeId(pub String);
+
+impl ChallengeId {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ChallengeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPaths {
     pub data_dir: PathBuf,
@@ -31,6 +100,14 @@ impl AppPaths {
 
     pub fn journal_path(&self) -> PathBuf {
         self.notes_dir.join(JOURNAL_FILENAME)
+    }
+
+    pub fn backup_dir(&self) -> PathBuf {
+        self.data_dir.join("backups")
+    }
+
+    pub fn notes_subdir(&self) -> PathBuf {
+        self.notes_dir.join("notes")
     }
 
     pub fn models_dir(&self) -> PathBuf {

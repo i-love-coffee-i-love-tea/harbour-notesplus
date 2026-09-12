@@ -9,9 +9,9 @@ use crate::parser::blocks::verbatim::{
     parse_sidebar_block,
 };
 use crate::parser::delimiters::{
-    is_admonition_kind, is_code_delimiter, is_delimiter, is_example_delimiter, is_horizontal_rule,
-    is_literal_delimiter, is_open_delimiter, is_quote_delimiter, is_sidebar_delimiter,
-    is_table_delimiter,
+    extract_admonition_kind, is_admonition_kind, is_code_delimiter, is_delimiter,
+    is_example_delimiter, is_horizontal_rule, is_literal_delimiter, is_open_delimiter,
+    is_quote_delimiter, is_sidebar_delimiter, is_table_delimiter,
 };
 use crate::parser::parse_blocks;
 
@@ -467,6 +467,40 @@ pub fn toggle_line_checkbox_marker(line: &str) -> Option<String> {
     }
 }
 
+/// Navigate to a block within `blocks[idx]` using a dot-separated `item_path`
+/// and toggle its checkbox state. Returns `true` if a checkbox was toggled.
+pub fn toggle_check_in_blocks(blocks: &mut [Block], idx: usize, item_path: &str) -> bool {
+    if idx >= blocks.len() { return false; }
+    let mut curr = Some(&mut blocks[idx]);
+    if !item_path.is_empty() {
+        for part in item_path.split('.') {
+            if let Ok(child_idx) = part.parse::<usize>() {
+                curr = match curr {
+                    Some(Block::UnorderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                    Some(Block::OrderedListItem { ref mut children, .. }) => children.get_mut(child_idx),
+                    _ => None,
+                };
+            } else {
+                return false;
+            }
+        }
+    }
+    if let Some(Block::UnorderedListItem { ref mut checked, ref mut raw, .. }) = curr {
+        if let Some(c) = checked {
+            *checked = Some(!*c);
+            if raw.contains("[ ] ") {
+                *raw = raw.replacen("[ ] ", "[x] ", 1);
+            } else if raw.contains("[x] ") {
+                *raw = raw.replacen("[x] ", "[ ] ", 1);
+            } else if raw.contains("[X] ") {
+                *raw = raw.replacen("[X] ", "[ ] ", 1);
+            }
+            return true;
+        }
+    }
+    false
+}
+
 fn consume_non_list_block(lines: &[String], line_strs: &[&str], i: usize) -> Option<usize> {
     let line = &lines[i];
 
@@ -546,12 +580,8 @@ fn consume_non_list_block(lines: &[String], line_strs: &[&str], i: usize) -> Opt
         && i + 1 < lines.len()
         && is_example_delimiter(lines[i + 1].trim())
     {
-        let kind = line
-            .trim()
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .to_string();
-        let (_, consumed) = parse_admonition_block(&kind, &line_strs[i..], None);
+        let kind = extract_admonition_kind(line.trim());
+        let (_, consumed) = parse_admonition_block(kind, &line_strs[i..], None);
         return Some(consumed);
     }
 

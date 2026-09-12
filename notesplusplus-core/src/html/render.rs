@@ -606,7 +606,7 @@ impl<'a> HtmlRenderContext<'a> {
 
     fn render_admonition_block(&mut self, title: Option<&str>, kind: &AdmonitionKind, children: &[Block]) -> String {
         let k_lower = kind.as_str().to_ascii_lowercase();
-        let svg_icon = get_admonition_svg_icon(&k_lower);
+        let svg_icon = get_admonition_svg_icon(*kind);
         let title_text = match title {
             Some(t) if !t.is_empty() => format!("{}: {}", kind.as_str(), escape_html(t)),
             _ => escape_html(kind.as_str()),

@@ -23,7 +23,7 @@ Label {
         if (preRenderedHtml && preRenderedHtml.length > 0) {
             return applySearchHighlight(substituteThemeColors(preRenderedHtml))
         }
-        return (spans !== undefined && spans !== null) ? applySearchHighlight(renderSpans(spans)) : ""
+        return ""
     }
 
     function substituteThemeColors(html) {
@@ -34,15 +34,6 @@ Label {
     function applySearchHighlight(html) {
         if (!searchTerm || searchTerm.length === 0) return html
         return BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
-    }
-
-    function renderSpans(spans) {
-        if (!spans || spans.length === 0) return ""
-        return BlockHtmlUtils.spansToHtml(spans, {
-            highlightColor: Theme.highlightColor,
-            primaryColor: Theme.primaryColor,
-            highlightBackgroundColor: Theme.highlightBackgroundColor
-        }, (typeof bridge !== "undefined" && bridge && bridge.notes_dir) ? bridge.notes_dir : "", (typeof app !== "undefined" && app && app.allowExternalImages !== undefined) ? app.allowExternalImages : true)
     }
 
     onLinkActivated: function(link) {
