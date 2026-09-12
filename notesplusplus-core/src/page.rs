@@ -225,7 +225,11 @@ pub fn get_page_preview_blocks_with_options(notes_dir: &Path, filename: &str, li
 }
 
 /// Get preview blocks as JSON values with document headings populated in Table of Contents blocks.
-pub fn get_page_preview_values_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> Vec<serde_json::Value> {
+pub fn get_page_preview_values_with_options(
+    notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool,
+    qt_theme: Option<&crate::html::qt_html::QtThemeColors>,
+    qt_options: Option<&crate::html::qt_html::QtRenderOptions>,
+) -> Vec<serde_json::Value> {
     let path = notes_dir.join(filename);
     if let Ok(content) = std::fs::read_to_string(&path) {
         let has_toc = content.lines().any(|l| {
@@ -265,18 +269,23 @@ pub fn get_page_preview_values_with_options(notes_dir: &Path, filename: &str, li
             .take(limit)
             .collect();
 
-        let mut preview_json_vec = Vec::new();
-        for block in preview_blocks {
+        let mut result = Vec::new();
+        for (idx, block) in preview_blocks.into_iter().enumerate() {
             let mut json = block.to_qvariant_map();
-            if let crate::block::Block::Toc { .. } = block {
+            if matches!(block, crate::block::Block::Toc { .. }) {
                 if let serde_json::Value::Object(ref mut map) = json {
                     map.insert("headings".into(), serde_json::Value::Array(headings_vec.clone()));
                 }
             }
-            preview_json_vec.push(json);
+            if let (Some(theme), Some(opts)) = (qt_theme, qt_options) {
+                let html = crate::html::qt_html::render_qt_block(&block, idx, theme, opts);
+                if let serde_json::Value::Object(ref mut map) = json {
+                    map.insert("html".into(), serde_json::Value::String(html));
+                }
+            }
+            result.push(json);
         }
-
-        preview_json_vec
+        result
     } else {
         Vec::new()
     }
@@ -284,7 +293,7 @@ pub fn get_page_preview_values_with_options(notes_dir: &Path, filename: &str, li
 
 /// Get preview blocks serialized as JSON string with document headings populated in Table of Contents blocks.
 pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limit: usize, drop_comments: bool) -> String {
-    let preview_json_vec = get_page_preview_values_with_options(notes_dir, filename, limit, drop_comments);
+    let preview_json_vec = get_page_preview_values_with_options(notes_dir, filename, limit, drop_comments, None, None);
     serde_json::to_string(&preview_json_vec).unwrap_or_else(|_| "[]".to_string())
 }
 

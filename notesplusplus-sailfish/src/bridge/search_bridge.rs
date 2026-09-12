@@ -101,12 +101,19 @@ impl NotesBridge {
             let notes_path = self.notes_path.clone();
             let drop_comments = self.drop_comments;
             let preview_slot = self.search_preview_slot.clone();
+            let qt_theme = self.qt_theme.clone();
+            let notes_path_str = notes_path.to_string_lossy().to_string();
+            let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                notes_dir: Some(notes_path_str),
+                allow_external_images: true,
+                ..Default::default()
+            };
 
             thread::spawn(move || {
                 let mut previews = Vec::new();
                 for filename in &filenames {
                     let preview_values = page::get_page_preview_values_with_options(
-                        &notes_path, filename, 8, drop_comments,
+                        &notes_path, filename, 8, drop_comments, Some(&qt_theme), Some(&qt_options),
                     );
                     let preview_json = serde_json::to_string(&preview_values)
                         .unwrap_or_else(|_| "[]".to_string());

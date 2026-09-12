@@ -458,14 +458,21 @@ impl NotesBridge {
                 eprintln!("[debug] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
 
                 let notes_dir = self.notes_dir();
+                let notes_path = self.notes_path.to_string_lossy().to_string();
                 let drop_comments = self.drop_comments;
                 let pending = self.pending_main_page.clone();
+                let qt_theme = self.qt_theme.clone();
+                let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                    notes_dir: Some(notes_path),
+                    allow_external_images: true,
+                    ..Default::default()
+                };
 
                 std::thread::spawn(move || {
                     let mut page_jsons = Vec::new();
                     for p in &pages {
                         let t_preview = std::time::Instant::now();
-                        let preview_values = page::get_page_preview_values_with_options(&notes_dir, &p.filename, 8, drop_comments);
+                        let preview_values = page::get_page_preview_values_with_options(&notes_dir, &p.filename, 8, drop_comments, Some(&qt_theme), Some(&qt_options));
                         let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
                         eprintln!("[debug]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
 
