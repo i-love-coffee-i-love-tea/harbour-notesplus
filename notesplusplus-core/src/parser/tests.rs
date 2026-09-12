@@ -1,5 +1,5 @@
 use super::*;
-use crate::block::Block;
+use crate::block::{AdmonitionKind, Block};
 use crate::inline::InlineSpan;
 
 #[test]
@@ -222,7 +222,7 @@ use crate::inline::InlineSpan;
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             Block::Admonition { kind, children, .. } => {
-                assert_eq!(kind, "WARNING");
+                assert_eq!(kind, &AdmonitionKind::Warning);
                 assert!(!children.is_empty());
             }
             _ => panic!("expected admonition"),
@@ -236,7 +236,7 @@ use crate::inline::InlineSpan;
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             Block::Admonition { kind, children, .. } => {
-                assert_eq!(kind, "NOTE");
+                assert_eq!(kind, &AdmonitionKind::Note);
                 assert_eq!(children.len(), 1);
                 match &children[0] {
                     Block::Paragraph { spans, .. } => {
@@ -256,7 +256,7 @@ use crate::inline::InlineSpan;
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             Block::Admonition { kind, children, .. } => {
-                assert_eq!(kind, "NOTE");
+                assert_eq!(kind, &AdmonitionKind::Note);
                 assert!(!children.is_empty());
             }
             _ => panic!("expected admonition"),
@@ -391,7 +391,7 @@ use crate::inline::InlineSpan;
         assert_eq!(blocks.len(), 1);
         match &blocks[0] {
             Block::Admonition { kind, children, .. } => {
-                assert_eq!(kind, "NOTE");
+                assert_eq!(kind, &AdmonitionKind::Note);
                 assert!(children.len() >= 3, "expected 3+ children, got {}", children.len());
                 assert_eq!(children[0].block_type(), "paragraph");
                 assert_eq!(children[1].block_type(), "empty_line");

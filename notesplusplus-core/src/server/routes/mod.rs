@@ -95,6 +95,7 @@ pub fn handle_http_client(mut request: tiny_http::Request, ctx: ServerContext) {
         || clean_path == "icon.png"
         || clean_path == "favicon.ico"
         || clean_path.starts_with("assets/")
+        || clean_path.starts_with("composables/")
         || clean_path.starts_with("api/auth/");
 
     if !is_public_path {

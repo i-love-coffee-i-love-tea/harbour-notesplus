@@ -1,4 +1,4 @@
-pub const ADMONITION_KINDS: &[&str] = &["NOTE", "TIP", "WARNING", "CAUTION", "IMPORTANT"];
+pub const ADMONITION_KINDS: &[&str] = &["NOTE", "TIP", "WARNING"];
 
 pub fn is_code_delimiter(t: &str) -> bool {
     let t = t.trim();
@@ -93,4 +93,19 @@ pub fn extract_admonition_kind(attr_line: &str) -> String {
     } else {
         "NOTE".to_string()
     }
+}
+
+/// Returns the canonical delimiter opener if `line` is a block delimiter, or `None`.
+/// Useful for tracking open/close state without a separate check per delimiter type.
+pub fn as_delimiter_opener(line: &str) -> Option<&'static str> {
+    let t = line.trim();
+    if is_code_delimiter(t) { return Some("----"); }
+    if is_literal_delimiter(t) { return Some("...."); }
+    if is_table_delimiter(t) { return Some("|==="); }
+    if is_sidebar_delimiter(t) { return Some("****"); }
+    if is_example_delimiter(t) { return Some("===="); }
+    if is_quote_delimiter(t) { return Some("____"); }
+    if is_open_delimiter(t) { return Some("--"); }
+    if is_comment_delimiter(t) { return Some("////"); }
+    None
 }

@@ -2,6 +2,7 @@ use std::fmt::Write;
 
 use crate::block::Block;
 use crate::inline::InlineSpan;
+use crate::escape::escape_html_text as escape_html;
 
 /// Theme colors injected from QML (Sailfish Theme.* values).
 #[derive(Debug, Clone)]
@@ -57,24 +58,6 @@ impl<'a> QtHtmlCtx<'a> {
             .collect::<Vec<_>>()
             .join(".")
     }
-}
-
-// ── HTML escaping (matches JS escapeHtml: only &, <, >) ──────────────
-
-fn escape_html(text: &str) -> String {
-    if !text.contains('&') && !text.contains('<') && !text.contains('>') {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len() + 16);
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 /// Public wrapper for escape_html, used by bridge for footnotes rendering.
@@ -289,10 +272,9 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             format!("<blockquote style='margin:4px 0;padding-left:8px;border-left:2px solid {};color:{};'>{}</blockquote>", highlight, primary, quote_body)
         }
         Block::Admonition { kind, children, .. } => {
-            let kind_str = if kind.is_empty() { "NOTE" } else { kind.as_str() };
             let inner = render_blocks_slice(&children.iter().collect::<Vec<_>>(), ctx);
             format!("<div style='margin:4px 0;padding:6px;border-left:3px solid {};background:{};'><b>{}:</b> {}</div>",
-                highlight, highlight_bg, escape_html(kind_str), inner)
+                highlight, highlight_bg, escape_html(kind.as_str()), inner)
         }
         Block::Sidebar { title, children, .. } | Block::Example { title, children, .. } | Block::Open { title, children, .. } => {
             let title_html = match title {

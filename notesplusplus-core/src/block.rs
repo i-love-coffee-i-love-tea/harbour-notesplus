@@ -1,6 +1,41 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::inline::InlineSpan;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum AdmonitionKind {
+    Note,
+    Tip,
+    Warning,
+}
+
+impl AdmonitionKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AdmonitionKind::Note => "NOTE",
+            AdmonitionKind::Tip => "TIP",
+            AdmonitionKind::Warning => "WARNING",
+        }
+    }
+}
+
+impl fmt::Display for AdmonitionKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<&str> for AdmonitionKind {
+    fn from(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "TIP" => AdmonitionKind::Tip,
+            "WARNING" => AdmonitionKind::Warning,
+            _ => AdmonitionKind::Note,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TableCell {
@@ -143,7 +178,7 @@ pub enum Block {
     },
     Admonition {
         title: Option<String>,
-        kind: String,
+        kind: AdmonitionKind,
         children: Vec<Block>,
         raw: String,
     },
@@ -340,7 +375,7 @@ impl Block {
             }
             Block::Admonition { title, kind, children, .. } => {
                 insert_title(&mut map, title);
-                map.insert("kind".into(), serde_json::Value::String(kind.clone()));
+                map.insert("kind".into(), serde_json::Value::String(kind.as_str().into()));
                 map.insert("blocks".into(), blocks_to_json(children));
             }
             Block::Open { title, children, .. } => {
@@ -457,7 +492,7 @@ mod tests {
             Block::Verse { title: None, attribution: None, citation: None, lines: vec!["Roses are red".into()], spans: vec![vec![InlineSpan::Text("Roses are red".into())]], raw: "[verse]\nRoses are red".into() },
             Block::Table { title: None, rows: vec![], col_widths: vec![], frame: None, grid: None, raw: "| a |".into() },
             Block::HorizontalRule { raw: "---".into() },
-            Block::Admonition { title: None, kind: "WARNING".into(), children: vec![], raw: "[WARNING]\n====\n====".into() },
+            Block::Admonition { title: None, kind: AdmonitionKind::Warning, children: vec![], raw: "[WARNING]\n====\n====".into() },
             Block::Toc { raw: ":toc:".into() },
             Block::EmptyLine,
         ];
@@ -523,7 +558,7 @@ mod tests {
     fn admonition_with_children() {
         let adm = Block::Admonition {
             title: None,
-            kind: "WARNING".into(),
+            kind: AdmonitionKind::Warning,
             children: vec![
                 Block::Paragraph { spans: vec![InlineSpan::Text("be careful".into())], raw: "be careful".into() },
                 Block::CodeBlock { title: None, language: None, lines: vec!["test".into()], raw: "----\ntest\n----".into() },

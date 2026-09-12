@@ -4,34 +4,35 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
+use crate::CoreError;
 use crate::page::{self, PageInfo};
 use crate::search::{self, SearchResult};
 
 /// Common trait for note storage and index operations.
 pub trait NoteRepository: Send + Sync {
     /// List all pages from the index.
-    fn list_pages(&self) -> Result<Vec<PageInfo>, String>;
+    fn list_pages(&self) -> Result<Vec<PageInfo>, CoreError>;
 
     /// Search indexed pages via full-text search.
-    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, String>;
+    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, CoreError>;
 
     /// Retrieve page metadata by title or filename.
-    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, String>;
+    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError>;
 
     /// Read raw note content from disk.
-    fn read_note_content(&self, filename: &str) -> Result<String, String>;
+    fn read_note_content(&self, filename: &str) -> Result<String, CoreError>;
 
-    /// Save note content atomically and update database metadata and FTS index in $O(1)$ time.
-    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, String>;
+    /// Save note content atomically and update database metadata and FTS index in O(1) time.
+    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, CoreError>;
 
     /// Create a new note page and register it in the index.
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, String>;
+    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, CoreError>;
 
     /// Delete a note page from disk and the SQLite index.
-    fn delete_page(&self, name_or_filename: &str) -> Result<(), String>;
+    fn delete_page(&self, name_or_filename: &str) -> Result<(), CoreError>;
 
     /// Perform a full filesystem reconciliation sync.
-    fn sync_all(&self) -> Result<(), String>;
+    fn sync_all(&self) -> Result<(), CoreError>;
 }
 
 /// Filesystem and SQLite backed NoteRepository.
@@ -58,42 +59,42 @@ impl FsSqliteNoteRepository {
 }
 
 impl NoteRepository for FsSqliteNoteRepository {
-    fn list_pages(&self) -> Result<Vec<PageInfo>, String> {
+    fn list_pages(&self) -> Result<Vec<PageInfo>, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::list_pages(&conn)
     }
 
-    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, String> {
+    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         search::search_pages(&conn, query)
     }
 
-    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, String> {
+    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::get_page(&conn, name_or_filename)
     }
 
-    fn read_note_content(&self, filename: &str) -> Result<String, String> {
+    fn read_note_content(&self, filename: &str) -> Result<String, CoreError> {
         let path = page::safe_note_path(&self.notes_dir, filename);
-        std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", filename, e))
+        std::fs::read_to_string(&path).map_err(|e| CoreError::Msg(format!("Failed to read {}: {}", filename, e)))
     }
 
-    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, String> {
+    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::save_and_index_page(&conn, &self.notes_dir, filename, content)
     }
 
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, String> {
+    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::create_page(&conn, &self.notes_dir, name, is_journal)
     }
 
-    fn delete_page(&self, name_or_filename: &str) -> Result<(), String> {
+    fn delete_page(&self, name_or_filename: &str) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::delete_page(&conn, &self.notes_dir, name_or_filename)
     }
 
-    fn sync_all(&self) -> Result<(), String> {
+    fn sync_all(&self) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::sync_and_index_pages(&conn, &self.notes_dir)
     }

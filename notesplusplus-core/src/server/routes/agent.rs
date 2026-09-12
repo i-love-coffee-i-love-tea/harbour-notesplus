@@ -353,7 +353,10 @@ pub fn handle_read_file<W: Write>(
     } else {
         PathBuf::from(file_path)
     };
-    let notes_subdir = ctx.notes_dir.join("notes");
+    let canonical_notes_subdir = match ctx.notes_subdir.canonicalize() {
+        Ok(c) => c,
+        Err(_) => ctx.notes_subdir.clone(),
+    };
     let canonical = match expanded.canonicalize() {
         Ok(c) => c,
         Err(e) => {
@@ -363,7 +366,7 @@ pub fn handle_read_file<W: Write>(
             return;
         }
     };
-    if !canonical.starts_with(&notes_subdir) {
+    if !canonical.starts_with(&canonical_notes_subdir) {
         let resp = json!({ "ok": false, "error": "Access denied: file is outside the notes directory" });
         send_response(stream, 403, "Forbidden", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         return;

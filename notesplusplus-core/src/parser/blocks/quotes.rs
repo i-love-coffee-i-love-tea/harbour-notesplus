@@ -1,4 +1,4 @@
-use crate::block::Block;
+use crate::block::{AdmonitionKind, Block};
 use crate::inline::parse_inline;
 use crate::parser::attributes::{is_attribute_line, is_doc_attribute};
 use crate::parser::blocks::headings::is_heading;
@@ -73,7 +73,7 @@ pub fn parse_admonition_block(kind: &str, lines: &[&str], title: Option<String>)
     (
         Block::Admonition {
             title,
-            kind: kind.to_string(),
+            kind: AdmonitionKind::from(kind),
             children,
             raw,
         },
@@ -118,7 +118,7 @@ pub fn parse_admonition_paragraph(
     (
         Block::Admonition {
             title,
-            kind: kind.to_string(),
+            kind: AdmonitionKind::from(kind),
             children,
             raw,
         },

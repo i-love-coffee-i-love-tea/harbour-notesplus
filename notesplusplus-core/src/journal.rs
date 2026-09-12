@@ -1,3 +1,4 @@
+use crate::CoreError;
 use std::path::Path;
 
 use chrono::Local;
@@ -129,19 +130,19 @@ pub fn clean_journal_content(content: &str, today: &str) -> String {
 }
 
 /// Initialize the journal for today.
-pub fn init_journal(notes_dir: &Path) -> Result<(), String> {
+pub fn init_journal(notes_dir: &Path) -> Result<(), CoreError> {
     let path = notes_dir.join(JOURNAL_FILENAME);
     let today = Local::now().format("%Y-%m-%d").to_string();
 
     let content = if path.exists() {
-        std::fs::read_to_string(&path).map_err(|e| e.to_string())?
+        std::fs::read_to_string(&path)?
     } else {
         String::new()
     };
 
     let cleaned = clean_journal_content(&content, &today);
     if cleaned != content {
-        std::fs::write(&path, cleaned).map_err(|e| e.to_string())?;
+        std::fs::write(&path, cleaned)?;
     }
     Ok(())
 }
@@ -193,13 +194,13 @@ pub fn remove_empty_day_headings(blocks: &mut Vec<Block>, today: &str) {
 }
 
 /// Get the last N non-empty lines from the journal for preview.
-pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String>, String> {
+pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String>, CoreError> {
     let path = notes_dir.join(JOURNAL_FILENAME);
     if !path.exists() {
         return Ok(Vec::new());
     }
 
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(&path)?;
     let lines: Vec<String> = content.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.to_string())
@@ -210,10 +211,10 @@ pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String
 }
 
 /// Append a line (task or note) directly under today's date heading in journal.adoc.
-pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), String> {
+pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), CoreError> {
     init_journal(notes_dir)?;
     let path = notes_dir.join(JOURNAL_FILENAME);
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let content = std::fs::read_to_string(&path)?;
     let today = Local::now().format("%Y-%m-%d").to_string();
 
     let lines: Vec<&str> = content.lines().collect();
@@ -259,7 +260,7 @@ pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), Strin
     if !new_content.ends_with('\n') {
         new_content.push('\n');
     }
-    std::fs::write(&path, new_content).map_err(|e| e.to_string())?;
+    std::fs::write(&path, new_content)?;
     Ok(())
 }
 

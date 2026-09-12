@@ -606,7 +606,6 @@ pub fn toggle_checkbox(
 
     while i < lines.len() {
         let line = &lines[i];
-        let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
 
         // Empty line
         if line.trim().is_empty() {
@@ -632,18 +631,25 @@ pub fn toggle_checkbox(
         }
 
         // Non-list block types (headings, tables, quotes, code, admonitions, etc.)
-        if let Some(consumed) = consume_non_list_block(&lines, &line_strs, i) {
-            if current_block_idx == target_block_idx {
-                return None;
+        {
+            let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+            if let Some(consumed) = consume_non_list_block(&lines, &line_strs, i) {
+                if current_block_idx == target_block_idx {
+                    return None;
+                }
+                current_block_idx += 1;
+                i += consumed;
+                continue;
             }
-            current_block_idx += 1;
-            i += consumed;
-            continue;
         }
 
         // Ordered list
         if parse_ordered_list_item(line).is_some() {
-            let (_, consumed) = parse_list_item_children("", &line_strs[i + 1..]);
+            let consumed = {
+                let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+                let (_, c) = parse_list_item_children("", &line_strs[i + 1..]);
+                c
+            };
             if current_block_idx == target_block_idx {
                 if sub_path.is_empty() {
                     return None;
@@ -664,8 +670,11 @@ pub fn toggle_checkbox(
         // Unordered list
         if let Some((_, _, rest)) = parse_unordered_list_item(line) {
             let (checked, item_text) = parse_checkbox(rest);
-            let (_, consumed) =
-                parse_list_item_children(item_text.trim(), &line_strs[i + 1..]);
+            let consumed = {
+                let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+                let (_, c) = parse_list_item_children(item_text.trim(), &line_strs[i + 1..]);
+                c
+            };
             if current_block_idx == target_block_idx {
                 if sub_path.is_empty() {
                     if checked.is_some() {
@@ -694,27 +703,34 @@ pub fn toggle_checkbox(
         }
 
         // Callout list item
-        if let Some((_, consumed)) = parse_callout_list_item(line, &line_strs[i + 1..]) {
-            if current_block_idx == target_block_idx {
-                return None;
+        {
+            let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+            if let Some((_, consumed)) = parse_callout_list_item(line, &line_strs[i + 1..]) {
+                if current_block_idx == target_block_idx {
+                    return None;
+                }
+                current_block_idx += 1;
+                i += consumed;
+                continue;
             }
-            current_block_idx += 1;
-            i += consumed;
-            continue;
         }
 
         // Description list item
-        if let Some((_, consumed)) = parse_description_list_item(line, &line_strs[i + 1..]) {
-            if current_block_idx == target_block_idx {
-                return None;
+        {
+            let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+            if let Some((_, consumed)) = parse_description_list_item(line, &line_strs[i + 1..]) {
+                if current_block_idx == target_block_idx {
+                    return None;
+                }
+                current_block_idx += 1;
+                i += consumed;
+                continue;
             }
-            current_block_idx += 1;
-            i += consumed;
-            continue;
         }
 
         // Paragraph
         let mut consumed_p = 0;
+        let line_strs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
         while consumed_p < line_strs[i..].len() {
             let pline = line_strs[i + consumed_p];
             if pline.trim().is_empty() {

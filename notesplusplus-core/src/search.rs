@@ -1,3 +1,4 @@
+use crate::CoreError;
 use rusqlite::Connection;
 
 use crate::page::PageInfo;
@@ -9,7 +10,7 @@ pub struct SearchResult {
 }
 
 /// Search pages via FTS5 with query sanitization and fallback. Returns matching pages with snippets.
-pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, String> {
+pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, CoreError> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -82,7 +83,7 @@ fn escape_like_pattern(s: &str) -> String {
     s.replace('%', "\\%").replace('_', "\\_")
 }
 
-fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, String> {
+fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, CoreError> {
     let escaped = escape_like_pattern(query);
     let pattern = format!("%{}%", escaped);
     let mut stmt = conn.prepare(
@@ -91,7 +92,7 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
          WHERE title LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\'
          ORDER BY updated_at DESC
          LIMIT 50"
-    ).map_err(|e| e.to_string())?;
+    )?;
 
     let results = stmt.query_map(rusqlite::params![pattern], |row| {
         let title: String = row.get(2)?;
@@ -99,9 +100,9 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
             page: PageInfo::from_row(row)?,
             snippet: title,
         })
-    }).map_err(|e| e.to_string())?
+    })?
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| e.to_string())?;
+    ?;
 
     Ok(results)
 }

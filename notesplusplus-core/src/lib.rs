@@ -1,6 +1,7 @@
 pub mod block;
 pub mod constants;
 pub mod db;
+pub mod error;
 pub mod inline;
 pub mod journal;
 pub mod page;
@@ -12,7 +13,9 @@ pub mod search;
 pub mod server;
 pub mod agent;
 pub mod stt;
+pub mod escape;
 
 pub use constants::*;
+pub use error::CoreError;
 pub use paths::AppPaths;
 pub use stt::*;

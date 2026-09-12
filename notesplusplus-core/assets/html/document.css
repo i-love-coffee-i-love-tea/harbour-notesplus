@@ -18,10 +18,6 @@
     --tip-border: #f0ad4e;
     --warning-bg: #fee2e2;
     --warning-border: #d9534f;
-    --caution-bg: #fff1f2;
-    --caution-border: #e11d48;
-    --important-bg: #faf5ff;
-    --important-border: #9333ea;
     --shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
@@ -46,10 +42,6 @@
         --tip-border: #f0ad4e;
         --warning-bg: #7d3434;
         --warning-border: #d9534f;
-        --caution-bg: #7d324b;
-        --caution-border: #fb7185;
-        --important-bg: #5f327d;
-        --important-border: #c084fc;
         --shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     }
 }
@@ -278,8 +270,6 @@ blockquote {
 .admonitionblock.note { background-color: var(--note-bg); border-color: var(--note-border); color: var(--text-color); }
 .admonitionblock.tip { background-color: var(--tip-bg); border-color: var(--tip-border); color: var(--text-color); }
 .admonitionblock.warning { background-color: var(--warning-bg); border-color: var(--warning-border); color: var(--text-color); }
-.admonitionblock.caution { background-color: var(--caution-bg); border-color: var(--caution-border); color: var(--text-color); }
-.admonitionblock.important { background-color: var(--important-bg); border-color: var(--important-border); color: var(--text-color); }
 
 .admonition-header {
     display: flex;

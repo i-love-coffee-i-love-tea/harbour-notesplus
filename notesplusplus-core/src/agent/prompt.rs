@@ -21,7 +21,7 @@ Your job is to assist the user in drafting, editing, organizing, and analyzing n
      * Italic: `_text_` (do NOT use `__`)\n\
      * Monospace / Code: `+text+` or `` `text` ``\n\
      * Strikethrough: `[line-through]#text#`\n\
-   - Admonitions: Use `NOTE: text`, `TIP: text`, `IMPORTANT: text`, `WARNING: text`, `CAUTION: text` or block syntax:\n\
+   - Admonitions: Use `NOTE: text`, `TIP: text`, or `WARNING: text` or block syntax:\n\
      [TIP]\n\
      ====\n\
      Multi-line tip content\n\
@@ -156,12 +156,12 @@ pub fn build_template_instruction_ex(
         "beautify" => {
             if let (false, Some(fname)) = (has_input, active_filename) {
                 format!(
-                    "Please beautify the active note '{}' by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate. Call the `edit_note` tool with the complete beautified AsciiDoc content and filename.\n\nNote Content:\n{}",
+                    "Please beautify the active note '{}' by adding visual structure, helpful admonition blocks (NOTE, TIP, WARNING), clean tables, and suitable emoji accents where appropriate. Call the `edit_note` tool with the complete beautified AsciiDoc content and filename.\n\nNote Content:\n{}",
                     fname, base_content
                 )
             } else {
                 format!(
-                    "Please beautify the following AsciiDoc content by adding visual structure, helpful admonition blocks (TIP, NOTE, IMPORTANT), clean tables, and suitable emoji accents where appropriate:\n\n{}",
+                    "Please beautify the following AsciiDoc content by adding visual structure, helpful admonition blocks (NOTE, TIP, WARNING), clean tables, and suitable emoji accents where appropriate:\n\n{}",
                     base_content
                 )
             }
@@ -232,7 +232,7 @@ pub fn build_import_instruction(
         - Start with a Level 0/1 document title: `= Title`\n\
         - Use `== Section`, `=== Subsection` for headings (never `#` or `##`)\n\
         - Use `* [ ]` for unchecked task items and `* [x]` for checked items\n\
-        - Use `|===` for tables, `[source,lang]----` for code blocks, and `NOTE:`, `TIP:`, etc. for admonitions\n\
+        - Use `|===` for tables, `[source,lang]----` for code blocks, and `NOTE:`, `TIP:`, `WARNING:` for admonitions\n\
         - Call the `create_note` tool with the chosen title and the complete converted AsciiDoc content.\n\
         - Conclude with a brief, friendly summary of what was imported.\n\n\
         === Source Text ===\n\

@@ -9,6 +9,7 @@ use notesplusplus_core::inline::InlineSpan;
 use notesplusplus_core::page;
 
 mod pages;
+mod server_bridge;
 mod journal_bridge;
 mod search_bridge;
 pub mod agent_bridge;

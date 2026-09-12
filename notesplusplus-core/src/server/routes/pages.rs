@@ -22,101 +22,48 @@ pub fn list_all_notes_json(notes_dir: &Path, search_query: Option<&str>) -> Stri
 }
 
 pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, search_query: Option<&str>) -> String {
-    if let Some(db_p) = db_path {
-        if let Ok(conn) = crate::db::open_db(db_p) {
-            let q_trimmed = search_query.unwrap_or("").trim();
-            if !q_trimmed.is_empty() {
-                if let Ok(results) = crate::search::search_pages(&conn, q_trimmed) {
-                    let json_items: Vec<serde_json::Value> = results
-                        .into_iter()
-                        .map(|r| {
-                            json!({
-                                "title": r.page.title,
-                                "filename": r.page.filename,
-                                "snippet": r.snippet
-                            })
-                        })
-                        .collect();
-                    return serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
-                }
-            } else if let Ok(pages) = page::list_pages(&conn) {
-                let json_items: Vec<serde_json::Value> = pages
+    let conn = if let Some(db_p) = db_path {
+        crate::db::open_db(db_p).ok()
+    } else {
+        rusqlite::Connection::open_in_memory().ok().and_then(|c| {
+            let _ = crate::db::init_schema(&c);
+            let _ = page::sync_and_index_pages(&c, notes_dir);
+            Some(c)
+        })
+    };
+
+    if let Some(conn) = conn {
+        let q_trimmed = search_query.unwrap_or("").trim();
+        if !q_trimmed.is_empty() {
+            if let Ok(results) = crate::search::search_pages(&conn, q_trimmed) {
+                let json_items: Vec<serde_json::Value> = results
                     .into_iter()
-                    .map(|p| {
+                    .map(|r| {
                         json!({
-                            "title": p.title,
-                            "filename": p.filename,
-                            "snippet": ""
+                            "title": r.page.title,
+                            "filename": r.page.filename,
+                            "snippet": r.snippet
                         })
                     })
                     .collect();
                 return serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
             }
+        } else if let Ok(pages) = page::list_pages(&conn) {
+            let json_items: Vec<serde_json::Value> = pages
+                .into_iter()
+                .map(|p| {
+                    json!({
+                        "title": p.title,
+                        "filename": p.filename,
+                        "snippet": ""
+                    })
+                })
+                .collect();
+            return serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
         }
     }
 
-    let mut notes = Vec::new();
-    if let Ok(entries) = fs::read_dir(notes_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("adoc") {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    let mut title = name.strip_suffix(".adoc").unwrap_or(name).to_string();
-                    let mut snippet = String::new();
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        for line in content.lines() {
-                            let trimmed = line.trim();
-                            if trimmed.starts_with("= ") {
-                                title = trimmed.trim_start_matches("= ").trim().to_string();
-                            } else if snippet.is_empty() && !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with(':') {
-                                snippet = trimmed.chars().take(120).collect();
-                            }
-                        }
-                    }
-                    notes.push((title, name.to_string(), snippet));
-                }
-            }
-        }
-    }
-
-    notes.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-
-    if let Some(q) = search_query {
-        let q_lower = q.to_lowercase();
-        notes.retain(|(title, name, snippet)| {
-            title.to_lowercase().contains(&q_lower)
-                || name.to_lowercase().contains(&q_lower)
-                || snippet.to_lowercase().contains(&q_lower)
-        });
-    }
-
-    let json_items: Vec<serde_json::Value> = notes
-        .into_iter()
-        .map(|(title, filename, snippet)| {
-            json!({
-                "title": title,
-                "filename": filename,
-                "snippet": snippet
-            })
-        })
-        .collect();
-
-    serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string())
-}
-
-pub fn make_slug_filename(title: &str) -> String {
-    let slug: String = title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect();
-    let trimmed = slug.trim_matches('-');
-    let final_slug = if trimmed.is_empty() { "untitled" } else { trimmed };
-    format!("{}.adoc", final_slug)
-}
-
-pub fn extract_title_from_adoc(content: &str, fallback_filename: &str) -> String {
-    page::extract_doc_title(content, fallback_filename)
+    "[]".to_string()
 }
 
 pub fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filename: &str) -> String {
@@ -158,7 +105,7 @@ pub fn handle_pages_api<W: Write>(
                 send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
             }
             Err(e) => {
-                send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
+                send_json_error(stream, 500, "Internal Server Error", &e.to_string(), cors_origin);
             }
         },
         "POST" => {
@@ -176,7 +123,7 @@ pub fn handle_pages_api<W: Write>(
                     send_response(stream, 201, "Created", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
                 }
                 Err(e) => {
-                    send_json_error(stream, 400, "Bad Request", &e, cors_origin);
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
                 }
             }
         }
@@ -203,7 +150,7 @@ pub fn handle_page_detail_api<W: Write>(
 
             match fs::read_to_string(&file_path) {
                 Ok(content) => {
-                    let title = extract_title_from_adoc(&content, &filename);
+                    let title = page::extract_doc_title(&content, &filename);
                     let blocks = parser::parse_blocks(&content);
                     let body_html = blocks_to_html_body(&blocks, Some(&ctx.notes_dir));
                     let resp = json!({
@@ -281,7 +228,7 @@ pub fn handle_page_detail_api<W: Write>(
                     send_json_ok(stream, &resp, cors_origin);
                 }
                 Err(e) => {
-                    send_json_error(stream, 400, "Bad Request", &e, cors_origin);
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
                 }
             }
         }
@@ -318,7 +265,7 @@ pub fn handle_search_api<W: Write>(
             send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
         }
         Err(e) => {
-            send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
+            send_json_error(stream, 500, "Internal Server Error", &e.to_string(), cors_origin);
         }
     }
 }
@@ -336,7 +283,29 @@ pub fn handle_notes_api<W: Write>(
                 let q_param = req.query.as_deref().and_then(|q| {
                     q.split('&').find_map(|p| p.strip_prefix("q="))
                 });
-                let json_str = list_all_notes_json_with_db(&ctx.notes_subdir, Some(&ctx.db_path), q_param);
+                let q_trimmed = q_param.unwrap_or("").trim();
+                let json_items: Vec<serde_json::Value> = if !q_trimmed.is_empty() {
+                    ctx.repository.search_pages(q_trimmed).map(|results| {
+                        results.into_iter().map(|r| {
+                            json!({
+                                "title": r.page.title,
+                                "filename": r.page.filename,
+                                "snippet": r.snippet
+                            })
+                        }).collect()
+                    }).unwrap_or_default()
+                } else {
+                    ctx.repository.list_pages().map(|pages| {
+                        pages.into_iter().map(|p| {
+                            json!({
+                                "title": p.title,
+                                "filename": p.filename,
+                                "snippet": ""
+                            })
+                        }).collect()
+                    }).unwrap_or_default()
+                };
+                let json_str = serde_json::to_string(&json_items).unwrap_or_else(|_| "[]".to_string());
                 send_response(stream, 200, "OK", MIME_JSON, json_str.as_bytes(), cors_origin);
                 return;
             }
@@ -345,7 +314,7 @@ pub fn handle_notes_api<W: Write>(
                 let title = json_val.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Note");
                 let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
-                let filename = make_slug_filename(title);
+                let filename = sanitize_note_filename(title);
 
                 let initial_content = if content.is_empty() {
                     format!("= {}\n\n", title)

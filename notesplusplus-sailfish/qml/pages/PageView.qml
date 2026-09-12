@@ -139,7 +139,7 @@ Page {
         anchors.fill: parent
         clip: true
         cacheBuffer: 3500
-        model: bridge.blocks_version >= 0 ? bridge.current_blocks : []
+        model: pageView.parsedBlocks
 
         PullDownMenu {
             MenuItem {
@@ -319,7 +319,7 @@ Page {
 
         delegate: BlockDelegate {
             width: listView.width
-            blockData: modelData ? JSON.parse(modelData) : ({})
+            blockData: modelData || ({})
             blockIndex: index
             searchTerm: pageView.findInPageTerm || pageView.searchTerm
             editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""

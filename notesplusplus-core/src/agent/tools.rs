@@ -295,33 +295,33 @@ pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), St
     Ok((host.to_string(), port, scheme.to_string()))
 }
 
-/// Parses alternative direct IP representations (standard, hex, decimal, octal, dotted).
+/// Parses alternative direct IP representations (standard, hex 0x, decimal, octal 0o, dotted).
 pub fn parse_direct_ip(host: &str) -> Option<IpAddr> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Some(ip);
     }
-    if host.starts_with("0x") || host.starts_with("0X") {
-        if let Ok(num) = u32::from_str_radix(&host[2..], 16) {
+    if let Some(hex) = host.strip_prefix("0x") {
+        if let Ok(num) = u32::from_str_radix(hex, 16) {
+            return Some(IpAddr::V4(Ipv4Addr::from(num)));
+        }
+    }
+    if let Some(oct) = host.strip_prefix("0o") {
+        if let Ok(num) = u32::from_str_radix(oct, 8) {
             return Some(IpAddr::V4(Ipv4Addr::from(num)));
         }
     }
     if let Ok(num) = host.parse::<u32>() {
         return Some(IpAddr::V4(Ipv4Addr::from(num)));
     }
-    if host.starts_with('0') && host.len() > 1 && host.chars().all(|c| c.is_digit(8)) {
-        if let Ok(num) = u32::from_str_radix(host, 8) {
-            return Some(IpAddr::V4(Ipv4Addr::from(num)));
-        }
-    }
     let parts: Vec<&str> = host.split('.').collect();
     if parts.len() == 4 {
         let mut octets = [0u8; 4];
         let mut valid = true;
         for (i, part) in parts.iter().enumerate() {
-            let val = if part.starts_with("0x") || part.starts_with("0X") {
-                u32::from_str_radix(&part[2..], 16).ok()
-            } else if part.starts_with('0') && part.len() > 1 && part.chars().all(|c| c.is_digit(8)) {
-                u32::from_str_radix(part, 8).ok()
+            let val = if let Some(hex) = part.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16).ok()
+            } else if let Some(oct) = part.strip_prefix("0o") {
+                u32::from_str_radix(oct, 8).ok()
             } else {
                 part.parse::<u32>().ok()
             };
@@ -344,11 +344,12 @@ pub fn parse_direct_ip(host: &str) -> Option<IpAddr> {
     None
 }
 
-/// Returns true if the URL targets a blocked (localhost/private/internal) host or IP.
-pub fn is_blocked_host(url: &str) -> bool {
+/// Returns true only if the URL resolves to a verified public (non-private) host.
+/// Default-deny: parse failures, DNS failures, and any resolved private/loopback IP block the request.
+pub fn is_allowed_host(url: &str) -> bool {
     let (host, port, _) = match parse_target_host_port(url) {
         Ok(res) => res,
-        Err(_) => return true,
+        Err(_) => return false,
     };
 
     let lower_host = host.to_lowercase();
@@ -360,23 +361,32 @@ pub fn is_blocked_host(url: &str) -> bool {
         || lower_host.ends_with(".internal")
         || lower_host.ends_with(".lan")
     {
-        return true;
+        return false;
     }
 
     if let Some(ip) = parse_direct_ip(&host) {
-        return is_blocked_ip(&ip);
+        return !is_blocked_ip(&ip);
     }
 
     let socket_addr_str = format!("{}:{}", host, port);
-    if let Ok(addrs) = socket_addr_str.to_socket_addrs() {
-        for addr in addrs {
-            if is_blocked_ip(&addr.ip()) {
-                return true;
+    match socket_addr_str.to_socket_addrs() {
+        Ok(addrs) => {
+            let mut found_any = false;
+            for addr in addrs {
+                found_any = true;
+                if is_blocked_ip(&addr.ip()) {
+                    return false;
+                }
             }
+            // DNS resolved but returned no addresses — deny
+            if !found_any {
+                return false;
+            }
+            true
         }
+        // DNS resolution failed — deny
+        Err(_) => false,
     }
-
-    false
 }
 
 /// Helper to download web text from an HTTP/HTTPS URL with SSRF mitigation and secure redirect re-checking.
@@ -400,9 +410,9 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
     let mut redirects_followed = 0;
 
     let resp = loop {
-        if is_blocked_host(&current_url) {
+        if !is_allowed_host(&current_url) {
             return Err(format!(
-                "URL '{}' blocked: fetching localhost/private addresses is not allowed",
+                "URL '{}' blocked: only verified public hosts are allowed",
                 current_url
             ));
         }
@@ -512,50 +522,56 @@ mod tests {
 
     #[test]
     fn blocked_host_localhost() {
-        assert!(is_blocked_host("http://localhost:8080/api"));
-        assert!(is_blocked_host("http://sub.localhost/api"));
-        assert!(is_blocked_host("http://localtest.me/api"));
+        assert!(!is_allowed_host("http://localhost:8080/api"));
+        assert!(!is_allowed_host("http://sub.localhost/api"));
+        assert!(!is_allowed_host("http://localtest.me/api"));
     }
 
     #[test]
     fn blocked_host_private_10() {
-        assert!(is_blocked_host("http://10.0.0.1/internal"));
+        assert!(!is_allowed_host("http://10.0.0.1/internal"));
     }
 
     #[test]
     fn blocked_host_private_192() {
-        assert!(is_blocked_host("http://192.168.1.100/data"));
+        assert!(!is_allowed_host("http://192.168.1.100/data"));
     }
 
     #[test]
     fn blocked_host_private_172() {
-        assert!(is_blocked_host("http://172.16.0.1/data"));
-        assert!(is_blocked_host("http://172.31.255.254/data"));
+        assert!(!is_allowed_host("http://172.16.0.1/data"));
+        assert!(!is_allowed_host("http://172.31.255.254/data"));
     }
 
     #[test]
     fn blocked_host_link_local() {
-        assert!(is_blocked_host("http://169.254.169.254/metadata"));
+        assert!(!is_allowed_host("http://169.254.169.254/metadata"));
     }
 
     #[test]
     fn blocked_host_alternative_encodings() {
         // Decimal encoding for 127.0.0.1 (2130706433)
-        assert!(is_blocked_host("http://2130706433/"));
+        assert!(!is_allowed_host("http://2130706433/"));
         // Hex encoding for 127.0.0.1 (0x7f000001)
-        assert!(is_blocked_host("http://0x7f000001/"));
+        assert!(!is_allowed_host("http://0x7f000001/"));
     }
 
     #[test]
     fn blocked_host_ipv6_loopback_and_ula() {
-        assert!(is_blocked_host("http://[::1]:3000/"));
-        assert!(is_blocked_host("http://[fd00::1]:80/"));
+        assert!(!is_allowed_host("http://[::1]:3000/"));
+        assert!(!is_allowed_host("http://[fd00::1]:80/"));
     }
 
     #[test]
     fn allowed_public_host_no_false_positive_on_substrings() {
-        // URLs with substring '10.' or '172.16.' or '192.168.' in domain name should NOT be blocked by string match
-        assert!(!is_blocked_ip(&"93.184.216.34".parse().unwrap())); // example.com
-        assert!(!is_blocked_ip(&"8.8.8.8".parse().unwrap())); // dns.google
+        assert!(!is_blocked_ip(&"93.184.216.34".parse().unwrap()));
+        assert!(!is_blocked_ip(&"8.8.8.8".parse().unwrap()));
+    }
+
+    #[test]
+    fn default_deny_malformed_url() {
+        assert!(!is_allowed_host(""));
+        assert!(!is_allowed_host("not a url"));
+        assert!(!is_allowed_host("ftp://10.0.0.1/file"));
     }
 }

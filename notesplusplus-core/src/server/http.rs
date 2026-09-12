@@ -443,10 +443,8 @@ pub fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&result).into_owned()
 }
 
-pub fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
+/// Escapes all HTML-sensitive characters including quotes (for use in attributes).
+pub use crate::escape::escape_html;
+
+/// Escapes only &, <, > (for text content where quote escaping is unnecessary).
+pub use crate::escape::escape_html_text;

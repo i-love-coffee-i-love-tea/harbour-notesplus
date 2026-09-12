@@ -49,10 +49,6 @@
     --tip-bg: #7d692d;
     --tip-border: #f0ad4e;
     --warning-border: #d9534f;
-    --caution-bg: #7d324b;
-    --caution-border: #fb7185;
-    --important-bg: #5f327d;
-    --important-border: #c084fc;
   }
 }
 
@@ -1570,8 +1566,6 @@ button:disabled {
 .admonitionblock.note { background-color: var(--note-bg, #e0f2fe); border-color: var(--note-border, #0284c7); }
 .admonitionblock.tip { background-color: var(--tip-bg, #fefce8); border-color: var(--tip-border, #f0ad4e); }
 .admonitionblock.warning { background-color: var(--warning-bg, #fee2e2); border-color: var(--warning-border, #d9534f); }
-.admonitionblock.caution { background-color: var(--caution-bg, #fff1f2); border-color: var(--caution-border, #e11d48); }
-.admonitionblock.important { background-color: var(--important-bg, #faf5ff); border-color: var(--important-border, #9333ea); }
 .admonition-header { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 8px; color: var(--text-main); }
 .admonition-icon { display: flex; align-items: center; color: var(--text-main); }
 .admonition-icon-svg { display: inline-block; vertical-align: middle; color: var(--text-main); }

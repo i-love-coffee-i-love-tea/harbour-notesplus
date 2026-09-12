@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use crate::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
+use crate::CoreError;
 use crate::db;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -46,7 +47,7 @@ impl PageInfo {
 }
 
 /// Create a new page: write .adoc file + insert into SQLite.
-pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: bool) -> Result<PageInfo, String> {
+pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: bool) -> Result<PageInfo, CoreError> {
     let filename = if is_journal {
         JOURNAL_FILENAME.to_string()
     } else {
@@ -55,17 +56,17 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
 
     let path = notes_dir.join(&filename);
     if path.exists() && !is_journal {
-        return Err(format!("Page '{}' already exists", name));
+        return Err(CoreError::Msg(format!("Page '{}' already exists", name)));
     }
 
     // Write initial content
     if !is_journal {
         let content = format!("= {}\n", name);
-        atomic_write(&path, content).map_err(|e| e.to_string())?;
+        atomic_write(&path, content)?;
     } else {
         // Journal starts empty; journal.rs handles content
         if !path.exists() {
-            atomic_write(&path, "").map_err(|e| e.to_string())?;
+            atomic_write(&path, "")?;
         }
     }
 
@@ -75,7 +76,7 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
          VALUES (?1, ?2, ?3, ?4, ?4, 0)",
         rusqlite::params![filename, name, is_journal as i32, now],
     )
-    .map_err(|e| e.to_string())?;
+    ?;
 
     let id = conn.last_insert_rowid();
 
@@ -101,12 +102,12 @@ pub fn save_and_index_page(
     notes_dir: &Path,
     name_or_filename: &str,
     content: &str,
-) -> Result<PageInfo, String> {
+) -> Result<PageInfo, CoreError> {
     let filename = sanitize_note_filename(name_or_filename);
     let path = safe_note_path(notes_dir, &filename);
 
     // Write content atomically to disk
-    atomic_write(&path, content).map_err(|e| e.to_string())?;
+    atomic_write(&path, content)?;
 
     let is_journal = filename == JOURNAL_FILENAME;
     let title = if is_journal {
@@ -130,7 +131,7 @@ pub fn save_and_index_page(
             "UPDATE pages SET title = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![title, now, id],
         )
-        .map_err(|e| e.to_string())?;
+        ?;
         id
     } else {
         conn.execute(
@@ -138,7 +139,7 @@ pub fn save_and_index_page(
              VALUES (?1, ?2, ?3, ?4, ?4, 0)",
             rusqlite::params![filename, title, is_journal as i32, now],
         )
-        .map_err(|e| e.to_string())?;
+        ?;
         conn.last_insert_rowid()
     };
 
@@ -181,22 +182,8 @@ fn slice_preview_content(content: &str, limit: usize) -> &str {
             continue;
         }
 
-        if crate::parser::is_code_delimiter(trimmed) {
-            in_delim = if in_delim == Some("----") { None } else { Some("----") };
-        } else if crate::parser::is_literal_delimiter(trimmed) {
-            in_delim = if in_delim == Some("....") { None } else { Some("....") };
-        } else if crate::parser::is_table_delimiter(trimmed) {
-            in_delim = if in_delim == Some("|===") { None } else { Some("|===") };
-        } else if crate::parser::is_sidebar_delimiter(trimmed) {
-            in_delim = if in_delim == Some("****") { None } else { Some("****") };
-        } else if crate::parser::is_example_delimiter(trimmed) {
-            in_delim = if in_delim == Some("====") { None } else { Some("====") };
-        } else if crate::parser::is_quote_delimiter(trimmed) {
-            in_delim = if in_delim == Some("____") { None } else { Some("____") };
-        } else if crate::parser::is_open_delimiter(trimmed) {
-            in_delim = if in_delim == Some("--") { None } else { Some("--") };
-        } else if crate::parser::is_comment_delimiter(trimmed) {
-            in_delim = if in_delim == Some("////") { None } else { Some("////") };
+        if let Some(opener) = crate::parser::as_delimiter_opener(trimmed) {
+            in_delim = if in_delim == Some(opener) { None } else { Some(opener) };
         }
 
         structural_lines += 1;
@@ -302,13 +289,13 @@ pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limi
 }
 
 /// Read the raw AsciiDoc content of a page.
-pub fn read_page(notes_dir: &Path, filename: &str) -> Result<String, String> {
+pub fn read_page(notes_dir: &Path, filename: &str) -> Result<String, CoreError> {
     let path = notes_dir.join(filename);
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", filename, e))
+    std::fs::read_to_string(&path).map_err(|e| CoreError::Msg(format!("Failed to read {}: {}", filename, e)))
 }
 
 /// Delete a page: remove file + delete from SQLite and FTS.
-pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) -> Result<(), String> {
+pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) -> Result<(), CoreError> {
     let page_info = get_page(conn, name_or_filename)?;
 
     if let Some(info) = page_info {
@@ -318,7 +305,7 @@ pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) 
             let _ = std::fs::remove_file(&path);
         }
         conn.execute("DELETE FROM pages WHERE id = ?1", rusqlite::params![info.id])
-            .map_err(|e| e.to_string())?;
+            ?;
     } else {
         let direct_path = notes_dir.join(name_or_filename);
         if direct_path.exists() {
@@ -338,53 +325,53 @@ pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) 
             "DELETE FROM pages WHERE filename = ?1 OR filename = ?2 OR title = ?3",
             rusqlite::params![name_or_filename, adoc_name, name_or_filename],
         )
-        .map_err(|e| e.to_string())?;
+        ?;
     }
     Ok(())
 }
 
 /// List all pages sorted by updated_at descending.
-pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, String> {
+pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, CoreError> {
     let mut stmt = conn
         .prepare("SELECT id, filename, title, is_journal, created_at, updated_at, block_count FROM pages ORDER BY updated_at DESC")
-        .map_err(|e| e.to_string())?;
+        ?;
 
     let pages = stmt
         .query_map([], |row| PageInfo::from_row(row))
-        .map_err(|e| e.to_string())?
+        ?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        ?;
 
     Ok(pages)
 }
 
 /// Get the N most recently updated non-journal pages.
-pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, String> {
+pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, CoreError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, filename, title, is_journal, created_at, updated_at, block_count
              FROM pages WHERE is_journal = 0 ORDER BY updated_at DESC LIMIT ?1",
         )
-        .map_err(|e| e.to_string())?;
+        ?;
 
     let pages = stmt
         .query_map([limit as i64], |row| PageInfo::from_row(row))
-        .map_err(|e| e.to_string())?
+        ?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
+        ?;
 
     Ok(pages)
 }
 
 /// Get a page by filename or title.
-pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, String> {
+pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, filename, title, is_journal, created_at, updated_at, block_count
              FROM pages
              WHERE filename = ?1 OR title = ?1 OR filename = ?2 OR filename = ?3 OR title = ?4",
         )
-        .map_err(|e| e.to_string())?;
+        ?;
 
     let adoc_filename = ensure_adoc_extension(name_or_filename);
     let sanitized_adoc = format!("{}.adoc", sanitize_filename(name_or_filename));
@@ -400,18 +387,18 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
             ],
             |row| PageInfo::from_row(row),
         )
-        .map_err(|e| e.to_string())?;
+        ?;
 
     match rows.next() {
         Some(Ok(page)) => Ok(Some(page)),
-        Some(Err(e)) => Err(e.to_string()),
+        Some(Err(e)) => Err(e.into()),
         None => Ok(None),
     }
 }
 
 /// Copy example .adoc files to the notes directory on first run
 /// and register them in the database.
-pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -> Result<(), String> {
+pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -> Result<(), CoreError> {
     if !examples_dir.exists() {
         return Ok(());
     }
@@ -419,9 +406,9 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path) -
     Ok(())
 }
 
-fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Path, current_dest_dir: &Path) -> Result<(), String> {
-    for entry in std::fs::read_dir(current_src_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
+fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Path, current_dest_dir: &Path) -> Result<(), CoreError> {
+    for entry in std::fs::read_dir(current_src_dir)? {
+        let entry = entry?;
         let path = entry.path();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
         if path.is_file() {
@@ -429,14 +416,14 @@ fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Pat
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext == "adoc" {
                 if !dest.exists() {
-                    std::fs::copy(&path, &dest).map_err(|e| e.to_string())?;
+                    std::fs::copy(&path, &dest)?;
                     let title = filename.trim_end_matches(".adoc").replace('_', " ");
                     let now = chrono::Utc::now().to_rfc3339();
                     conn.execute(
                         "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
                          VALUES (?1, ?2, 0, ?3, ?3, 0)",
                         rusqlite::params![filename, title, now],
-                    ).map_err(|e| e.to_string())?;
+                    )?;
                     if let Ok(page_id) = conn.query_row(
                         "SELECT id FROM pages WHERE filename = ?1",
                         rusqlite::params![filename],
@@ -469,7 +456,7 @@ fn copy_dir_recursive(conn: &Connection, notes_dir: &Path, current_src_dir: &Pat
 
 /// Scan notes directory for .adoc files, insert any missing into DB and index into FTS.
 /// Skips re-reading and re-indexing files that have not changed since last recorded update.
-pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), String> {
+pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
     if !notes_dir.exists() {
         return Ok(());
     }
@@ -491,8 +478,8 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
         }
     }
 
-    for entry in std::fs::read_dir(notes_dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(notes_dir)? {
+        let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "adoc") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
@@ -532,7 +519,7 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), S
                         "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
                          VALUES (?1, ?2, ?3, ?4, ?4, 0)",
                         rusqlite::params![filename, title, is_journal as i32, now],
-                    ).map_err(|e| e.to_string())?;
+                    )?;
 
                     if let Ok(page_id) = conn.query_row(
                         "SELECT id FROM pages WHERE filename = ?1",
@@ -630,7 +617,7 @@ pub fn atomic_write(path: &Path, content: impl AsRef<[u8]>) -> std::io::Result<(
 
     if let Err(e) = std::fs::rename(&tmp_path, path) {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err(e);
+        return Err(e.into());
     }
 
     Ok(())
