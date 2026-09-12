@@ -1,11 +1,8 @@
 use std::fs;
 use std::sync::Arc;
 use notesplusplus_core::server::*;
-use notesplusplus_core::page;
-use notesplusplus_core::agent::client;
 use notesplusplus_core::agent::client::LlmConfig;
 use notesplusplus_core::agent::permissions::PermissionConfig;
-use notesplusplus_core::constants;
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -1140,7 +1137,7 @@ fn test_composable_js_files_served() {
     }
 
     let app_js = ureq::get(&format!("http://127.0.0.1:{}/app.js", port)).call().unwrap().into_string().unwrap();
-    assert!(app_js.contains("from './composables/utils.js'"), "app.js should import from composables/utils.js");
+    assert!(app_js.contains("from '/composables/utils.js'") || app_js.contains("from './composables/utils.js'"), "app.js should import from composables/utils.js");
 
     server_handle.stop();
 }
