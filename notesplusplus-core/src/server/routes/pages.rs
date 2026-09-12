@@ -2,7 +2,6 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use serde_json::json;
-use rusqlite::Connection;
 
 use crate::block::Block;
 use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
@@ -10,6 +9,7 @@ use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
 use crate::page::{safe_note_path, sanitize_note_filename};
 use crate::parser;
+use crate::repository::NoteRepository;
 use crate::server::http::{
     escape_html, send_attachment_response, send_json_error, send_json_ok, send_response,
     ParsedHttpRequest,
@@ -23,7 +23,7 @@ pub fn list_all_notes_json(notes_dir: &Path, search_query: Option<&str>) -> Stri
 
 pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, search_query: Option<&str>) -> String {
     if let Some(db_p) = db_path {
-        if let Ok(conn) = Connection::open(db_p) {
+        if let Ok(conn) = crate::db::open_db(db_p) {
             let q_trimmed = search_query.unwrap_or("").trim();
             if !q_trimmed.is_empty() {
                 if let Ok(results) = crate::search::search_pages(&conn, q_trimmed) {
@@ -151,17 +151,8 @@ pub fn handle_pages_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let conn = match Connection::open(&ctx.db_path) {
-        Ok(c) => c,
-        Err(e) => {
-            log::error!("Database connection failed: {}", e);
-            send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
-            return;
-        }
-    };
-
     match req.method.as_str() {
-        "GET" => match page::list_pages(&conn) {
+        "GET" => match ctx.repository.list_pages() {
             Ok(pages) => {
                 let json_items: Vec<serde_json::Value> = pages.iter().map(|p| p.to_json_value()).collect();
                 send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
@@ -180,7 +171,7 @@ pub fn handle_pages_api<W: Write>(
                 return;
             }
 
-            match page::create_page(&conn, &ctx.notes_subdir, name, is_journal) {
+            match ctx.repository.create_page(name, is_journal) {
                 Ok(info) => {
                     send_response(stream, 201, "Created", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
                 }
@@ -247,13 +238,10 @@ pub fn handle_page_detail_api<W: Write>(
                             let new_blocks = parser::parse_blocks(raw_block);
                             blocks.splice(idx..end_idx, new_blocks);
                             let new_content = parser::blocks_to_adoc(&blocks);
-                            if let Err(e) = page::atomic_write(&file_path, &new_content) {
+                            if let Err(e) = ctx.repository.save_note(&filename, &new_content) {
                                 log::error!("Failed to write page: {}", e);
                                 send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                                 return;
-                            }
-                            if let Ok(conn) = Connection::open(&ctx.db_path) {
-                                let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                             }
                             let resp = json!({ "ok": true, "filename": filename });
                             send_json_ok(stream, &resp, cors_origin);
@@ -275,11 +263,8 @@ pub fn handle_page_detail_api<W: Write>(
                 String::from_utf8_lossy(&req.body).into_owned()
             };
 
-            match page::atomic_write(&file_path, &new_content) {
+            match ctx.repository.save_note(&filename, &new_content) {
                 Ok(_) => {
-                    if let Ok(conn) = Connection::open(&ctx.db_path) {
-                        let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
-                    }
                     let resp = json!({ "ok": true, "filename": filename });
                     send_json_ok(stream, &resp, cors_origin);
                 }
@@ -290,18 +275,14 @@ pub fn handle_page_detail_api<W: Write>(
             }
         }
         "DELETE" => {
-            if let Ok(conn) = Connection::open(&ctx.db_path) {
-                match page::delete_page(&conn, &ctx.notes_subdir, &filename) {
-                    Ok(_) => {
-                        let resp = json!({ "ok": true });
-                        send_json_ok(stream, &resp, cors_origin);
-                    }
-                    Err(e) => {
-                        send_json_error(stream, 400, "Bad Request", &e, cors_origin);
-                    }
+            match ctx.repository.delete_page(&filename) {
+                Ok(_) => {
+                    let resp = json!({ "ok": true });
+                    send_json_ok(stream, &resp, cors_origin);
                 }
-            } else {
-                send_json_error(stream, 500, "Internal Server Error", "Database connection failed", cors_origin);
+                Err(e) => {
+                    send_json_error(stream, 400, "Bad Request", &e, cors_origin);
+                }
             }
         }
         _ => {}
@@ -320,31 +301,26 @@ pub fn handle_search_api<W: Write>(
         .find_map(|p| p.strip_prefix("q="))
         .unwrap_or("");
 
-    if let Ok(conn) = Connection::open(&ctx.db_path) {
-        match crate::search::search_pages(&conn, query_val) {
-            Ok(results) => {
-                let json_items: Vec<serde_json::Value> = results
-                    .iter()
-                    .map(|r| {
-                        json!({
-                            "id": r.page.id,
-                            "title": r.page.title,
-                            "filename": r.page.filename,
-                            "is_journal": r.page.is_journal,
-                            "snippet": r.snippet,
-                        })
+    match ctx.repository.search_pages(query_val) {
+        Ok(results) => {
+            let json_items: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.page.id,
+                        "title": r.page.title,
+                        "filename": r.page.filename,
+                        "is_journal": r.page.is_journal,
+                        "snippet": r.snippet,
                     })
-                    .collect();
-                send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
-                return;
-            }
-            Err(e) => {
-                send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
-                return;
-            }
+                })
+                .collect();
+            send_response(stream, 200, "OK", MIME_JSON, serde_json::to_string(&json_items).unwrap_or_default().as_bytes(), cors_origin);
+        }
+        Err(e) => {
+            send_json_error(stream, 500, "Internal Server Error", &e, cors_origin);
         }
     }
-    send_json_error(stream, 500, "Internal Server Error", "Database connection failed", cors_origin);
 }
 
 pub fn handle_notes_api<W: Write>(
@@ -370,7 +346,6 @@ pub fn handle_notes_api<W: Write>(
                 let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
                 let filename = make_slug_filename(title);
-                let file_path = safe_note_path(&ctx.notes_subdir, &filename);
 
                 let initial_content = if content.is_empty() {
                     format!("= {}\n\n", title)
@@ -378,22 +353,20 @@ pub fn handle_notes_api<W: Write>(
                     content.to_string()
                 };
 
-                if let Err(e) = page::atomic_write(&file_path, &initial_content) {
-                    log::error!("Failed to create note: {}", e);
-                    send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
-                    return;
+                match ctx.repository.save_note(&filename, &initial_content) {
+                    Ok(info) => {
+                        let resp = json!({
+                            "title": info.title,
+                            "filename": info.filename,
+                            "content": initial_content
+                        });
+                        send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to create note: {}", e);
+                        send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
+                    }
                 }
-
-                if let Ok(conn) = Connection::open(&ctx.db_path) {
-                    let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
-                }
-
-                let resp = json!({
-                    "title": title,
-                    "filename": filename,
-                    "content": initial_content
-                });
-                send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
                 return;
             }
             _ => {}
@@ -455,13 +428,11 @@ pub fn handle_notes_api<W: Write>(
 
                 if updated {
                     let new_adoc = parser::blocks_to_adoc(&blocks);
-                    let _ = page::atomic_write(&file_path, &new_adoc);
-                    if let Ok(conn) = Connection::open(&ctx.db_path) {
-                        let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
+                    if let Ok(_) = ctx.repository.save_note(&filename, &new_adoc) {
+                        let resp = json!({ "ok": true });
+                        send_json_ok(stream, &resp, cors_origin);
+                        return;
                     }
-                    let resp = json!({ "ok": true });
-                    send_json_ok(stream, &resp, cors_origin);
-                    return;
                 }
             }
         }
@@ -493,14 +464,10 @@ pub fn handle_notes_api<W: Write>(
                     body_str.to_string()
                 };
 
-                if let Err(e) = page::atomic_write(&file_path, &content) {
+                if let Err(e) = ctx.repository.save_note(&filename, &content) {
                     log::error!("Failed to write note: {}", e);
                     send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
-                }
-
-                if let Ok(conn) = Connection::open(&ctx.db_path) {
-                    let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
                 }
 
                 let resp = json!({ "ok": true, "filename": filename });
@@ -508,17 +475,17 @@ pub fn handle_notes_api<W: Write>(
                 return;
             }
             "DELETE" => {
-                if file_path.is_file() {
-                    let _ = fs::remove_file(&file_path);
-                    if let Ok(conn) = Connection::open(&ctx.db_path) {
-                        let _ = page::sync_and_index_pages(&conn, &ctx.notes_subdir);
+                match ctx.repository.delete_page(&filename) {
+                    Ok(_) => {
+                        let resp = json!({ "ok": true });
+                        send_json_ok(stream, &resp, cors_origin);
+                        return;
                     }
-                    let resp = json!({ "ok": true });
-                    send_json_ok(stream, &resp, cors_origin);
-                    return;
+                    Err(_) => {
+                        send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
+                        return;
+                    }
                 }
-                send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
-                return;
             }
             _ => {}
         }

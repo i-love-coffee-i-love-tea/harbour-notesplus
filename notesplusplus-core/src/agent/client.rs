@@ -157,6 +157,7 @@ pub enum LlmError {
     Timeout,
 }
 
+#[derive(Clone)]
 pub struct LlmClient {
     config: LlmConfig,
 }

@@ -162,6 +162,11 @@ pub fn handle_http_client(mut request: tiny_http::Request, ctx: ServerContext) {
     }
 
     // 10. AI Agent APIs
+    if (clean_path == "api/ai/status" || clean_path == "api/agent/status") && req.method == "GET" {
+        agent::handle_agent_status(&mut writer, &ctx, &cors_origin);
+        return;
+    }
+
     if (clean_path == "api/ai/models" || clean_path == "api/agent/models") && req.method == "GET" {
         agent::handle_agent_models(&mut writer, &ctx, &cors_origin);
         return;

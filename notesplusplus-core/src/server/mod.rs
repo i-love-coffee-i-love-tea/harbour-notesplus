@@ -88,6 +88,7 @@ pub struct ServerContext {
     pub tls_status: Arc<Mutex<Option<tls::TlsStatusInfo>>>,
     pub reject_public_networks: Arc<AtomicBool>,
     pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
+    pub repository: Arc<crate::repository::FsSqliteNoteRepository>,
     pub is_tls: bool,
 }
 
@@ -112,6 +113,11 @@ impl ServerContext {
         );
         session.reset_session(None, None);
 
+        let conn = crate::db::open_db(&config.db_path).ok();
+        let conn_arc = Arc::new(Mutex::new(conn.unwrap_or_else(|| rusqlite::Connection::open_in_memory().unwrap())));
+        let _ = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_subdir);
+        let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_subdir, Arc::clone(&conn_arc)));
+
         let sessions_path = config
             .db_path
             .parent()
@@ -134,6 +140,7 @@ impl ServerContext {
             tls_status: Arc::new(Mutex::new(None)),
             reject_public_networks: Arc::new(AtomicBool::new(config.reject_public_networks)),
             theme_colors: Arc::new(Mutex::new(HashMap::new())),
+            repository,
             is_tls,
         }
     }

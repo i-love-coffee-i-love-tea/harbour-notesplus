@@ -6,6 +6,7 @@ pub mod journal;
 pub mod page;
 pub mod parser;
 pub mod paths;
+pub mod repository;
 pub mod html;
 pub mod search;
 pub mod server;

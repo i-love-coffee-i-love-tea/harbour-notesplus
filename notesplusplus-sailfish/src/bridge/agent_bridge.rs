@@ -460,10 +460,10 @@ impl AgentBridge {
                             }
                         });
                         let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
-                        let pending = session.pending_action().cloned();
+                        let pending = session.pending_action();
                         let can_undo = session.can_undo();
-                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
-                        let last_created = session.last_created_note().map(|s| s.to_string());
+                        let last_snap = session.last_snapshot_id();
+                        let last_created = session.last_created_note();
 
                         WorkerOutput {
                             step_result: Ok(step_res),
@@ -482,10 +482,10 @@ impl AgentBridge {
                             }
                         });
                         let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
-                        let pending = session.pending_action().cloned();
+                        let pending = session.pending_action();
                         let can_undo = session.can_undo();
-                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
-                        let last_created = session.last_created_note().map(|s| s.to_string());
+                        let last_snap = session.last_snapshot_id();
+                        let last_created = session.last_created_note();
 
                         WorkerOutput {
                             step_result: Ok(step_res),
@@ -499,10 +499,10 @@ impl AgentBridge {
                     WorkerTask::UndoAction => {
                         let undo_res = session.undo_last_action();
                         let msgs_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
-                        let pending = session.pending_action().cloned();
+                        let pending = session.pending_action();
                         let can_undo = session.can_undo();
-                        let last_snap = session.last_snapshot_id().map(|s| s.to_string());
-                        let last_created = session.last_created_note().map(|s| s.to_string());
+                        let last_snap = session.last_snapshot_id();
+                        let last_created = session.last_created_note();
 
                         let step_result = match undo_res {
                             Ok(msg) => Ok(AgentStepResult::Finished {

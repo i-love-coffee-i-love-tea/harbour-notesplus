@@ -95,6 +95,74 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
     })
 }
 
+/// Saves a page's content atomically and updates its title, updated_at, and FTS index directly in SQLite without directory scanning.
+pub fn save_and_index_page(
+    conn: &Connection,
+    notes_dir: &Path,
+    name_or_filename: &str,
+    content: &str,
+) -> Result<PageInfo, String> {
+    let filename = sanitize_note_filename(name_or_filename);
+    let path = safe_note_path(notes_dir, &filename);
+
+    // Write content atomically to disk
+    atomic_write(&path, content).map_err(|e| e.to_string())?;
+
+    let is_journal = filename == JOURNAL_FILENAME;
+    let title = if is_journal {
+        JOURNAL_TITLE.to_string()
+    } else {
+        extract_doc_title(content, &filename)
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Check if page already exists in DB
+    let existing_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM pages WHERE filename = ?1",
+            rusqlite::params![filename],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let id = if let Some(id) = existing_id {
+        conn.execute(
+            "UPDATE pages SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![title, now, id],
+        )
+        .map_err(|e| e.to_string())?;
+        id
+    } else {
+        conn.execute(
+            "INSERT INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
+             VALUES (?1, ?2, ?3, ?4, ?4, 0)",
+            rusqlite::params![filename, title, is_journal as i32, now],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.last_insert_rowid()
+    };
+
+    let _ = db::update_fts_content(conn, id, content);
+
+    let created_at: String = conn
+        .query_row(
+            "SELECT created_at FROM pages WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| now.clone());
+
+    Ok(PageInfo {
+        id,
+        filename,
+        title,
+        is_journal,
+        created_at,
+        updated_at: now,
+        block_count: 0,
+    })
+}
+
 /// Slice leading text sufficient to extract `limit` preview blocks without cutting open delimited blocks.
 fn slice_preview_content(content: &str, limit: usize) -> &str {
     let lines: Vec<&str> = content.lines().collect();

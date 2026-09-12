@@ -57,6 +57,28 @@ fn send_step_result_sse<W: Write>(
     send_sse_done(stream);
 }
 
+pub fn handle_agent_status<W: Write>(
+    stream: &mut W,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    let session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let is_busy = session_guard.is_busy();
+    let can_undo = session_guard.can_undo();
+    let has_pending = session_guard.pending_action().is_some();
+    let last_snap = session_guard.last_snapshot_id();
+    let last_created = session_guard.last_created_note();
+
+    let resp = json!({
+        "busy": is_busy,
+        "can_undo": can_undo,
+        "has_pending": has_pending,
+        "last_snapshot_id": last_snap,
+        "last_created_note": last_created,
+    });
+    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+}
+
 pub fn handle_agent_config<W: Write>(
     stream: &mut W,
     req: &ParsedHttpRequest,

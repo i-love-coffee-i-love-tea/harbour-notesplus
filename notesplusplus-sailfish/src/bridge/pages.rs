@@ -84,7 +84,7 @@ impl NotesBridge {
         let mut blocks = parser::parse_blocks_with_options(&content, self.drop_comments);
         if mutator(&mut blocks) {
             let new_content = parser::blocks_to_adoc(&blocks);
-            if let Err(e) = std::fs::write(&path, &new_content) {
+            if let Err(e) = page::atomic_write(&path, &new_content) {
                 ::log::warn!("mutate_page_blocks: write failed: {}", e);
                 return;
             }
@@ -230,7 +230,7 @@ impl NotesBridge {
         content.push_str(&line_to_append);
         content.push('\n');
 
-        if let Err(e) = std::fs::write(&path, &content) {
+        if let Err(e) = page::atomic_write(&path, &content) {
             self.report_error(format!("Failed to append to note: {}", e));
             return;
         }
@@ -282,7 +282,7 @@ impl NotesBridge {
         let mut blocks = parser::parse_blocks(&content);
         if toggle_check_in_blocks(&mut blocks, idx, &item_path) {
             let new_content = parser::blocks_to_adoc(&blocks);
-            let _ = std::fs::write(&path, &new_content);
+            let _ = page::atomic_write(&path, &new_content);
             if let Some(conn) = self.conn() {
                 if let Ok(Some(info)) = page::get_page(conn, &filename) {
                     let _ = db::update_fts_content(conn, info.id, &new_content);
@@ -342,7 +342,7 @@ impl NotesBridge {
         self.ensure_init();
         let filename = self.resolve_page_filename(&name);
         let path = self.notes_dir().join(&filename);
-        if let Err(e) = std::fs::write(&path, &content) {
+        if let Err(e) = page::atomic_write(&path, &content) {
             self.report_error(format!("Failed to save source: {}", e));
             return;
         }
@@ -392,7 +392,7 @@ impl NotesBridge {
             }
         };
 
-        if let Err(e) = std::fs::write(&path, &new_content) {
+        if let Err(e) = page::atomic_write(&path, &new_content) {
             ::log::warn!("toggle_checkbox: write failed: {}", e);
         }
     }
@@ -477,7 +477,7 @@ impl NotesBridge {
         if let Some(new_block) = new_blocks.into_iter().next() {
             blocks[idx] = new_block;
             let new_content = parser::blocks_to_adoc(&blocks);
-            let _ = std::fs::write(&path, &new_content);
+            let _ = page::atomic_write(&path, &new_content);
         }
     }
 

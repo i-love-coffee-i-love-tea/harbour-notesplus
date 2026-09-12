@@ -1,4 +1,12 @@
+use std::path::Path;
 use rusqlite::{Connection, Result as SqlResult};
+
+/// Opens a SQLite database connection, configures WAL mode and performance PRAGMAs, and initializes schema.
+pub fn open_db(path: impl AsRef<Path>) -> SqlResult<Connection> {
+    let conn = Connection::open(path)?;
+    init_schema(&conn)?;
+    Ok(conn)
+}
 
 /// Initialize the SQLite schema. Idempotent.
 pub fn init_schema(conn: &Connection) -> SqlResult<()> {

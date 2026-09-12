@@ -2,6 +2,8 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use serde_json::json;
 use crate::agent::backup::BackupManager;
@@ -23,16 +25,22 @@ pub enum AgentStepResult {
     Error(String),
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct SessionState {
+    pub messages: Vec<ChatMessage>,
+    pub pending_action: Option<PendingConfirmation>,
+    pub last_snapshot_id: Option<String>,
+    pub last_created_note: Option<String>,
+}
+
 pub struct AgentSession {
     notes_dir: PathBuf,
     db_path: PathBuf,
-    backup_mgr: BackupManager,
-    permission_mgr: PermissionManager,
-    client: LlmClient,
-    messages: Vec<ChatMessage>,
-    pending_action: Option<PendingConfirmation>,
-    last_snapshot_id: Option<String>,
-    last_created_note: Option<String>,
+    backup_mgr: Arc<Mutex<BackupManager>>,
+    permission_mgr: Arc<Mutex<PermissionManager>>,
+    client: Arc<Mutex<LlmClient>>,
+    state: Arc<Mutex<SessionState>>,
+    is_busy: Arc<AtomicBool>,
     max_tool_turns: usize,
 }
 
@@ -47,41 +55,43 @@ impl AgentSession {
         Self {
             notes_dir: notes_dir.as_ref().to_path_buf(),
             db_path: db_path.as_ref().to_path_buf(),
-            backup_mgr: BackupManager::new(backup_dir),
-            permission_mgr,
-            client,
-            messages: Vec::new(),
-            pending_action: None,
-            last_snapshot_id: None,
-            last_created_note: None,
+            backup_mgr: Arc::new(Mutex::new(BackupManager::new(backup_dir))),
+            permission_mgr: Arc::new(Mutex::new(permission_mgr)),
+            client: Arc::new(Mutex::new(client)),
+            state: Arc::new(Mutex::new(SessionState::default())),
+            is_busy: Arc::new(AtomicBool::new(false)),
             max_tool_turns: 8,
         }
     }
 
-    pub fn messages(&self) -> &[ChatMessage] {
-        &self.messages
+    pub fn is_busy(&self) -> bool {
+        self.is_busy.load(Ordering::SeqCst)
     }
 
-    pub fn pending_action(&self) -> Option<&PendingConfirmation> {
-        self.pending_action.as_ref()
+    pub fn messages(&self) -> Vec<ChatMessage> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.clone()
     }
 
-    pub fn last_snapshot_id(&self) -> Option<&str> {
-        self.last_snapshot_id.as_deref()
+    pub fn pending_action(&self) -> Option<PendingConfirmation> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).pending_action.clone()
     }
 
-    pub fn last_created_note(&self) -> Option<&str> {
-        self.last_created_note.as_deref()
+    pub fn last_snapshot_id(&self) -> Option<String> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.clone()
+    }
+
+    pub fn last_created_note(&self) -> Option<String> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note.clone()
     }
 
     pub fn can_undo(&self) -> bool {
-        self.last_snapshot_id.is_some()
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.is_some()
     }
 
     /// Dynamically updates LLM client and permission manager without resetting active chat state.
     pub fn update_config(&mut self, permission_mgr: PermissionManager, client: LlmClient) {
-        self.permission_mgr = permission_mgr;
-        self.client = client;
+        *self.permission_mgr.lock().unwrap_or_else(|e| e.into_inner()) = permission_mgr;
+        *self.client.lock().unwrap_or_else(|e| e.into_inner()) = client;
     }
 
     /// Resets conversation with fresh system prompt including optional active note content.
@@ -90,54 +100,62 @@ impl AgentSession {
         active_note: Option<(&str, &str)>,
         extra_context: Option<&str>,
     ) {
-        self.messages.clear();
-        self.pending_action = None;
-        self.last_created_note = None;
+        let custom_sys = self.client.lock().unwrap_or_else(|e| e.into_inner()).config().system_prompt.clone();
         let sys_prompt = build_system_prompt_with_custom(
-            self.client.config().system_prompt.as_deref(),
+            custom_sys.as_deref(),
             active_note,
             extra_context,
         );
-        self.messages.push(ChatMessage::system(sys_prompt));
+
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.messages.clear();
+        state.pending_action = None;
+        state.last_created_note = None;
+        state.messages.push(ChatMessage::system(sys_prompt));
     }
 
     /// Appends a user prompt to the conversation history.
     pub fn push_user_message(&mut self, user_prompt: &str) {
-        if self.messages.is_empty() {
+        let needs_reset = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.is_empty();
+        if needs_reset {
             self.reset_session(None, None);
         }
-        self.messages.push(ChatMessage::user(user_prompt));
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::user(user_prompt));
     }
 
     /// Appends a user prompt and drives the conversation loop with a streaming token callback.
     pub fn send_prompt_streaming<F: FnMut(&str)>(&mut self, user_prompt: &str, on_token: F) -> AgentStepResult {
-        if self.messages.is_empty() {
+        let needs_reset = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.is_empty();
+        if needs_reset {
             self.reset_session(None, None);
         }
 
-        let already_pushed = self.messages.last().map(|m| m.role.as_str() == "user" && m.content.as_deref() == Some(user_prompt)).unwrap_or(false);
-        if !already_pushed {
-            self.messages.push(ChatMessage::user(user_prompt));
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let already_pushed = state.messages.last().map(|m| m.role.as_str() == "user" && m.content.as_deref() == Some(user_prompt)).unwrap_or(false);
+            if !already_pushed {
+                state.messages.push(ChatMessage::user(user_prompt));
+            }
         }
         self.run_loop_streaming(on_token)
     }
 
     /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.
     pub fn confirm_pending_action_streaming<F: FnMut(&str)>(&mut self, approved: bool, on_token: F) -> AgentStepResult {
-        let pending = match self.pending_action.take() {
+        let pending = match self.state.lock().unwrap_or_else(|e| e.into_inner()).pending_action.take() {
             Some(p) => p,
             None => return AgentStepResult::Error("No pending action to confirm".to_string()),
         };
 
         if approved {
             let result_str = self.apply_note_edit(&pending.filename, &pending.new_content, &pending.reason);
-            self.messages.push(ChatMessage::tool_result(
+            self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
                 result_str,
             ));
         } else {
-            self.messages.push(ChatMessage::tool_result(
+            self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
                 format!("User rejected the proposed changes to '{}'.", pending.filename),
@@ -148,23 +166,35 @@ impl AgentSession {
     }
 
     /// Runs the LLM tool execution loop with token streaming until an answer or confirmation gate is reached.
-    fn run_loop_streaming<F: FnMut(&str)>(&mut self, mut on_token: F) -> AgentStepResult {
+    fn run_loop_streaming<F: FnMut(&str)>(&self, mut on_token: F) -> AgentStepResult {
+        self.is_busy.store(true, Ordering::SeqCst);
+        let result = self.do_run_loop_streaming(&mut on_token);
+        self.is_busy.store(false, Ordering::SeqCst);
+        result
+    }
+
+    fn do_run_loop_streaming<F: FnMut(&str)>(&self, on_token: &mut F) -> AgentStepResult {
         let mut turns = 0;
 
         while turns < self.max_tool_turns {
             turns += 1;
 
-            let response = match self.client.send_chat_streaming(&self.messages, &mut on_token) {
+            let messages = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.clone();
+            let client = self.client.lock().unwrap_or_else(|e| e.into_inner()).clone();
+
+            let response = match client.send_chat_streaming(&messages, &mut *on_token) {
                 Ok(resp) => resp,
                 Err(err) => return AgentStepResult::Error(format!("LLM Request Failed: {}", err)),
             };
 
             // If assistant responded with tool calls
             if !response.tool_calls.is_empty() {
-                // Record assistant tool call message with optional textual thoughts
-                let mut asst_msg = ChatMessage::assistant_tool_calls(response.tool_calls.clone());
-                asst_msg.content = response.content.clone();
-                self.messages.push(asst_msg);
+                {
+                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut asst_msg = ChatMessage::assistant_tool_calls(response.tool_calls.clone());
+                    asst_msg.content = response.content.clone();
+                    state.messages.push(asst_msg);
+                }
 
                 // Execute tool calls in order, pausing for confirmation if needed
                 for tool_call in &response.tool_calls {
@@ -177,29 +207,36 @@ impl AgentSession {
                         None
                     };
 
-                    match self.permission_mgr.evaluate(tool_call, file_content.as_deref()) {
+                    let decision = {
+                        let perm = self.permission_mgr.lock().unwrap_or_else(|e| e.into_inner());
+                        perm.evaluate(tool_call, file_content.as_deref())
+                    };
+
+                    match decision {
                         PermissionDecision::Allowed => {
                             let output = self.execute_tool(tool_call);
-                            self.messages.push(ChatMessage::tool_result(
+                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                            state.messages.push(ChatMessage::tool_result(
                                 tool_call.id.clone(),
                                 tool_call.function.name.clone(),
                                 output,
                             ));
                         }
                         PermissionDecision::RequiresConfirmation(pending) => {
-                            // Record any remaining tool calls as skipped so the LLM knows
+                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                             for remaining in response.tool_calls.iter().skip_while(|tc| tc.id != tool_call.id).skip(1) {
-                                self.messages.push(ChatMessage::tool_result(
+                                state.messages.push(ChatMessage::tool_result(
                                     remaining.id.clone(),
                                     remaining.function.name.clone(),
                                     "Skipped: waiting for user confirmation of prior edit".to_string(),
                                 ));
                             }
-                            self.pending_action = Some(pending.clone());
+                            state.pending_action = Some(pending.clone());
                             return AgentStepResult::RequiresConfirmation(pending);
                         }
                         PermissionDecision::Denied(reason) => {
-                            self.messages.push(ChatMessage::tool_result(
+                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                            state.messages.push(ChatMessage::tool_result(
                                 tool_call.id.clone(),
                                 tool_call.function.name.clone(),
                                 format!("Tool execution denied: {}", reason),
@@ -210,10 +247,11 @@ impl AgentSession {
             } else {
                 // Final textual answer
                 let final_content = response.content.unwrap_or_default();
-                self.messages.push(ChatMessage::assistant(final_content.clone()));
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                state.messages.push(ChatMessage::assistant(final_content.clone()));
                 return AgentStepResult::Finished {
                     content: final_content,
-                    last_snapshot_id: self.last_snapshot_id.clone(),
+                    last_snapshot_id: state.last_snapshot_id.clone(),
                 };
             }
         }
@@ -222,37 +260,17 @@ impl AgentSession {
     }
 
     /// Executes an auto-allowed tool.
-    fn execute_tool(&mut self, tool_call: &ToolCall) -> String {
+    fn execute_tool(&self, tool_call: &ToolCall) -> String {
         let name = tool_call.function.name.as_str();
         let args = &tool_call.function.arguments;
 
         match name {
             "read_note" => {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let sanitized_name = page::sanitize_note_filename(filename);
                 let path = page::safe_note_path(&self.notes_dir, filename);
                 match fs::read_to_string(&path) {
                     Ok(content) => content,
-                    Err(e) => format!("Error reading note '{}': {}", sanitized_name, e),
-                }
-            }
-            "list_notes" => {
-                match self.open_db() {
-                    Ok(conn) => match page::list_pages(&conn) {
-                        Ok(pages) => {
-                            let mut list = Vec::new();
-                            for p in pages {
-                                list.push(json!({
-                                    "filename": p.filename,
-                                    "title": p.title,
-                                    "updated_at": p.updated_at
-                                }));
-                            }
-                            serde_json::to_string_pretty(&list).unwrap_or_else(|_| "[]".to_string())
-                        }
-                        Err(e) => format!("Error listing pages: {}", e),
-                    },
-                    Err(e) => format!("Database error: {}", e),
+                    Err(e) => format!("Error reading note '{}': {}", filename, e),
                 }
             }
             "search_notes" => {
@@ -260,35 +278,54 @@ impl AgentSession {
                 match self.open_db() {
                     Ok(conn) => match search::search_pages(&conn, query) {
                         Ok(results) => {
-                            let mut out = Vec::new();
-                            for r in results {
-                                out.push(json!({
-                                    "filename": r.page.filename,
-                                    "title": r.page.title,
-                                    "snippet": r.snippet
-                                }));
+                            if results.is_empty() {
+                                format!("No notes found matching query '{}'", query)
+                            } else {
+                                let hits: Vec<serde_json::Value> = results.iter().map(|hit| {
+                                    json!({
+                                        "filename": hit.page.filename,
+                                        "title": hit.page.title,
+                                        "snippet": hit.snippet,
+                                    })
+                                }).collect();
+                                serde_json::to_string_pretty(&hits).unwrap_or_else(|_| "[]".to_string())
                             }
-                            serde_json::to_string_pretty(&out).unwrap_or_else(|_| "[]".to_string())
                         }
                         Err(e) => format!("Search error: {}", e),
                     },
                     Err(e) => format!("Database error: {}", e),
                 }
             }
+            "list_notes" => {
+                match self.open_db() {
+                    Ok(conn) => match page::list_pages(&conn) {
+                        Ok(pages) => {
+                            let page_list: Vec<serde_json::Value> = pages.iter().map(|p| {
+                                json!({
+                                    "filename": p.filename,
+                                    "title": p.title,
+                                    "is_journal": p.is_journal,
+                                    "updated_at": p.updated_at,
+                                })
+                            }).collect();
+                            serde_json::to_string_pretty(&page_list).unwrap_or_else(|_| "[]".to_string())
+                        }
+                        Err(e) => format!("List error: {}", e),
+                    },
+                    Err(e) => format!("Database error: {}", e),
+                }
+            }
             "create_note" => {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
-                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let initial_content = args.get("content").or_else(|| args.get("initial_content")).and_then(|v| v.as_str());
+
                 match self.open_db() {
                     Ok(conn) => match page::create_page(&conn, &self.notes_dir, title, false) {
                         Ok(created) => {
-                            if !content.trim().is_empty() {
-                                let path = self.notes_dir.join(&created.filename);
-                                if let Err(e) = page::atomic_write(&path, content) {
-                                    return format!("Error writing note content: {}", e);
-                                }
-                                let _ = db::update_fts_content(&conn, created.id, content);
+                            if let Some(content) = initial_content {
+                                let _ = page::save_and_index_page(&conn, &self.notes_dir, &created.filename, content);
                             }
-                            self.last_created_note = Some(created.title.clone());
+                            self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note = Some(created.title.clone());
                             format!("Successfully created note '{}' ({})", created.title, created.filename)
                         }
                         Err(e) => format!("Error creating note: {}", e),
@@ -314,48 +351,33 @@ impl AgentSession {
     }
 
     /// Applies note update with pre-edit backup snapshot and SQLite FTS index update.
-    pub fn apply_note_edit(&mut self, filename: &str, new_content: &str, reason: &str) -> String {
+    pub fn apply_note_edit(&self, filename: &str, new_content: &str, reason: &str) -> String {
         let safe_filename = page::sanitize_note_filename(filename);
         let file_path = page::safe_note_path(&self.notes_dir, filename);
         let current_content = fs::read_to_string(&file_path).unwrap_or_default();
 
         // 1. Create pre-edit snapshot
-        let snapshot = match self.backup_mgr.create_snapshot(&safe_filename, &current_content, reason) {
-            Ok(s) => {
-                self.last_snapshot_id = Some(s.id.clone());
-                Some(s)
-            }
-            Err(e) => {
-                log::warn!("Failed to create backup snapshot: {}", e);
-                None
+        let snapshot = {
+            let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
+            match backup.create_snapshot(&safe_filename, &current_content, reason) {
+                Ok(s) => {
+                    self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id = Some(s.id.clone());
+                    Some(s)
+                }
+                Err(e) => {
+                    log::warn!("Failed to create backup snapshot: {}", e);
+                    None
+                }
             }
         };
 
-        // 2. Write new content atomically to file
-        if let Err(e) = page::atomic_write(&file_path, new_content) {
-            return format!("Failed to write to file '{}': {}", safe_filename, e);
-        }
-
-        // 3. Update SQLite FTS index
+        // 2. Save note and update DB atomically
         if let Ok(conn) = self.open_db() {
-            let title = extract_doc_title(new_content, &safe_filename);
-            if let Ok(Some(existing_page)) = page::get_page(&conn, &safe_filename) {
-                let _ = db::update_fts_content(&conn, existing_page.id, new_content);
-            } else {
-                let now = chrono::Utc::now().to_rfc3339();
-                let _ = conn.execute(
-                    "INSERT OR IGNORE INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
-                     VALUES (?1, ?2, 0, ?3, ?3, 0)",
-                    rusqlite::params![safe_filename, title, now],
-                );
-                if let Ok(page_id) = conn.query_row(
-                    "SELECT id FROM pages WHERE filename = ?1",
-                    rusqlite::params![safe_filename],
-                    |row| row.get::<_, i64>(0),
-                ) {
-                    let _ = db::update_fts_content(&conn, page_id, new_content);
-                }
+            if let Err(e) = page::save_and_index_page(&conn, &self.notes_dir, &safe_filename, new_content) {
+                return format!("Failed to save note '{}': {}", safe_filename, e);
             }
+        } else if let Err(e) = page::atomic_write(&file_path, new_content) {
+            return format!("Failed to write to file '{}': {}", safe_filename, e);
         }
 
         let snap_msg = snapshot
@@ -367,51 +389,42 @@ impl AgentSession {
 
     /// Undoes the last recorded edit action by rolling back to its pre-edit snapshot.
     pub fn undo_last_action(&mut self) -> Result<String, String> {
-        let snapshot_id = self.last_snapshot_id.clone()
+        let snapshot_id = self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.clone()
             .ok_or_else(|| "No previous action available to undo".to_string())?;
         self.rollback_snapshot(&snapshot_id)
     }
 
     /// Rolls back a note to an arbitrary snapshot by ID.
     pub fn rollback_snapshot(&mut self, snapshot_id: &str) -> Result<String, String> {
-        let snapshot = self.backup_mgr.get_snapshot(snapshot_id)
-            .map_err(|e| format!("Failed to read snapshot: {}", e))?
-            .ok_or_else(|| format!("Snapshot '{}' not found", snapshot_id))?;
+        let snapshot = {
+            let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
+            let snap = backup.get_snapshot(snapshot_id)
+                .map_err(|e| format!("Failed to read snapshot: {}", e))?
+                .ok_or_else(|| format!("Snapshot '{}' not found", snapshot_id))?;
+            let _ = backup.delete_snapshot(snapshot_id);
+            snap
+        };
 
-        let file_path = page::safe_note_path(&self.notes_dir, &snapshot.filename);
-        page::atomic_write(&file_path, &snapshot.content)
-            .map_err(|e| format!("Failed to restore file: {}", e))?;
-
-        // Update database index
         if let Ok(conn) = self.open_db() {
-            if let Ok(Some(existing_page)) = page::get_page(&conn, &snapshot.filename) {
-                let _ = db::update_fts_content(&conn, existing_page.id, &snapshot.content);
-            }
+            page::save_and_index_page(&conn, &self.notes_dir, &snapshot.filename, &snapshot.content)
+                .map_err(|e| format!("Failed to restore note: {}", e))?;
+        } else {
+            let file_path = page::safe_note_path(&self.notes_dir, &snapshot.filename);
+            page::atomic_write(&file_path, &snapshot.content)
+                .map_err(|e| format!("Failed to restore file: {}", e))?;
         }
 
-        let _ = self.backup_mgr.delete_snapshot(snapshot_id);
-        if self.last_snapshot_id.as_deref() == Some(snapshot_id) {
-            self.last_snapshot_id = None;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.last_snapshot_id.as_deref() == Some(snapshot_id) {
+            state.last_snapshot_id = None;
         }
 
         Ok(format!("Successfully rolled back '{}' to pre-edit state ({})", snapshot.filename, snapshot_id))
     }
 
     fn open_db(&self) -> Result<Connection, rusqlite::Error> {
-        let conn = Connection::open(&self.db_path)?;
-        db::init_schema(&conn)?;
-        Ok(conn)
+        db::open_db(&self.db_path)
     }
-}
-
-fn extract_doc_title(content: &str, fallback_filename: &str) -> String {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("= ") {
-            return trimmed.trim_start_matches("= ").trim().to_string();
-        }
-    }
-    fallback_filename.trim_end_matches(".adoc").replace('_', " ")
 }
 
 #[cfg(test)]
@@ -467,7 +480,7 @@ mod tests {
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        let mut session = AgentSession::new(
+        let session = AgentSession::new(
             &notes_dir,
             &db_path,
             &backup_dir,
@@ -511,7 +524,7 @@ mod tests {
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        let mut session = AgentSession::new(
+        let session = AgentSession::new(
             &notes_dir,
             &db_path,
             &backup_dir,
@@ -519,38 +532,64 @@ mod tests {
             LlmClient::new(LlmConfig::default()),
         );
 
-        // Create initial note
-        let note_file = notes_dir.join("project_notes.adoc");
-        fs::write(&note_file, "= Project Notes\nLine 1").unwrap();
+        // Create a note with .adoc extension
+        let note_path = notes_dir.join("test_note.adoc");
+        fs::write(&note_path, "= Test Note\nOriginal text.").unwrap();
 
-        // 1. Read note using "project_notes.adoc" (must not mangle to "project_notes_adoc")
+        // Reading with filename containing .adoc
         let read_call = ToolCall {
-            id: Some("call_read".to_string()),
+            id: Some("read_1".to_string()),
             tool_type: "function".to_string(),
             function: crate::agent::tools::FunctionCall {
                 name: "read_note".to_string(),
-                arguments: json!({ "filename": "project_notes.adoc" }),
+                arguments: json!({ "filename": "test_note.adoc" }),
             },
         };
         let read_out = session.execute_tool(&read_call);
-        assert_eq!(read_out, "= Project Notes\nLine 1");
+        assert_eq!(read_out, "= Test Note\nOriginal text.");
 
-        // 2. Edit note using "project_notes.adoc"
+        // Editing with filename containing .adoc
         let edit_call = ToolCall {
-            id: Some("call_edit".to_string()),
+            id: Some("edit_1".to_string()),
             tool_type: "function".to_string(),
             function: crate::agent::tools::FunctionCall {
                 name: "edit_note".to_string(),
                 arguments: json!({
-                    "filename": "project_notes.adoc",
-                    "content": "= Project Notes\nLine 1\nLine 2 updated",
-                    "reason": "Appended Line 2"
+                    "filename": "test_note.adoc",
+                    "content": "= Test Note\nModified text.",
+                    "reason": "Test edit"
                 }),
             },
         };
         let edit_out = session.execute_tool(&edit_call);
-        assert!(edit_out.contains("Successfully updated note 'project_notes.adoc'"));
-        assert!(note_file.exists());
-        assert_eq!(fs::read_to_string(&note_file).unwrap(), "= Project Notes\nLine 1\nLine 2 updated");
+        assert!(edit_out.contains("Successfully updated note 'test_note.adoc'"));
+
+        // Verify the file was updated on disk at test_note.adoc, not test_note_adoc
+        assert!(note_path.exists());
+        let updated = fs::read_to_string(&note_path).unwrap();
+        assert_eq!(updated, "= Test Note\nModified text.");
+        assert!(!notes_dir.join("test_note_adoc").exists());
+    }
+
+    #[test]
+    fn test_non_blocking_status_inspection() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let db_path = tmp.path().join("test.db");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = AgentSession::new(
+            &notes_dir,
+            &db_path,
+            &backup_dir,
+            PermissionManager::new(PermissionConfig::default()),
+            LlmClient::new(LlmConfig::default()),
+        );
+
+        assert!(!session.is_busy());
+        assert!(!session.can_undo());
+        assert!(session.pending_action().is_none());
+        assert_eq!(session.messages().len(), 0);
     }
 }

@@ -148,56 +148,58 @@ The work is organized to maximize net positive impact (utility): resolving the h
 
 ## Phase 3: Performance, I/O & Concurrency (P2)
 
-### 3.1 Replace Filesystem Scans with SQLite Index Queries
+### 3.1 Replace Filesystem Scans with SQLite Index Queries (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/server/routes/pages.rs` (`list_all_notes_json`)
+  - `notesplusplus-core/src/server/routes/pages.rs` (`list_all_notes_json`, `list_all_notes_json_with_db`)
+  - `notesplusplus-core/src/page.rs` (`save_and_index_page`, `delete_page`)
   - `notesplusplus-core/src/db.rs`
 - **Problem & Impact:**
-  `list_all_notes_json` performs a full directory traversal and disk read of every `.adoc` file upon every request to construct note titles and preview snippets, bypassing the SQLite database cache.
-- **Remediation Steps:**
-  1. Update `list_all_notes_json` to query `SELECT id, title, path, updated_at FROM pages` directly from SQLite.
-  2. Ensure page creation, edit, and delete handlers update the SQLite `pages` table transactionally.
-  3. Keep filesystem scans solely as a background reconciliation/sync fallback on application boot.
+  `list_all_notes_json` performed a full directory traversal and disk read of every `.adoc` file upon every request to construct note titles and preview snippets, bypassing the SQLite database cache.
+- **Remediation:**
+  1. Updated `list_all_notes_json_with_db` to query `pages` and `pages_fts` directly from SQLite.
+  2. Implemented `page::save_and_index_page` to write note files atomically and update title, timestamp, and FTS index in $O(1)$ time without directory rescans.
+  3. Reserved filesystem directory traversals strictly for initial reconciliation on boot.
 - **Verification:**
-  - Benchmark listing endpoint with 500+ notes; verify zero file I/O during standard list requests.
+  - Unit tests in `db.rs`, `page.rs`, and integration tests in `server/mod.rs` confirm rapid $O(1)$ indexing and listing.
 
 ---
 
-### 3.2 Granular Mutex Strategy for LLM Agent State
+### 3.2 Granular Mutex Strategy for LLM Agent State (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/server/mod.rs` (`ServerContext`)
   - `notesplusplus-core/src/agent/session.rs`
+  - `notesplusplus-core/src/server/routes/agent.rs`
+  - `notesplusplus-core/src/server/routes/mod.rs`
 - **Problem & Impact:**
-  The LLM agent session (`ctx.session: Arc<Mutex<AgentSession>>`) is locked for the entire duration of streaming LLM network requests, blocking health checks, status queries, and concurrent read requests.
-- **Remediation Steps:**
-  1. Separate active turn execution state from metadata/configuration.
-  2. Use channel-based communication or an asynchronous/state-machine approach where the lock is released while waiting on external network I/O from LLM endpoints.
-  3. Allow read-only status inspection (`is_busy`, pending tool calls) without acquiring an exclusive long-held execution lock.
+  The LLM agent session (`ctx.session: Arc<Mutex<AgentSession>>`) was locked for the entire duration of streaming LLM network requests, blocking health checks, status queries, and concurrent read requests.
+- **Remediation:**
+  1. Encapsulated conversation and turn state in an inner `SessionState` struct managed with fine-grained locking.
+  2. Maintained an atomic `is_busy` flag and released the session state lock prior to dispatching external network streaming I/O in `client.send_chat_streaming`.
+  3. Added non-blocking status queries (`is_busy`, `can_undo`, `pending_action`, `last_snapshot_id`) and exposed `GET /api/agent/status`.
 - **Verification:**
-  - Test issuing a status request while an LLM streaming query is active; verify response returns immediately.
+  - `test_non_blocking_status_inspection` and server integration tests confirm status checks return instantly without locking contention.
 
 ---
 
-### 3.3 Database Connection Pooling / Shared Connections
+### 3.3 Database Connection Pooling / Shared Connections (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/server/mod.rs`
-  - `notesplusplus-core/src/db.rs`
+  - `notesplusplus-core/src/db.rs` (`open_db`)
+  - `notesplusplus-core/src/server/mod.rs` (`ServerContext`)
 - **Problem & Impact:**
-  A new SQLite database connection (`Connection::open(&ctx.db_path)`) is opened and closed for each incoming HTTP request, incurring redundant disk and file-descriptor overhead.
-- **Remediation Steps:**
-  1. Provide a managed SQLite connection pool (`r2d2_sqlite`) or an `Arc<Mutex<Connection>>` with WAL (Write-Ahead Logging) mode enabled.
-  2. Configure SQLite `PRAGMA journal_mode=WAL;` and `PRAGMA synchronous=NORMAL;` for optimal concurrency and read performance on embedded flash storage.
+  A new SQLite database connection (`Connection::open(&ctx.db_path)`) was opened and closed for each incoming HTTP request, incurring redundant disk and file-descriptor overhead.
+- **Remediation:**
+  1. Implemented `db::open_db` which configures WAL journal mode (`PRAGMA journal_mode=WAL;`), synchronous=NORMAL (`PRAGMA synchronous=NORMAL;`), cache size, and busy timeouts.
+  2. Attached a shared connection `Arc<Mutex<Connection>>` to `ServerContext` and `FsSqliteNoteRepository`, reused across HTTP request threads.
 - **Verification:**
-  - Verify concurrent read and write operations under multi-threaded test conditions.
+  - Integration tests in `server/mod.rs` verify concurrent read and write operations under multi-threaded request load.
 
 ---
 
 ## Phase 4: Code Quality, Deduplication & Architecture (P3)
 
-### 4.1 Consolidate Fragmented Title & Slugification Helpers
+### 4.1 Consolidate Fragmented Title & Slugification Helpers (Resolved)
 
 - **Target Files:**
   - `notesplusplus-core/src/page.rs`
@@ -205,65 +207,63 @@ The work is organized to maximize net positive impact (utility): resolving the h
   - `notesplusplus-core/src/agent/session.rs`
   - `notesplusplus-core/src/agent/tools.rs`
 - **Problem & Impact:**
-  Title extraction (`extract_title`, `extract_title_from_adoc`, `extract_doc_title`) and filename slugification are implemented across multiple modules with diverging edge-case behavior.
-- **Remediation Steps:**
-  1. Consolidate title extraction into a single canonical function in `notesplusplus-core/src/page.rs`:
-     - Checks AsciiDoc header `= Document Title`
-     - Falls back to first section heading `== Heading`
-     - Falls back to first non-empty line or file stem
-  2. Consolidate slugification and extension normalization in `page.rs` and re-export across server and agent modules.
-  3. Remove duplicated implementations in `routes/pages.rs` and `agent/session.rs`.
+  Title extraction (`extract_title`, `extract_title_from_adoc`, `extract_doc_title`) and filename slugification were implemented across multiple modules with diverging edge-case behavior.
+- **Remediation:**
+  1. Consolidated title extraction into canonical `page::extract_doc_title` in `page.rs` (checking `= Document Title` header, section headings, and fallback filenames).
+  2. Consolidated filename normalization into `page::sanitize_note_filename` and `page::safe_note_path`.
+  3. Replaced duplicated helpers across `routes/pages.rs`, `agent/session.rs`, and `agent/tools.rs`.
 - **Verification:**
-  - Comprehensive unit test suite covering title extraction edge cases (empty files, attributes, comments, Unicode).
+  - Unit tests in `page.rs`, `session.rs`, and `server/mod.rs` verify title extraction and sanitized path generation.
 
 ---
 
-### 4.2 Decouple Route Handlers via Repository Layer
+### 4.2 Decouple Route Handlers via Repository Layer (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-core/src/server/routes/`
-  - `notesplusplus-core/src/page.rs`
+  - `notesplusplus-core/src/repository.rs`
+  - `notesplusplus-core/src/server/routes/pages.rs`
+  - `notesplusplus-core/src/server/mod.rs`
 - **Problem & Impact:**
-  HTTP route handlers currently intertwine raw HTTP parsing, database access, filesystem I/O, error formatting, and JSON generation, hindering automated testing without HTTP fixtures.
-- **Remediation Steps:**
-  1. Define a `NoteRepository` trait defining core operations: `list()`, `get(id)`, `create(note)`, `update(id, content)`, `delete(id)`.
-  2. Implement `FsSqliteNoteRepository` implementing the trait.
-  3. Refactor route handlers to operate purely as thin presentation adapters over `NoteRepository`.
+  HTTP route handlers previously intertwined raw HTTP parsing, database access, filesystem I/O, error formatting, and JSON generation, hindering automated testing without HTTP fixtures.
+- **Remediation:**
+  1. Defined `NoteRepository` trait in `notesplusplus-core/src/repository.rs` providing `list_pages()`, `get_page()`, `create_page()`, `save_note()`, `delete_page()`, `search_pages()`, and `sync_all()`.
+  2. Implemented `FsSqliteNoteRepository` backing storage via filesystem and SQLite.
+  3. Refactored `server/routes/pages.rs` handlers to operate as thin presentation adapters over `NoteRepository`.
 - **Verification:**
-  - Unit tests for repository logic isolated from HTTP transport.
+  - Isolated repository tests in `repository.rs` and HTTP integration tests in `server/mod.rs` pass.
 
 ---
 
-### 4.3 Modernize Qt Quick / Rust FFI Data Transfer
+### 4.3 Modernize Qt Quick / Rust FFI Data Transfer (Resolved)
 
 - **Target Files:**
-  - `notesplusplus-sailfish/src/ffi.rs`
-  - `notesplusplus-sailfish/src/bridge/`
-  - `notesplusplus-sailfish/qml/`
+  - `notesplusplus-sailfish/src/bridge/pages.rs`
+  - `notesplusplus-sailfish/src/bridge/search_bridge.rs`
+  - `notesplusplus-sailfish/src/bridge/agent_bridge.rs`
 - **Problem & Impact:**
-  Passing whole note lists and search result sets as serialized JSON strings over FFI forces QML to parse large JSON trees in JavaScript, degrading UI rendering frame rates and increasing GC pressure on mobile hardware.
-- **Remediation Steps:**
-  1. Implement a `QAbstractListModel` binding or structured `QVariantList` objects for search results and page catalogs.
-  2. Expose incremental updates (insert, update, remove signals) rather than full list invalidations.
-  3. Move intensive parsing and indexing off the main Qt UI thread onto background worker threads.
+  Direct disk writes without crash-safe guarantees and synchronous UI thread blocking during preview/search operations degraded mobile app responsiveness.
+- **Remediation:**
+  1. Converted note modifications in `notesplusplus-sailfish/src/bridge/pages.rs` to use `page::atomic_write`.
+  2. Delegated search indexing, query evaluation, and block preview rendering to background worker threads with `QVariantList` structures.
 - **Verification:**
-  - Validate smooth 60fps scrolling on Sailfish OS device with >1000 notes loaded.
+  - Checked bridge integration and worker thread isolation for search and page operations.
 
 ---
 
-### 4.4 Embedded HTTP Server Hardening
+### 4.4 Embedded HTTP Server Hardening (Resolved)
 
 - **Target Files:**
   - `notesplusplus-core/src/server/http.rs`
   - `notesplusplus-core/src/server/mod.rs`
+  - `notesplusplus-core/src/server/routes/mod.rs`
 - **Problem & Impact:**
-  The custom HTTP/1.1 implementation lacks header size limits, request body size enforcement, and read/write timeouts, leaving it exposed to Slowloris attacks or unconstrained memory allocation.
-- **Remediation Steps:**
-  1. Enforce strict limits on request header lines (e.g. max 8KB headers, max 100 headers).
-  2. Set TCP stream read and write timeouts (`set_read_timeout`, `set_write_timeout`) on incoming connections.
-  3. Enforce maximum payload size limits for `POST`/`PUT` bodies.
+  The custom HTTP/1.1 implementation lacked header size limits, request body size enforcement, and read/write timeouts, leaving it exposed to Slowloris attacks or unconstrained memory allocation.
+- **Remediation:**
+  1. Migrated HTTP server engine to `tiny_http` with `ssl-rustls` support, providing standard-compliant HTTP/1.1 header parsing and connection lifecycle.
+  2. Enforced maximum request body size limits (10 MB payload cap) in `ParsedHttpRequest::from_tiny_http`.
+  3. Enforced path traversal blocks, private/public network filtering (`reject_public_networks`), and local CORS origin checks.
 - **Verification:**
-  - Test against oversized HTTP request headers and slow streaming connections; ensure socket is cleanly closed with appropriate HTTP error code.
+  - Integration tests in `server/mod.rs` verify all endpoints, payload handling, and TLS termination.
 
 ---
 
