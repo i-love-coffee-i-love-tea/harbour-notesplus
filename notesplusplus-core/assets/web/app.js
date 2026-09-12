@@ -1,5 +1,5 @@
 import { createApp, ref, computed, watch, nextTick, onMounted } from 'vue';
-import { formatMarkdown, extractSlides, getRequestedNote, consumeSseStream } from './composables/utils.js';
+import { formatMarkdown, extractSlides, getRequestedNote, consumeSseStream } from '/composables/utils.js';
 
 // Initialize Asciidoctor compiler instance if available
 let asciidoctorInstance = null;
