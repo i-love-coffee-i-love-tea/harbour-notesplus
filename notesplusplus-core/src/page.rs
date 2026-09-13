@@ -742,7 +742,7 @@ pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats
     })
 }
 
-/// Purges records from DB and FTS when files no longer exist on disk.
+/// Purges page records from DB and FTS when files no longer exist on disk.
 pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
     let mut stmt = conn.prepare("SELECT id, filename, group_path FROM pages")?;
     let rows: Vec<(i64, String, String)> = stmt
