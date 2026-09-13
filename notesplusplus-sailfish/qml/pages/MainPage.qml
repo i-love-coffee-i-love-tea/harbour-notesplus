@@ -186,7 +186,7 @@ Page {
                 }
             }
             MenuItem {
-                text: qsTr("New Page")
+                text: qsTr("New Note")
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
                     dialog.accepted.connect(function() {
@@ -262,7 +262,7 @@ Page {
             SearchField {
                 id: searchField
                 width: parent.width
-                placeholderText: qsTr("Search pages...")
+                placeholderText: qsTr("Search your notes...")
                 onTextChanged: {
                     if (text.length > 0) {
                         bridge.do_search(text)

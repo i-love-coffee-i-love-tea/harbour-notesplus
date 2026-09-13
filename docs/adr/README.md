@@ -15,6 +15,7 @@ This directory documents the key architectural decisions made in **Notes++** (`h
 | [ADR-007](007-offline-vendored-web-assets.md) | Zero External CDN Dependency and Vendored Vue 3 ESM Assets | Accepted |
 | [ADR-008](008-provider-agnostic-llm-adapter-architecture.md) | Extensible LLM Client Adapter for Local and Cloud AI Backends | Accepted |
 | [ADR-009](009-presentation-mode-document-segmentation.md) | Dynamic Slide Deck Partitioning via Headings and Page Breaks | Accepted |
+| [ADR-010](010-note-storage-directory-convention.md) | Note Storage Directory Convention and Asset Directories | Accepted |
 
 ## ADR Template
 

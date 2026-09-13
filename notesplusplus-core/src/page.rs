@@ -466,8 +466,22 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, t
             return Ok(());
         }
     }
-    copy_dir_recursive(conn, notes_dir, examples_dir, &dest_dir, target_group)?;
+    copy_dir_recursive(conn, notes_dir, examples_dir, &dest_dir, target_group, false)?;
     Ok(())
+}
+
+/// Returns true if `dir` is an asset directory for a .adoc file in its parent.
+/// Convention: a directory named `foo/` is an asset directory if `foo.adoc` exists alongside it.
+fn is_asset_dir(dir: &Path) -> bool {
+    let dir_name = match dir.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return false,
+    };
+    let parent = match dir.parent() {
+        Some(p) => p,
+        None => return false,
+    };
+    parent.join(format!("{}.adoc", dir_name)).exists()
 }
 
 fn copy_dir_recursive(
@@ -476,54 +490,82 @@ fn copy_dir_recursive(
     current_src_dir: &Path,
     current_dest_dir: &Path,
     current_group: &str,
+    in_asset_dir: bool,
 ) -> Result<(), CoreError> {
     for entry in std::fs::read_dir(current_src_dir)? {
         let entry = entry?;
         let path = entry.path();
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
         if path.is_file() {
-            let dest = current_dest_dir.join(&filename);
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "adoc" {
-                if !dest.exists() {
-                    std::fs::copy(&path, &dest)?;
-                    let title = filename.trim_end_matches(".adoc").replace('_', " ");
-                    let now = chrono::Utc::now().to_rfc3339();
-                    conn.execute(
-                        "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
-                         VALUES (?1, ?2, ?3, 0, ?4, ?4, 0)",
-                        rusqlite::params![filename, current_group, title, now],
-                    )?;
-                    if let Ok(page_id) = conn.query_row(
-                        "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
-                        rusqlite::params![current_group, filename],
-                        |row| row.get::<_, i64>(0),
-                    ) {
-                        if let Ok(content) = std::fs::read_to_string(&dest) {
-                            let _ = db::update_fts_content(conn, page_id, &content);
-                        }
+            if in_asset_dir {
+                // Inside an asset directory: skip .adoc files, copy everything else to notes root
+                if ext == "adoc" {
+                    continue;
+                }
+                let root_dest = notes_root.join(&filename);
+                if !root_dest.exists() {
+                    let _ = std::fs::copy(&path, &root_dest);
+                }
+                // Also copy to the current dest if different from root
+                if current_dest_dir != notes_root {
+                    let dest = current_dest_dir.join(&filename);
+                    if !dest.exists() {
+                        let _ = std::fs::copy(&path, &dest);
                     }
                 }
-            } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
-                if !dest.exists() {
-                    let _ = std::fs::copy(&path, &dest);
-                }
-                if current_dest_dir != notes_root {
-                    let root_dest = notes_root.join(&filename);
-                    if !root_dest.exists() {
-                        let _ = std::fs::copy(&path, &root_dest);
+            } else {
+                let dest = current_dest_dir.join(&filename);
+                if ext == "adoc" {
+                    if !dest.exists() {
+                        std::fs::copy(&path, &dest)?;
+                        let title = filename.trim_end_matches(".adoc").replace('_', " ");
+                        let now = chrono::Utc::now().to_rfc3339();
+                        conn.execute(
+                            "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0)",
+                            rusqlite::params![filename, current_group, title, now],
+                        )?;
+                        if let Ok(page_id) = conn.query_row(
+                            "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
+                            rusqlite::params![current_group, filename],
+                            |row| row.get::<_, i64>(0),
+                        ) {
+                            if let Ok(content) = std::fs::read_to_string(&dest) {
+                                let _ = db::update_fts_content(conn, page_id, &content);
+                            }
+                        }
+                    }
+                } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
+                    if !dest.exists() {
+                        let _ = std::fs::copy(&path, &dest);
+                    }
+                    if current_dest_dir != notes_root {
+                        let root_dest = notes_root.join(&filename);
+                        if !root_dest.exists() {
+                            let _ = std::fs::copy(&path, &root_dest);
+                        }
                     }
                 }
             }
         } else if path.is_dir() {
-            let sub_dest = current_dest_dir.join(&filename);
-            let _ = std::fs::create_dir_all(&sub_dest);
-            let child_group = if current_group.is_empty() {
-                filename.clone()
+            let asset_dir = is_asset_dir(&path);
+            if asset_dir {
+                // Asset directory: recurse with parent's group, don't register as a group
+                let sub_dest = current_dest_dir.join(&filename);
+                let _ = std::fs::create_dir_all(&sub_dest);
+                let _ = copy_dir_recursive(conn, notes_root, &path, &sub_dest, current_group, true);
             } else {
-                format!("{}/{}", current_group, filename)
-            };
-            let _ = copy_dir_recursive(conn, notes_root, &path, &sub_dest, &child_group);
+                // Normal directory: register as group, recurse with new group path
+                let sub_dest = current_dest_dir.join(&filename);
+                let _ = std::fs::create_dir_all(&sub_dest);
+                let child_group = if current_group.is_empty() {
+                    filename.clone()
+                } else {
+                    format!("{}/{}", current_group, filename)
+                };
+                let _ = copy_dir_recursive(conn, notes_root, &path, &sub_dest, &child_group, false);
+            }
         }
     }
     Ok(())
@@ -630,24 +672,73 @@ fn sync_dir_recursive(
             if sanitized_dir.is_empty() {
                 continue;
             }
-            let child_group = if current_group.is_empty() {
-                sanitized_dir.clone()
+
+            if is_asset_dir(&path) {
+                // Asset directory: recurse with parent's group, don't register as a group
+                sync_dir_recursive(conn, notes_root, &path, current_group, depth + 1)?;
             } else {
-                format!("{}/{}", current_group, sanitized_dir)
-            };
+                // Normal directory: register as group and recurse
+                let child_group = if current_group.is_empty() {
+                    sanitized_dir.clone()
+                } else {
+                    format!("{}/{}", current_group, sanitized_dir)
+                };
 
-            let now = chrono::Utc::now().to_rfc3339();
-            let _ = conn.execute(
-                "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, created_at)
-                 VALUES (?1, ?2, 0, 0, ?3)",
-                rusqlite::params![child_group, dir_name, now],
-            );
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, created_at)
+                     VALUES (?1, ?2, 0, 0, ?3)",
+                    rusqlite::params![child_group, dir_name, now],
+                );
 
-            sync_dir_recursive(conn, notes_root, &path, &child_group, depth + 1)?;
+                sync_dir_recursive(conn, notes_root, &path, &child_group, depth + 1)?;
+            }
         }
     }
 
     Ok(())
+}
+
+/// Statistics returned by `rebuild_index`.
+pub struct RebuildStats {
+    pub pages_indexed: usize,
+    pub groups_found: usize,
+}
+
+/// Destroys and recreates the full-text search index, clears all page and group
+/// records, and rescans the notes directory from scratch. Use this to recover
+/// from suspected index corruption.
+pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats, CoreError> {
+    // 1. Drop FTS table
+    conn.execute_batch("DROP TABLE IF EXISTS pages_fts")?;
+
+    // 2. Clear pages and groups tables
+    conn.execute("DELETE FROM pages", [])?;
+    conn.execute("DELETE FROM groups", [])?;
+
+    // 3. Recreate FTS table
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE pages_fts USING fts5(
+            filename, title, content,
+            tokenize='porter unicode61'
+        )",
+    )?;
+
+    // 4. Rescan from disk
+    sync_and_index_pages(conn, notes_dir)?;
+
+    // 5. Collect stats
+    let pages_count: usize = conn
+        .query_row("SELECT COUNT(*) FROM pages", [], |r| r.get(0))
+        .unwrap_or(0);
+    let groups_count: usize = conn
+        .query_row("SELECT COUNT(*) FROM groups", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    Ok(RebuildStats {
+        pages_indexed: pages_count,
+        groups_found: groups_count,
+    })
 }
 
 /// Purges records from DB and FTS when files no longer exist on disk.

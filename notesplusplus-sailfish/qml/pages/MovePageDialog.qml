@@ -16,13 +16,17 @@ Dialog {
         try {
             var raw = bridge.get_groups_json()
             var list = JSON.parse(raw)
-            var groups = [{ path: "", display_name: qsTr("Root (Ungrouped)") }]
+            var groups = [{ path: "", display_name: qsTr("Recent Notes") }]
             for (var i = 0; i < list.length; i++) {
-                groups.push(list[i])
+                var g = list[i]
+                // Skip the transparent "notes" root group and subgroups already
+                // stripped by the tree builder (notes/X paths)
+                if (g.path === "notes" || g.path.indexOf("notes/") === 0) continue
+                groups.push(g)
             }
             parsedGroups = groups
         } catch(e) {
-            parsedGroups = [{ path: "", display_name: qsTr("Root (Ungrouped)") }]
+            parsedGroups = [{ path: "", display_name: qsTr("Recent Notes") }]
         }
     }
 
@@ -54,7 +58,7 @@ Dialog {
                 Repeater {
                     model: movePageDialog.parsedGroups
                     MenuItem {
-                        text: modelData.display_name ? (modelData.path.length > 0 ? modelData.path : modelData.display_name) : qsTr("Root (Ungrouped)")
+                        text: modelData.display_name || modelData.path || qsTr("Recent Notes")
                     }
                 }
             }

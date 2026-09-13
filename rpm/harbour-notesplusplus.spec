@@ -80,16 +80,8 @@ mkdir -p %{buildroot}%{_datadir}/%{name}/qml
 cp -r notesplusplus-sailfish/qml/* %{buildroot}%{_datadir}/%{name}/qml/
 
 mkdir -p %{buildroot}%{_datadir}/%{name}/examples
-cp notesplusplus-core/examples/*.adoc %{buildroot}%{_datadir}/%{name}/examples/
-cp notesplusplus-core/examples/*.yml %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
-cp notesplusplus-core/examples/*.png %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
-cp notesplusplus-core/examples/*.jpg %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
-cp notesplusplus-core/examples/*.svg %{buildroot}%{_datadir}/%{name}/examples/ 2>/dev/null || true
+cp -r notesplusplus-core/examples/* %{buildroot}%{_datadir}/%{name}/examples/
 cp rpm/%{name}.png %{buildroot}%{_datadir}/%{name}/examples/icon.png 2>/dev/null || true
-if [ -d notesplusplus-core/examples/chronicles ]; then
-    mkdir -p %{buildroot}%{_datadir}/%{name}/examples/chronicles
-    cp notesplusplus-core/examples/chronicles/* %{buildroot}%{_datadir}/%{name}/examples/chronicles/
-fi
 
 mkdir -p %{buildroot}%{_datadir}/applications
 install -m 644 rpm/%{name}.desktop %{buildroot}%{_datadir}/applications/

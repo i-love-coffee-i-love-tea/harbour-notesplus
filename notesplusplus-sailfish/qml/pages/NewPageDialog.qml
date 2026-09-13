@@ -53,7 +53,7 @@ Dialog {
         spacing: Theme.paddingMedium
 
         DialogHeader {
-            title: targetGroup.length > 0 ? qsTr("New Page in %1").arg(targetGroup) : qsTr("New Page")
+            title: targetGroup.length > 0 ? qsTr("New Note in %1").arg(targetGroup) : qsTr("New Note")
             acceptText: qsTr("Create")
             cancelText: qsTr("Cancel")
         }

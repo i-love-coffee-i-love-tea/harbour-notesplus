@@ -166,6 +166,39 @@ Column {
         }
     }
 
+    BackgroundItem {
+        width: parent.width
+        height: Theme.itemSizeMedium
+        onClicked: {
+            var result = bridge.rebuild_index()
+            rebuildResultLabel.text = result
+        }
+        Row {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.horizontalPageMargin
+            anchors.rightMargin: Theme.horizontalPageMargin
+            spacing: Theme.paddingMedium
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                source: "image://theme/icon-m-refresh"
+                color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+            }
+            Column {
+                anchors.verticalCenter: parent.verticalCenter
+                Label {
+                    text: qsTr("Rebuild Index")
+                    color: parent.parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+                Label {
+                    id: rebuildResultLabel
+                    text: qsTr("Rescan all notes from disk and rebuild the search index")
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    color: Theme.secondaryColor
+                }
+            }
+        }
+    }
+
     SectionHeader {
         text: qsTr("Live Preview")
     }

@@ -945,8 +945,30 @@ impl NotesBridge {
         }
     }
 
+    fn rebuild_index_impl(&mut self) -> String {
+        if !self.ensure_init_blocking() {
+            return "Error: database not ready".to_string();
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return "Error: no database connection".to_string(),
+        };
+        match notesplusplus_core::page::rebuild_index(conn, &self.notes_dir()) {
+            Ok(stats) => {
+                eprintln!("[debug] rebuild_index: {} pages, {} groups", stats.pages_indexed, stats.groups_found);
+                self.load_main_page_data_impl();
+                format!("Rebuilt: {} pages, {} groups", stats.pages_indexed, stats.groups_found)
+            }
+            Err(e) => {
+                eprintln!("[debug] rebuild_index error: {}", e);
+                format!("Error: {}", e)
+            }
+        }
+    }
+
     // QML method wrappers
     pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
+    pub fn rebuild_index(&mut self) -> String { self.rebuild_index_impl() }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }
     pub fn save_block(&mut self, index: i32, raw_text: String) { self.save_block_impl(index, raw_text); }
     pub fn save_block_range(&mut self, start_index: i32, count: i32, raw_text: String) { self.save_block_range_impl(start_index, count, raw_text); }

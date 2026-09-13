@@ -99,6 +99,7 @@ pub struct NotesBridge {
     set_group_display_depth: qt_method!(fn(&mut self, depth: i32)),
     toggle_group_collapsed: qt_method!(fn(&mut self, group_path: String) -> bool),
     get_groups_json: qt_method!(fn(&mut self) -> String),
+    rebuild_index: qt_method!(fn(&mut self) -> String),
     do_search: qt_method!(fn(&mut self, query: String)),
     search: qt_method!(fn(&mut self, query: String)),
     poll_search: qt_method!(fn(&mut self) -> bool),
@@ -211,6 +212,7 @@ impl Default for NotesBridge {
             set_group_display_depth: Default::default(),
             toggle_group_collapsed: Default::default(),
             get_groups_json: Default::default(),
+            rebuild_index: Default::default(),
             do_search: Default::default(),
             search: Default::default(),
             poll_search: Default::default(),
@@ -301,7 +303,7 @@ impl NotesBridge {
                     eprintln!("[debug] init_schema in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"), "notes");
+                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"), "");
                     eprintln!("[debug] copy_examples in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();

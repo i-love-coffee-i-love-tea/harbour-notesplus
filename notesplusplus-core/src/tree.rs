@@ -82,7 +82,7 @@ pub fn build_group_tree(
         if !root_pages.is_empty() {
             root_trees.push(build_node(
                 "",
-                "Recent Pages",
+                "Recent Notes",
                 false,
                 0,
                 max_depth,
@@ -493,5 +493,29 @@ mod tests {
         let sub_children = beta_children[0]["children"].as_array().unwrap();
         assert_eq!(sub_children.len(), 1);
         assert_eq!(sub_children[0]["path"], "Beta/Sub/Deep");
+    }
+
+    #[test]
+    fn test_ungrouped_and_grouped_pages() {
+        let pages = vec![
+            make_page(1, "Root.adoc", "", "Root Note"),
+            make_page(2, "Work.adoc", "Work", "Work Note"),
+        ];
+
+        let groups = vec![make_group("Work", "Work")];
+
+        let tree_json = build_group_tree(&pages, &groups, 5, None, true, None, None);
+        let parsed: serde_json::Value = serde_json::from_str(&tree_json).unwrap();
+        let arr = parsed.as_array().unwrap();
+
+        assert_eq!(arr.len(), 2); // Recent Notes + Work
+
+        let recent = &arr[0];
+        assert_eq!(recent["path"], "");
+        assert_eq!(recent["pages"].as_array().unwrap().len(), 1);
+
+        let work = &arr[1];
+        assert_eq!(work["path"], "Work");
+        assert_eq!(work["pages"].as_array().unwrap().len(), 1);
     }
 }

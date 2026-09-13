@@ -49,7 +49,7 @@ Page {
                     }
                     Label {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: qsTr("New Page in Group")
+                        text: qsTr("New Note in Group")
                         color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                     }
                 }
