@@ -225,7 +225,7 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             // Use __LINK_COLOR__ placeholder — QML substitutes Theme.highlightColor
             format!("<h3 style='color:__LINK_COLOR__;margin:6px 0 2px 0;'>{}</h3>", render_spans(spans, ctx))
         }
-        Block::CodeBlock { lines, language, .. } if language.as_deref() == Some("svgbob") => {
+        Block::CodeBlock { lines, language, .. } if language.as_deref().map(|l| l.eq_ignore_ascii_case("svgbob")).unwrap_or(false) => {
             let source = lines.join("\n");
             let svg = crate::diagram::render_svgbob(&source);
             let b64 = crate::html::base64_encode(svg.as_bytes());

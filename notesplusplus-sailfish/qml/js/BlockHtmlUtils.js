@@ -16,13 +16,22 @@ function handleLink(link, xrefCallback, toggleCallback) {
 }
 
 function stripAndApplyPrefix(text, prefix) {
-    var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\.\s+)/;
-    var lines = text.split('\n');
+    var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\+\s+|\.\s+|\d+[\.\)]\s+|•\s+)/;
+    var lines = text.split(/\r?\n/);
     var stripped = lines.map(function(line) {
-        if (line.trim().length === 0) return line;
-        return regex.test(line) ? line.replace(regex, '') : line;
+        var trimmed = line.trim();
+        if (trimmed.length === 0) return "";
+        return regex.test(trimmed) ? trimmed.replace(regex, '') : trimmed;
     });
-    return stripped.map(function(line) { return prefix + line; }).join('\n');
+    return stripped.map(function(line) {
+        if (line.length === 0) return "";
+        return prefix + line;
+    }).join('\n');
+}
+
+function formatPasteWithPrefix(text, prefix) {
+    if (!text || text.length === 0) return "";
+    return stripAndApplyPrefix(text, prefix);
 }
 
 function highlightSearchTerms(html, term) {

@@ -46,6 +46,7 @@ Item {
     signal checkboxToggled(int blockIndex, string itemPath)
     signal toggleToc(int blockIndex)
     signal jumpToBlock(int targetIndex)
+    signal editorReady(var textArea)
 
     width: parent ? parent.width : Screen.width
     height: isEditing ? (inlineEditorLoader.height + Theme.paddingSmall) : blockLoader.height
@@ -326,10 +327,17 @@ Item {
         width: parent ? parent.width : Screen.width
         height: active && item ? item.implicitEditorHeight + Theme.paddingMedium : 0
         visible: active
+        onLoaded: {
+            if (item && item.textArea) {
+                delegate.editorReady(item.textArea)
+            }
+        }
 
         sourceComponent: Component {
             Item {
+                id: editorItemWrapper
                 property int implicitEditorHeight: inlineTextArea.implicitHeight
+                property alias textArea: inlineTextArea
                 width: parent ? parent.width : Screen.width
                 height: inlineTextArea.implicitHeight + Theme.paddingMedium
 
@@ -365,6 +373,7 @@ Item {
                     }
                     Component.onCompleted: {
                         forceActiveFocus()
+                        delegate.editorReady(inlineTextArea)
                     }
                 }
             }

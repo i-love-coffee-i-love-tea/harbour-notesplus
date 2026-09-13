@@ -19,6 +19,7 @@ Page {
     property string editingCurrentText: ""
     property bool isAddingNewBlock: false
     property string newBlockText: ""
+    property var currentEditorTextArea: null
 
     property var collapsedTocBlocks: ({})
 
@@ -394,6 +395,9 @@ Page {
                 pageView.editingBlockIndex = range.start
                 pageView.editingBlockCount = range.count
             }
+            onEditorReady: function(ta) {
+                pageView.currentEditorTextArea = ta
+            }
             onTextModified: function(idx, newText) {
                 if (pageView.editingBlockIndex === idx) {
                     pageView.editingCurrentText = newText
@@ -404,6 +408,7 @@ Page {
                 pageView.editingBlockIndex = -1
                 pageView.editingRawText = ""
                 pageView.editingCurrentText = ""
+                pageView.currentEditorTextArea = null
             }
             onCancelEditRequested: function() {
                 pageView.cancelCurrentEditing()
@@ -435,43 +440,19 @@ Page {
             }
         }
         onPrefixRequested: function(prefix, multiLine) {
-            if (pageView.isAddingNewBlock) {
-                pageView.applyNewBlockPrefix(prefix, multiLine)
-            } else {
-                pageView.applyBlockPrefix(prefix, multiLine)
-            }
+            pageView.applyPrefixToActiveEditor(prefix, multiLine)
         }
         onLinkRequested: {
-            var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
-                selectedText: ""
-            })
-            dialog.accepted.connect(function() {
-                var link = dialog.formattedLink
-                if (!link) return
-                if (pageView.isAddingNewBlock) {
-                    pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + " " : "") + link
-                } else if (pageView.editingBlockIndex >= 0) {
-                    var cur = pageView.editingCurrentText || ""
-                    var updated = (cur.length > 0 ? cur + " " : "") + link
-                    pageView.editingRawText = updated
-                    pageView.editingCurrentText = updated
-                }
-            })
+            pageView.insertLinkIntoActiveEditor()
         }
         onPasteRequested: {
-            var clipText = Clipboard.text
-            if (!clipText || clipText.length === 0) {
-                remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
-                return
-            }
-            if (pageView.isAddingNewBlock) {
-                pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + "\n" : "") + clipText
-            } else if (pageView.editingBlockIndex >= 0) {
-                var cur = pageView.editingCurrentText || ""
-                var updated = (cur.length > 0 ? cur + "\n" : "") + clipText
-                pageView.editingRawText = updated
-                pageView.editingCurrentText = updated
-            }
+            pageView.pasteTextIntoActiveEditor(Clipboard.text)
+        }
+        onPasteSpecialRequested: function(prefix, multiLine) {
+            pageView.pasteSpecialIntoActiveEditor(prefix, multiLine)
+        }
+        onRefocusRequested: {
+            pageView.refocusActiveEditor()
         }
     }
 
@@ -497,14 +478,220 @@ Page {
         return { start: start, count: end - start + 1 }
     }
 
+    function getActiveEditorTextArea() {
+        if (pageView.isAddingNewBlock) return inlineNewTextArea
+        if (pageView.currentEditorTextArea) return pageView.currentEditorTextArea
+        return null
+    }
+
+    function refocusActiveEditor() {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        }
+    }
+
+    function pasteTextIntoActiveEditor(clipText) {
+        if (!clipText || clipText.length === 0) {
+            remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
+            return
+        }
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var start = Math.min(target.selectionStart, target.selectionEnd)
+            var end = Math.max(target.selectionStart, target.selectionEnd)
+            var txt = target.text || ""
+            var pos = target.cursorPosition
+            if (start !== end && start >= 0 && end <= txt.length) {
+                var before = txt.substring(0, start)
+                var after = txt.substring(end)
+                target.text = before + clipText + after
+                target.cursorPosition = start + clipText.length
+            } else {
+                if (pos < 0 || pos > txt.length) pos = txt.length
+                var before = txt.substring(0, pos)
+                var after = txt.substring(pos)
+                target.text = before + clipText + after
+                target.cursorPosition = pos + clipText.length
+            }
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = target.text
+            } else if (pageView.editingBlockIndex >= 0) {
+                pageView.editingCurrentText = target.text
+                pageView.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        } else {
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + "\n" : "") + clipText
+            } else if (pageView.editingBlockIndex >= 0) {
+                var cur = pageView.editingCurrentText || ""
+                var updated = (cur.length > 0 ? cur + "\n" : "") + clipText
+                pageView.editingRawText = updated
+                pageView.editingCurrentText = updated
+            }
+        }
+    }
+
+    function pasteSpecialIntoActiveEditor(prefix, multiLine) {
+        var clipText = Clipboard.text
+        if (!clipText || clipText.length === 0) {
+            remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
+            return
+        }
+        var formatted = BlockHtmlUtils.formatPasteWithPrefix(clipText, prefix)
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var start = Math.min(target.selectionStart, target.selectionEnd)
+            var end = Math.max(target.selectionStart, target.selectionEnd)
+            var txt = target.text || ""
+            var pos = target.cursorPosition
+            var inserted = formatted
+            if (start !== end && start >= 0 && end <= txt.length) {
+                var before = txt.substring(0, start)
+                var after = txt.substring(end)
+                target.text = before + inserted + after
+                target.cursorPosition = start + inserted.length
+            } else {
+                if (pos < 0 || pos > txt.length) pos = txt.length
+                var prefixNewline = ""
+                if (pos > 0 && txt.charAt(pos - 1) !== '\n') {
+                    prefixNewline = "\n"
+                }
+                var toInsert = prefixNewline + inserted
+                var before = txt.substring(0, pos)
+                var after = txt.substring(pos)
+                target.text = before + toInsert + after
+                target.cursorPosition = pos + toInsert.length
+            }
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = target.text
+            } else if (pageView.editingBlockIndex >= 0) {
+                pageView.editingCurrentText = target.text
+                pageView.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        } else {
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + "\n" : "") + formatted
+            } else if (pageView.editingBlockIndex >= 0) {
+                var cur = pageView.editingCurrentText || ""
+                var updated = (cur.length > 0 ? cur + "\n" : "") + formatted
+                pageView.editingRawText = updated
+                pageView.editingCurrentText = updated
+            }
+        }
+    }
+
+    function applyPrefixToActiveEditor(prefix, multiLineList) {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var curPos = target.cursorPosition
+            var txt = target.text || ""
+            var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
+            target.text = newText
+            var diff = newText.length - txt.length
+            var newPos = Math.max(0, Math.min(newText.length, curPos + diff))
+            target.cursorPosition = newPos
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = newText
+            } else {
+                pageView.editingRawText = newText
+                pageView.editingCurrentText = newText
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        } else {
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = BlockHtmlUtils.stripAndApplyPrefix(pageView.newBlockText || "", prefix)
+            } else {
+                var txt = pageView.editingCurrentText || ""
+                var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
+                pageView.editingRawText = newText
+                pageView.editingCurrentText = newText
+            }
+        }
+    }
+
+    function insertLinkIntoActiveEditor() {
+        var target = getActiveEditorTextArea()
+        var sel = ""
+        if (target) {
+            var start = Math.min(target.selectionStart, target.selectionEnd)
+            var end = Math.max(target.selectionStart, target.selectionEnd)
+            var txt = target.text || ""
+            if (start !== end && start >= 0 && end <= txt.length) {
+                sel = txt.substring(start, end)
+            }
+        }
+        var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+            selectedText: sel
+        })
+        dialog.accepted.connect(function() {
+            var link = dialog.formattedLink
+            if (!link) return
+            var activeTarget = getActiveEditorTextArea()
+            if (activeTarget) {
+                var start = Math.min(activeTarget.selectionStart, activeTarget.selectionEnd)
+                var end = Math.max(activeTarget.selectionStart, activeTarget.selectionEnd)
+                var txt = activeTarget.text || ""
+                var pos = activeTarget.cursorPosition
+                if (start !== end && start >= 0 && end <= txt.length) {
+                    var before = txt.substring(0, start)
+                    var after = txt.substring(end)
+                    activeTarget.text = before + link + after
+                    activeTarget.cursorPosition = start + link.length
+                } else {
+                    if (pos < 0 || pos > txt.length) pos = txt.length
+                    var before = txt.substring(0, pos)
+                    var after = txt.substring(pos)
+                    activeTarget.text = before + link + after
+                    activeTarget.cursorPosition = pos + link.length
+                }
+                if (pageView.isAddingNewBlock) {
+                    pageView.newBlockText = activeTarget.text
+                } else if (pageView.editingBlockIndex >= 0) {
+                    pageView.editingCurrentText = activeTarget.text
+                    pageView.editingRawText = activeTarget.text
+                }
+                activeTarget.forceActiveFocus()
+                Qt.callLater(function() {
+                    if (activeTarget) activeTarget.forceActiveFocus()
+                })
+            } else {
+                if (pageView.isAddingNewBlock) {
+                    pageView.newBlockText = (pageView.newBlockText && pageView.newBlockText.length > 0 ? pageView.newBlockText + " " : "") + link
+                } else if (pageView.editingBlockIndex >= 0) {
+                    var cur = pageView.editingCurrentText || ""
+                    var updated = (cur.length > 0 ? cur + " " : "") + link
+                    pageView.editingRawText = updated
+                    pageView.editingCurrentText = updated
+                }
+            }
+        })
+    }
+
     function startAddingNewBlock() {
         if (editingBlockIndex >= 0) {
             saveCurrentEditingBlock()
         }
         newBlockText = ""
         isAddingNewBlock = true
+        currentEditorTextArea = inlineNewTextArea
         Qt.callLater(function() {
             listView.positionViewAtEnd()
+            inlineNewTextArea.forceActiveFocus()
         })
     }
 
@@ -516,23 +703,22 @@ Page {
             }
             isAddingNewBlock = false
             newBlockText = ""
+            currentEditorTextArea = null
         }
     }
 
     function cancelNewBlock() {
         isAddingNewBlock = false
         newBlockText = ""
+        currentEditorTextArea = null
     }
 
     function applyNewBlockPrefix(prefix, multiLineList) {
-        newBlockText = BlockHtmlUtils.stripAndApplyPrefix(newBlockText || "", prefix)
+        applyPrefixToActiveEditor(prefix, multiLineList)
     }
 
     function applyBlockPrefix(prefix, multiLineList) {
-        var txt = editingCurrentText || ""
-        var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
-        editingRawText = newText
-        editingCurrentText = newText
+        applyPrefixToActiveEditor(prefix, multiLineList)
     }
 
     function saveCurrentEditingBlock() {
@@ -546,6 +732,7 @@ Page {
             editingBlockCount = 1
             editingRawText = ""
             editingCurrentText = ""
+            currentEditorTextArea = null
         }
     }
 
@@ -554,5 +741,6 @@ Page {
         editingBlockCount = 1
         editingRawText = ""
         editingCurrentText = ""
+        currentEditorTextArea = null
     }
 }

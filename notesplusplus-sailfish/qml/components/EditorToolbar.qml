@@ -79,8 +79,8 @@ Rectangle {
             }
             ListElement {
                 itemId: "checkbox"
-                icon: "image://theme/icon-s-task"
-                label: ""
+                icon: ""
+                label: "☐"
                 actionType: "line"
                 snippet: "- [ ] "
                 cursorOffset: 6
@@ -241,7 +241,7 @@ Rectangle {
                 visible: !itemIcon.visible
                 text: model.label || ""
                 color: buttonItem.highlighted ? Theme.highlightColor : Theme.primaryColor
-                font.pixelSize: (model.label === "•") ? Theme.fontSizeLarge : Theme.fontSizeMedium
+                font.pixelSize: (model.label === "•" || model.label === "☐") ? Theme.fontSizeLarge : Theme.fontSizeMedium
                 font.bold: model.itemId === "bold" || model.itemId === "h2" || model.itemId === "h3" || model.itemId === "numbered"
                 font.italic: model.itemId === "italic"
                 font.family: (model.itemId === "mono" || model.itemId === "source") ? "monospace" : Theme.fontFamily

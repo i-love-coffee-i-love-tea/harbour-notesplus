@@ -363,6 +363,13 @@ impl Block {
                 insert_title(&mut map, title);
                 if let Some(lang) = language {
                     map.insert("language".into(), serde_json::Value::String(lang.clone()));
+                    if lang.eq_ignore_ascii_case("svgbob") {
+                        let source = lines.join("\n");
+                        let svg = crate::diagram::render_svgbob(&source);
+                        let b64 = crate::html::base64_encode(svg.as_bytes());
+                        map.insert("svg".into(), serde_json::Value::String(svg));
+                        map.insert("svg_data".into(), serde_json::Value::String(format!("data:image/svg+xml;base64,{}", b64)));
+                    }
                 }
                 map.insert("lines".into(), lines_to_json_array(lines));
             }
@@ -547,6 +554,23 @@ mod tests {
         assert_eq!(json["title"], "Sample Code");
         assert_eq!(json["language"], "rust");
         assert!(json["lines"].is_array());
+    }
+
+    #[test]
+    fn svgbob_code_block_qvariant_map() {
+        let b = Block::CodeBlock {
+            title: Some("Architecture Diagram".into()),
+            language: Some("svgbob".into()),
+            lines: vec!["+---+".into(), "| A |".into(), "+---+".into()],
+            raw: ".Architecture Diagram\n[source,svgbob]\n----\n+---+\n| A |\n+---+\n----".into(),
+        };
+        let json = b.to_qvariant_map();
+        assert_eq!(json["type"], "code_block");
+        assert_eq!(json["title"], "Architecture Diagram");
+        assert_eq!(json["language"], "svgbob");
+        assert!(json["svg"].is_string());
+        assert!(json["svg_data"].is_string());
+        assert!(json["svg_data"].as_str().unwrap().starts_with("data:image/svg+xml;base64,"));
     }
 
     #[test]
