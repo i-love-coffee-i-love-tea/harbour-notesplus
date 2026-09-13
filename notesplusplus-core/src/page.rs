@@ -411,10 +411,25 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
              FROM pages
              WHERE (group_path = ?1 AND filename = ?2)
                 OR (group_path = ?1 AND title = ?3)
-                OR (filename = ?2 AND ?1 = '')
-                OR (title = ?3 AND ?1 = '')
+                OR (?1 = '' AND group_path = '' AND filename = ?2)
+                OR (?1 = '' AND group_path = '' AND title = ?3)
+                OR (filename = ?2)
+                OR (title = ?3)
                 OR (filename = ?4)
                 OR (title = ?4)
+             ORDER BY
+                CASE
+                    WHEN group_path = ?1 AND filename = ?2 THEN 1
+                    WHEN group_path = ?1 AND title = ?3 THEN 2
+                    WHEN ?1 = '' AND group_path = '' AND filename = ?2 THEN 3
+                    WHEN ?1 = '' AND group_path = '' AND title = ?3 THEN 4
+                    WHEN filename = ?2 THEN 5
+                    WHEN title = ?3 THEN 6
+                    WHEN filename = ?4 THEN 7
+                    WHEN title = ?4 THEN 8
+                    ELSE 9
+                END ASC,
+                id ASC
              LIMIT 1",
         )
         ?;
@@ -1623,5 +1638,62 @@ mod tests {
         create_page(&conn, &notes, "Journal", true).unwrap();
         let res = move_page(&conn, &notes, JOURNAL_FILENAME, "Personal");
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_get_page_scoped_to_group() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+
+        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false).unwrap();
+
+        let page_by_full_path = get_page(&conn, "Subgroup/Hendrix.adoc").unwrap().expect("Subgroup note found by full path");
+        assert_eq!(page_by_full_path.group_path, "Subgroup");
+        assert_eq!(page_by_full_path.filename, "Hendrix.adoc");
+        assert_eq!(page_by_full_path.title, "Hendrix");
+
+        let page_by_group_title = get_page(&conn, "Subgroup/Hendrix").unwrap().expect("Subgroup note found by group/title");
+        assert_eq!(page_by_group_title.group_path, "Subgroup");
+        assert_eq!(page_by_group_title.filename, "Hendrix.adoc");
+
+        let page_by_bare_name = get_page(&conn, "Hendrix").unwrap().expect("Subgroup note found by fallback bare name");
+        assert_eq!(page_by_bare_name.group_path, "Subgroup");
+    }
+
+    #[test]
+    fn test_get_page_root_vs_subgroup_collision() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+
+        create_page(&conn, &notes, "Hendrix.adoc", false).unwrap();
+        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false).unwrap();
+
+        let root_note = get_page(&conn, "Hendrix.adoc").unwrap().expect("Root note found");
+        assert_eq!(root_note.group_path, "");
+        assert_eq!(root_note.filename, "Hendrix.adoc");
+
+        let root_note_title = get_page(&conn, "Hendrix").unwrap().expect("Root note found by title");
+        assert_eq!(root_note_title.group_path, "");
+        assert_eq!(root_note_title.filename, "Hendrix.adoc");
+
+        let subgroup_note = get_page(&conn, "Subgroup/Hendrix.adoc").unwrap().expect("Subgroup note found");
+        assert_eq!(subgroup_note.group_path, "Subgroup");
+        assert_eq!(subgroup_note.filename, "Hendrix.adoc");
+
+        let subgroup_note_title = get_page(&conn, "Subgroup/Hendrix").unwrap().expect("Subgroup note found by path without adoc");
+        assert_eq!(subgroup_note_title.group_path, "Subgroup");
+        assert_eq!(subgroup_note_title.filename, "Hendrix.adoc");
+    }
+
+    #[test]
+    fn test_safe_note_path_nested_group() {
+        let temp_dir = TempDir::new().unwrap();
+        let notes_dir = temp_dir.path();
+
+        let path = safe_note_path(notes_dir, "Subgroup/Hendrix.adoc");
+        assert_eq!(path, notes_dir.join("Subgroup").join("Hendrix.adoc"));
+
+        let root_path = safe_note_path(notes_dir, "Hendrix.adoc");
+        assert_eq!(root_path, notes_dir.join("Hendrix.adoc"));
     }
 }

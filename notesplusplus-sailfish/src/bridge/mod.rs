@@ -39,6 +39,7 @@ pub struct NotesBridge {
     // Properties
     current_page_name: qt_property!(String; NOTIFY page_changed),
     current_page_group_path: qt_property!(String; NOTIFY current_page_group_path_changed),
+    current_page_full_path: qt_property!(String; NOTIFY current_page_full_path_changed),
     current_blocks: qt_property!(QVariantList; NOTIFY page_changed),
     is_journal_page: qt_property!(bool; NOTIFY page_changed),
     blocks_version: qt_property!(i32; NOTIFY page_changed),
@@ -68,6 +69,7 @@ pub struct NotesBridge {
     // Signals
     page_changed: qt_signal!(),
     current_page_group_path_changed: qt_signal!(),
+    current_page_full_path_changed: qt_signal!(),
     search_results_changed: qt_signal!(),
     data_refreshed: qt_signal!(),
     group_depth_changed: qt_signal!(),
@@ -163,6 +165,7 @@ impl Default for NotesBridge {
             base: Default::default(),
             current_page_name: String::new(),
             current_page_group_path: String::new(),
+            current_page_full_path: String::new(),
             current_blocks: QVariantList::default(),
             is_journal_page: false,
             blocks_version: 0,
@@ -184,6 +187,7 @@ impl Default for NotesBridge {
             initialized: false,
             page_changed: Default::default(),
             current_page_group_path_changed: Default::default(),
+            current_page_full_path_changed: Default::default(),
             search_results_changed: Default::default(),
             data_refreshed: Default::default(),
             group_depth_changed: Default::default(),

@@ -8,6 +8,11 @@ Page {
     allowedOrientations: Orientation.All
 
     property string pageName: bridge.current_page_name
+    property string pageFullPath: bridge.current_page_full_path.length > 0
+                                  ? bridge.current_page_full_path
+                                  : (bridge.current_page_group_path.length > 0
+                                     ? bridge.current_page_group_path + "/" + pageName
+                                     : pageName)
     property string searchTerm: ""
     property string findInPageTerm: ""
     property bool showFindBar: false
@@ -158,19 +163,21 @@ Page {
                 text: qsTr("Ask AI Assistant")
                 visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {
-                    var content = bridge.get_page_source(pageName)
-                    var fname = pageName.indexOf(".adoc") >= 0 ? pageName : (pageName + ".adoc")
+                    var targetPath = pageView.pageFullPath
+                    var content = bridge.get_page_source(targetPath)
+                    var fname = targetPath.indexOf(".adoc") >= 0 ? targetPath : (targetPath + ".adoc")
                     app.openAssistant(fname, content)
                 }
             }
             MenuItem {
                 text: qsTr("Edit Source")
                 onClicked: {
+                    var targetPath = pageView.pageFullPath
                     var editor = pageStack.push(Qt.resolvedUrl("PageSourceEditor.qml"), {
-                        pageName: pageName
+                        pageName: targetPath
                     })
                     editor.accepted.connect(function() {
-                        bridge.load_page(pageName)
+                        bridge.load_page(targetPath)
                     })
                 }
             }
@@ -183,7 +190,7 @@ Page {
             MenuItem {
                 text: qsTr("Copy Page URL")
                 onClicked: {
-                    var url = bridge.open_in_browser(pageName)
+                    var url = bridge.open_in_browser(pageView.pageFullPath)
                     if (url) {
                         Clipboard.text = url
                         remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
@@ -193,7 +200,7 @@ Page {
             MenuItem {
                 text: qsTr("Export to HTML5")
                 onClicked: {
-                    var path = bridge.export_html(pageName)
+                    var path = bridge.export_html(pageView.pageFullPath)
                     if (path) {
                         remorsePopup.execute(qsTr("Exported to ") + path, function() {})
                     }
@@ -203,7 +210,7 @@ Page {
                 text: qsTr("Move to Group...")
                 visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
                 onClicked: {
-                    var fullPath = bridge.current_page_group_path.length > 0 ? bridge.current_page_group_path + "/" + pageName : pageName
+                    var fullPath = pageView.pageFullPath
                     var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
                         pageFullPath: fullPath,
                         pageTitle: pageName,
@@ -221,8 +228,9 @@ Page {
                 text: qsTr("Delete Page")
                 visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
                 onClicked: {
+                    var fullPath = pageView.pageFullPath
                     remorsePopup.execute(qsTr("Deleting page"), function() {
-                        bridge.delete_page(pageName)
+                        bridge.delete_page(fullPath)
                         pageStack.pop()
                     })
                 }

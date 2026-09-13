@@ -28,7 +28,7 @@ Dialog {
             width: parent.width
 
             DialogHeader {
-                title: qsTr("Edit ") + pageName
+                title: qsTr("Edit ") + (pageName.indexOf('/') >= 0 ? pageName.split('/').pop().replace(/\.adoc$/i, '') : pageName.replace(/\.adoc$/i, ''))
                 acceptText: qsTr("Save")
                 cancelText: qsTr("Cancel")
             }

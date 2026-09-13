@@ -13,16 +13,44 @@ use notesplusplus_core::search as search_mod;
 use super::{NotesBridge, MainPageData, PendingResult};
 
 impl NotesBridge {
-    fn resolve_page_filename(&self, name_or_title: &str) -> String {
-        if name_or_title.eq_ignore_ascii_case(JOURNAL_TITLE) {
+    fn resolve_page_path(&self, name_or_title: &str) -> String {
+        if name_or_title.eq_ignore_ascii_case(JOURNAL_TITLE) || name_or_title == JOURNAL_FILENAME {
             return JOURNAL_FILENAME.to_string();
         }
         if let Some(conn) = self.conn() {
+            if name_or_title.contains('/') {
+                if let Ok(Some(info)) = page::get_page(conn, name_or_title) {
+                    return info.full_path();
+                }
+            } else if !self.current_page_group_path.is_empty() {
+                let scoped = format!("{}/{}", self.current_page_group_path, name_or_title);
+                if let Ok(Some(info)) = page::get_page(conn, &scoped) {
+                    return info.full_path();
+                }
+            }
             if let Ok(Some(info)) = page::get_page(conn, name_or_title) {
-                return info.filename;
+                return info.full_path();
             }
         }
-        page::ensure_adoc_extension(name_or_title)
+        if !self.current_page_group_path.is_empty() && !name_or_title.contains('/') {
+            format!("{}/{}", self.current_page_group_path, page::ensure_adoc_extension(name_or_title))
+        } else {
+            page::ensure_adoc_extension(name_or_title)
+        }
+    }
+
+    fn current_page_relative_path(&self) -> String {
+        if self.is_journal_page || self.current_page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
+            JOURNAL_FILENAME.to_string()
+        } else if !self.current_page_full_path.is_empty() {
+            self.current_page_full_path.clone()
+        } else if !self.current_page_group_path.is_empty() && !self.current_page_name.is_empty() {
+            format!("{}/{}", self.current_page_group_path, page::ensure_adoc_extension(&self.current_page_name))
+        } else if !self.current_page_name.is_empty() {
+            page::ensure_adoc_extension(&self.current_page_name)
+        } else {
+            String::new()
+        }
     }
 
     pub fn notes_dir(&self) -> std::path::PathBuf {
@@ -34,11 +62,11 @@ impl NotesBridge {
         self.error_occurred(self.error_message.clone());
     }
 
-    fn mutate_page_blocks<F>(&mut self, filename: &str, mutator: F)
+    fn mutate_page_blocks<F>(&mut self, page_path: &str, mutator: F)
     where
         F: FnOnce(&mut Vec<Block>) -> bool,
     {
-        let path = self.notes_dir().join(filename);
+        let path = page::safe_note_path(&self.notes_dir(), page_path);
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -56,7 +84,7 @@ impl NotesBridge {
             }
 
             if let Some(conn) = self.conn() {
-                if let Ok(Some(info)) = page::get_page(conn, filename) {
+                if let Ok(Some(info)) = page::get_page(conn, page_path) {
                     let _ = db::update_fts_content(conn, info.id, &new_content);
                 }
             }
@@ -79,6 +107,8 @@ impl NotesBridge {
                 self.current_page_name = info.title.clone();
                 self.current_page_group_path = info.group_path.clone();
                 self.current_page_group_path_changed();
+                self.current_page_full_path = full_path.clone();
+                self.current_page_full_path_changed();
                 self.is_journal_page = info.is_journal;
 
                 let notes_dir = self.notes_dir();
@@ -124,14 +154,9 @@ impl NotesBridge {
         let start_idx = start_index as usize;
         let count = count as usize;
 
-        let filename = if self.is_journal_page {
-            JOURNAL_FILENAME.to_string()
-        } else {
-            self.resolve_page_filename(&self.current_page_name)
-        };
-
+        let target_path = self.current_page_relative_path();
         let drop_comments = self.drop_comments;
-        self.mutate_page_blocks(&filename, |all| {
+        self.mutate_page_blocks(&target_path, |all| {
             if start_idx <= all.len() {
                 let end_idx = (start_idx + count).min(all.len());
                 let new_blocks = parser::parse_blocks_with_options(&raw_text, drop_comments);
@@ -142,9 +167,8 @@ impl NotesBridge {
             }
         });
 
-        let page_name = self.current_page_name.clone();
-        if !page_name.is_empty() {
-            self.load_page_impl(page_name);
+        if !target_path.is_empty() {
+            self.load_page_impl(target_path);
         }
     }
 
@@ -164,19 +188,19 @@ impl NotesBridge {
                 return;
             }
             if let Some(conn) = self.conn() {
-                let path = self.notes_dir().join(JOURNAL_FILENAME);
+                let path = page::safe_note_path(&self.notes_dir(), JOURNAL_FILENAME);
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(Some(info)) = page::get_page(conn, JOURNAL_FILENAME) {
                         let _ = db::update_fts_content(conn, info.id, &content);
                     }
                 }
             }
-            self.load_page_impl("Journal".to_string());
+            self.load_page_impl(JOURNAL_FILENAME.to_string());
             return;
         }
 
-        let filename = self.resolve_page_filename(&self.current_page_name);
-        let path = self.notes_dir().join(&filename);
+        let full_path = self.current_page_relative_path();
+        let path = page::safe_note_path(&self.notes_dir(), &full_path);
 
         let mut content = std::fs::read_to_string(&path).unwrap_or_default();
 
@@ -192,14 +216,13 @@ impl NotesBridge {
         }
 
         if let Some(conn) = self.conn() {
-            if let Ok(Some(info)) = page::get_page(conn, &filename) {
+            if let Ok(Some(info)) = page::get_page(conn, &full_path) {
                 let _ = db::update_fts_content(conn, info.id, &content);
             }
         }
 
-        let page_name = self.current_page_name.clone();
-        if !page_name.is_empty() {
-            self.load_page_impl(page_name);
+        if !full_path.is_empty() {
+            self.load_page_impl(full_path);
         }
     }
 
@@ -275,38 +298,34 @@ impl NotesBridge {
     }
 
     fn get_page_source_impl(&mut self, name: String) -> String {
-        let filename = self.resolve_page_filename(&name);
-        let path = self.notes_dir().join(&filename);
+        let full_path = self.resolve_page_path(&name);
+        let path = page::safe_note_path(&self.notes_dir(), &full_path);
         std::fs::read_to_string(&path).unwrap_or_default()
     }
 
     fn save_page_source_impl(&mut self, name: String, content: String) {
         self.ensure_init();
-        let filename = self.resolve_page_filename(&name);
-        let path = self.notes_dir().join(&filename);
+        let full_path = self.resolve_page_path(&name);
+        let path = page::safe_note_path(&self.notes_dir(), &full_path);
         if let Err(e) = page::atomic_write(&path, &content) {
             self.report_error(format!("Failed to save source: {}", e));
             return;
         }
 
         if let Some(conn) = self.conn() {
-            if let Ok(Some(info)) = page::get_page(conn, &filename) {
+            if let Ok(Some(info)) = page::get_page(conn, &full_path) {
                 let _ = db::update_fts_content(conn, info.id, &content);
             }
         }
 
-        self.load_page_impl(name);
+        self.load_page_impl(full_path);
     }
 
     fn toggle_checkbox_impl(&mut self, block_index: i32, item_path: String) {
         if block_index < 0 { return; }
         let idx = block_index as usize;
-        let filename = if self.is_journal_page {
-            JOURNAL_FILENAME.to_string()
-        } else {
-            self.resolve_page_filename(&self.current_page_name)
-        };
-        let path = self.notes_dir().join(&filename);
+        let full_path = self.current_page_relative_path();
+        let path = page::safe_note_path(&self.notes_dir(), &full_path);
 
         if idx < self.current_blocks_data.len() {
             parser::toggle_check_in_blocks(&mut self.current_blocks_data, idx, &item_path);
@@ -337,6 +356,12 @@ impl NotesBridge {
         if let Err(e) = page::atomic_write(&path, &new_content) {
             ::log::warn!("toggle_checkbox: write failed: {}", e);
         }
+
+        if let Some(conn) = self.conn() {
+            if let Ok(Some(info)) = page::get_page(conn, &full_path) {
+                let _ = db::update_fts_content(conn, info.id, &new_content);
+            }
+        }
     }
 
     fn delete_page_impl(&mut self, name: String) {
@@ -351,16 +376,23 @@ impl NotesBridge {
         let target_page = page::get_page(conn, &name).ok().flatten();
         let target_title = target_page.as_ref().map(|p| p.title.clone()).unwrap_or_else(|| name.clone());
         let target_filename = target_page.as_ref().map(|p| p.filename.clone());
+        let target_full_path = target_page.as_ref().map(|p| p.full_path());
 
         match page::delete_page(conn, &self.notes_dir(), &name) {
             Ok(_) => {
                 let is_current = self.current_page_name == name
+                    || self.current_page_full_path == name
+                    || target_full_path.as_ref().map_or(false, |p| p == &self.current_page_full_path)
                     || self.current_page_name == target_title
                     || target_filename.as_ref().map_or(false, |f| f == &format!("{}.adoc", self.current_page_name))
                     || self.current_page_name.is_empty();
 
                 if is_current {
                     self.current_page_name.clear();
+                    self.current_page_group_path.clear();
+                    self.current_page_group_path_changed();
+                    self.current_page_full_path.clear();
+                    self.current_page_full_path_changed();
                     self.current_blocks_data.clear();
                     self.current_blocks = QVariantList::default();
                     self.page_changed();
@@ -382,14 +414,22 @@ impl NotesBridge {
             None => return,
         };
 
-        let old_title = page::get_page(conn, &name).ok().flatten().map(|p| p.title.clone());
+        let old_info = page::get_page(conn, &name).ok().flatten();
+        let old_title = old_info.as_ref().map(|p| p.title.clone());
+        let old_full_path = old_info.as_ref().map(|p| p.full_path());
         let is_current = self.current_page_name == name
-            || old_title.as_ref().map_or(false, |t| t == &self.current_page_name);
+            || self.current_page_full_path == name
+            || old_title.as_ref().map_or(false, |t| t == &self.current_page_name)
+            || old_full_path.as_ref().map_or(false, |p| p == &self.current_page_full_path);
 
         match page::rename_page(conn, &self.notes_dir(), &name, &new_title) {
-            Ok(_) => {
+            Ok(info) => {
                 if is_current {
-                    self.current_page_name = new_title.clone();
+                    self.current_page_name = info.title.clone();
+                    self.current_page_group_path = info.group_path.clone();
+                    self.current_page_group_path_changed();
+                    self.current_page_full_path = info.full_path();
+                    self.current_page_full_path_changed();
                     self.page_changed();
                 }
                 self.load_main_page_data_impl();
@@ -408,12 +448,8 @@ impl NotesBridge {
         if block_idx < 0 { return; }
         let idx = block_idx as usize;
 
-        let filename = if self.is_journal_page {
-            JOURNAL_FILENAME.to_string()
-        } else {
-            self.resolve_page_filename(&self.current_page_name)
-        };
-        let path = self.notes_dir().join(&filename);
+        let full_path = self.current_page_relative_path();
+        let path = page::safe_note_path(&self.notes_dir(), &full_path);
 
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
@@ -432,6 +468,11 @@ impl NotesBridge {
             blocks[idx] = new_block;
             let new_content = parser::blocks_to_adoc(&blocks);
             let _ = page::atomic_write(&path, &new_content);
+            if let Some(conn) = self.conn() {
+                if let Ok(Some(info)) = page::get_page(conn, &full_path) {
+                    let _ = db::update_fts_content(conn, info.id, &new_content);
+                }
+            }
         }
     }
 
@@ -581,18 +622,18 @@ impl NotesBridge {
 
     fn export_html_impl(&mut self, page_name: String) -> String {
         self.ensure_init();
-        let filename = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
+        let full_path = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
             JOURNAL_FILENAME.to_string()
         } else {
-            self.resolve_page_filename(&page_name)
+            self.resolve_page_path(&page_name)
         };
 
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         let export_dir = PathBuf::from(&home).join("Documents").join("Notes++ Exports");
-        let title = page_name.strip_suffix(".adoc").unwrap_or(&page_name);
+        let title = page_name.rsplit('/').next().unwrap_or(&page_name).strip_suffix(".adoc").unwrap_or(&page_name);
         let output_path = export_dir.join(format!("{}.html", title));
 
-        match notesplusplus_core::html::export_page_to_html5(&self.notes_dir(), &self.notes_path, &filename, &output_path) {
+        match notesplusplus_core::html::export_page_to_html5(&self.notes_dir(), &self.notes_path, &full_path, &output_path) {
             Ok(path) => {
                 let path_str = path.to_string_lossy().to_string();
                 path_str
@@ -648,15 +689,15 @@ impl NotesBridge {
 
     fn open_in_browser_impl(&mut self, page_name: String) -> String {
         if self.web_server_running {
-            let filename = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
+            let full_path = if self.is_journal_page || page_name.eq_ignore_ascii_case(JOURNAL_TITLE) {
                 JOURNAL_FILENAME.to_string()
             } else {
-                self.resolve_page_filename(&page_name)
+                self.resolve_page_path(&page_name)
             };
             let port = self.server_handle.as_ref().map(|h| h.port()).unwrap_or(8080);
             let base = self.server_handle.as_ref().map(|h| h.primary_url()).unwrap_or_else(|| format!("http://127.0.0.1:{}", port));
             let base = base.replace("0.0.0.0", "localhost");
-            format!("{}/page/{}", base, filename)
+            format!("{}/page/{}", base, full_path)
         } else {
             self.export_html_impl(page_name)
         }
