@@ -42,6 +42,8 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                         json!({
                             "title": r.page.title,
                             "filename": r.page.filename,
+                            "group_path": r.page.group_path,
+                            "full_path": r.page.full_path(),
                             "snippet": r.snippet
                         })
                     })
@@ -55,6 +57,8 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                     json!({
                         "title": p.title,
                         "filename": p.filename,
+                        "group_path": p.group_path,
+                        "full_path": p.full_path(),
                         "snippet": ""
                     })
                 })
@@ -139,7 +143,7 @@ pub fn handle_page_detail_api<W: Write>(
     cors_origin: &str,
 ) {
     let filename = sanitize_note_filename(filename);
-    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+    let file_path = safe_note_path(&ctx.notes_dir, &filename);
 
     match req.method.as_str() {
         "GET" => {
@@ -348,8 +352,7 @@ pub fn handle_notes_api<W: Write>(
             .unwrap()
             .strip_suffix("/toggle")
             .unwrap();
-        let filename = sanitize_note_filename(raw_name);
-        let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+        let file_path = safe_note_path(&ctx.notes_dir, raw_name);
         if file_path.is_file() {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 let json_body = req.json_body();
@@ -397,7 +400,7 @@ pub fn handle_notes_api<W: Write>(
 
                 if updated {
                     let new_adoc = parser::blocks_to_adoc(&blocks);
-                    if let Ok(_) = ctx.repository.save_note(&filename, &new_adoc) {
+                    if let Ok(_) = ctx.repository.save_note(raw_name, &new_adoc) {
                         let resp = json!({ "ok": true });
                         send_json_ok(stream, &resp, cors_origin);
                         return;
@@ -411,8 +414,7 @@ pub fn handle_notes_api<W: Write>(
 
     if clean_path.starts_with("api/notes/") {
         let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
-        let filename = sanitize_note_filename(note_name);
-        let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+        let file_path = safe_note_path(&ctx.notes_dir, note_name);
 
         match req.method.as_str() {
             "GET" => {
@@ -422,7 +424,7 @@ pub fn handle_notes_api<W: Write>(
                         return;
                     }
                 }
-                send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", filename), cors_origin);
+                send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", note_name), cors_origin);
                 return;
             }
             "PUT" => {
@@ -433,18 +435,18 @@ pub fn handle_notes_api<W: Write>(
                     body_str.to_string()
                 };
 
-                if let Err(e) = ctx.repository.save_note(&filename, &content) {
+                if let Err(e) = ctx.repository.save_note(note_name, &content) {
                     log::error!("Failed to write note: {}", e);
                     send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
                     return;
                 }
 
-                let resp = json!({ "ok": true, "filename": filename });
+                let resp = json!({ "ok": true, "filename": note_name });
                 send_json_ok(stream, &resp, cors_origin);
                 return;
             }
             "DELETE" => {
-                match ctx.repository.delete_page(&filename) {
+                match ctx.repository.delete_page(note_name) {
                     Ok(_) => {
                         let resp = json!({ "ok": true });
                         send_json_ok(stream, &resp, cors_origin);
@@ -457,6 +459,86 @@ pub fn handle_notes_api<W: Write>(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+pub fn handle_groups_api<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    clean_path: &str,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    match req.method.as_str() {
+        "GET" => {
+            match ctx.repository.list_groups(None, None) {
+                Ok(groups) => {
+                    let json_body = serde_json::to_string(&groups).unwrap_or_else(|_| "[]".to_string());
+                    send_response(stream, 200, "OK", MIME_JSON, json_body.as_bytes(), cors_origin);
+                }
+                Err(e) => {
+                    send_json_error(stream, 500, "Internal Server Error", &e.to_string(), cors_origin);
+                }
+            }
+        }
+        "POST" => {
+            let json_val = req.json_body();
+            let name = json_val.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let parent = json_val.get("parent").and_then(|v| v.as_str()).unwrap_or("").trim();
+
+            if name.is_empty() {
+                send_json_error(stream, 400, "Bad Request", "Group name is required", cors_origin);
+                return;
+            }
+
+            match ctx.repository.create_group(parent, name) {
+                Ok(group) => {
+                    let resp = json!({ "ok": true, "group": group });
+                    send_json_ok(stream, &resp, cors_origin);
+                }
+                Err(e) => {
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                }
+            }
+        }
+        "DELETE" => {
+            let path = clean_path.strip_prefix("api/groups/").unwrap_or("").trim();
+            if path.is_empty() {
+                send_json_error(stream, 400, "Bad Request", "Group path required", cors_origin);
+                return;
+            }
+            let recursive = req.query.as_deref().map(|q| q.contains("recursive=true") || q.contains("recursive=1")).unwrap_or(false);
+            match ctx.repository.delete_group(path, recursive) {
+                Ok(_) => {
+                    let resp = json!({ "ok": true });
+                    send_json_ok(stream, &resp, cors_origin);
+                }
+                Err(e) => {
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                }
+            }
+        }
+        "PUT" => {
+            let old_path = clean_path.strip_prefix("api/groups/").unwrap_or("").trim();
+            let json_val = req.json_body();
+            let new_name = json_val.get("new_name").or_else(|| json_val.get("name")).and_then(|v| v.as_str()).unwrap_or("").trim();
+            if old_path.is_empty() || new_name.is_empty() {
+                send_json_error(stream, 400, "Bad Request", "old_path and new_name required", cors_origin);
+                return;
+            }
+            match ctx.repository.rename_group(old_path, new_name) {
+                Ok(new_path) => {
+                    let resp = json!({ "ok": true, "new_path": new_path });
+                    send_json_ok(stream, &resp, cors_origin);
+                }
+                Err(e) => {
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                }
+            }
+        }
+        _ => {
+            send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin);
         }
     }
 }
@@ -555,7 +637,7 @@ pub fn handle_export_html_api<W: Write>(
     }
 
     let adoc_filename = sanitize_note_filename(&filename);
-    let file_path = safe_note_path(&ctx.notes_subdir, &adoc_filename);
+    let file_path = safe_note_path(&ctx.notes_dir, &adoc_filename);
     if !file_path.is_file() {
         send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", adoc_filename), cors_origin);
         return;
@@ -580,7 +662,7 @@ pub fn handle_export_all_api<W: Write>(
     cors_origin: &str,
 ) {
     let export_dir = ctx.notes_dir.parent().unwrap_or(&ctx.notes_dir).join("exports");
-    match crate::html::export_all_pages_to_html5(&ctx.notes_subdir, &ctx.notes_dir, &export_dir) {
+    match crate::html::export_all_pages_to_html5(&ctx.notes_dir, &ctx.notes_dir, &export_dir) {
         Ok(paths) => {
             let files: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
             let resp = json!({
@@ -611,14 +693,13 @@ pub fn handle_page_url<W: Write>(
         .or_else(|| clean_path.strip_prefix("edit/"))
         .unwrap_or("");
 
-    let filename = sanitize_note_filename(note_name);
-    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+    let file_path = safe_note_path(&ctx.notes_dir, note_name);
 
     if let Some(q) = req.query.as_deref() {
         if q.contains("export=1") || q.contains("download=1") {
             if file_path.is_file() {
                 if let Ok(content) = fs::read_to_string(&file_path) {
-                    let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
+                    let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
                     let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
                     send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
                     return;
@@ -627,8 +708,8 @@ pub fn handle_page_url<W: Write>(
         } else if q.contains("view=rendered") {
             if file_path.is_file() {
                 if let Ok(content) = fs::read_to_string(&file_path) {
-                    let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
-                    let html = render_web_page_html(&content, title, &ctx.notes_dir, &filename);
+                    let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
+                    let html = render_web_page_html(&content, title, &ctx.notes_dir, note_name);
                     send_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), cors_origin);
                     return;
                 }
@@ -646,8 +727,7 @@ pub fn handle_raw_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("raw/").unwrap_or("");
-    let filename = sanitize_note_filename(note_name);
-    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+    let file_path = safe_note_path(&ctx.notes_dir, note_name);
 
     if file_path.is_file() {
         if let Ok(content) = fs::read_to_string(&file_path) {
@@ -666,12 +746,11 @@ pub fn handle_export_url<W: Write>(
 ) {
     let note_name = clean_path.strip_prefix("export/").unwrap_or("");
     let stripped = note_name.strip_suffix(".html").unwrap_or(note_name);
-    let filename = sanitize_note_filename(stripped);
-    let file_path = safe_note_path(&ctx.notes_subdir, &filename);
+    let file_path = safe_note_path(&ctx.notes_dir, stripped);
 
     if file_path.is_file() {
         if let Ok(content) = fs::read_to_string(&file_path) {
-            let title = filename.strip_suffix(".adoc").unwrap_or(&filename);
+            let title = stripped.rsplit('/').next().unwrap_or(stripped).strip_suffix(".adoc").unwrap_or(stripped);
             let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
             send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
             return;

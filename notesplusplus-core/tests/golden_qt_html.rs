@@ -68,6 +68,14 @@ fn golden_code_block() {
 }
 
 #[test]
+fn golden_svgbob_block_qt() {
+    let adoc = "[source,svgbob]\n----\n+---+\n| A |\n+---+\n----";
+    let blocks = parser::parse_blocks(adoc);
+    let html = render_qt_block(&blocks[0], 0, &default_theme(), &default_opts());
+    assert_or_update_golden("svgbob_block_qt", &html);
+}
+
+#[test]
 fn golden_unordered_list() {
     let blocks = parser::parse_blocks("* Item A\n* Item B\n* Item C");
     let mut full_html = String::new();

@@ -28,6 +28,7 @@ pub(super) struct PendingResult {
 struct MainPageData {
     /// Pre-built JSON strings for each recent page (one JSON object per page)
     recent_page_jsons: Vec<String>,
+    grouped_tree_json: String,
 }
 
 /// QML bridge exposing Notes++ functionality to the UI.
@@ -37,6 +38,7 @@ pub struct NotesBridge {
 
     // Properties
     current_page_name: qt_property!(String; NOTIFY page_changed),
+    current_page_group_path: qt_property!(String; NOTIFY current_page_group_path_changed),
     current_blocks: qt_property!(QVariantList; NOTIFY page_changed),
     is_journal_page: qt_property!(bool; NOTIFY page_changed),
     blocks_version: qt_property!(i32; NOTIFY page_changed),
@@ -47,6 +49,8 @@ pub struct NotesBridge {
     current_search_filenames: Vec<String>,
     current_search_jsons: Vec<String>,
     recent_pages: qt_property!(QVariantList; NOTIFY data_refreshed),
+    grouped_tree_json: qt_property!(QString; NOTIFY data_refreshed),
+    group_display_depth: qt_property!(i32; NOTIFY group_depth_changed),
     recent_journal_lines: qt_property!(QVariantList; NOTIFY data_refreshed),
     journal_blocks: qt_property!(QVariantList; NOTIFY data_refreshed),
     is_loading: qt_property!(bool; NOTIFY loading_changed),
@@ -63,8 +67,10 @@ pub struct NotesBridge {
 
     // Signals
     page_changed: qt_signal!(),
+    current_page_group_path_changed: qt_signal!(),
     search_results_changed: qt_signal!(),
     data_refreshed: qt_signal!(),
+    group_depth_changed: qt_signal!(),
     loading_changed: qt_signal!(),
     drop_comments_changed: qt_signal!(),
     reject_public_networks_changed: qt_signal!(),
@@ -86,6 +92,13 @@ pub struct NotesBridge {
     save_page_source: qt_method!(fn(&mut self, name: String, content: String)),
     create_page: qt_method!(fn(&mut self, name: String)),
     delete_page: qt_method!(fn(&mut self, name: String)),
+    create_group: qt_method!(fn(&mut self, parent_path: String, name: String) -> bool),
+    rename_group: qt_method!(fn(&mut self, old_path: String, new_name: String) -> bool),
+    delete_group: qt_method!(fn(&mut self, path: String, recursive: bool) -> bool),
+    move_page_to_group: qt_method!(fn(&mut self, page_full_path: String, target_group: String) -> bool),
+    set_group_display_depth: qt_method!(fn(&mut self, depth: i32)),
+    toggle_group_collapsed: qt_method!(fn(&mut self, group_path: String) -> bool),
+    get_groups_json: qt_method!(fn(&mut self) -> String),
     do_search: qt_method!(fn(&mut self, query: String)),
     search: qt_method!(fn(&mut self, query: String)),
     poll_search: qt_method!(fn(&mut self) -> bool),
@@ -148,6 +161,7 @@ impl Default for NotesBridge {
         Self {
             base: Default::default(),
             current_page_name: String::new(),
+            current_page_group_path: String::new(),
             current_blocks: QVariantList::default(),
             is_journal_page: false,
             blocks_version: 0,
@@ -155,6 +169,8 @@ impl Default for NotesBridge {
             search_query: String::new(),
             search_results: QVariantList::default(),
             recent_pages: QVariantList::default(),
+            grouped_tree_json: QString::from("[]"),
+            group_display_depth: 2,
             recent_journal_lines: QVariantList::default(),
             journal_blocks: QVariantList::default(),
             is_loading: false,
@@ -166,8 +182,10 @@ impl Default for NotesBridge {
             error_message: String::new(),
             initialized: false,
             page_changed: Default::default(),
+            current_page_group_path_changed: Default::default(),
             search_results_changed: Default::default(),
             data_refreshed: Default::default(),
+            group_depth_changed: Default::default(),
             loading_changed: Default::default(),
             drop_comments_changed: Default::default(),
             reject_public_networks_changed: Default::default(),
@@ -186,6 +204,13 @@ impl Default for NotesBridge {
             save_page_source: Default::default(),
             create_page: Default::default(),
             delete_page: Default::default(),
+            create_group: Default::default(),
+            rename_group: Default::default(),
+            delete_group: Default::default(),
+            move_page_to_group: Default::default(),
+            set_group_display_depth: Default::default(),
+            toggle_group_collapsed: Default::default(),
+            get_groups_json: Default::default(),
             do_search: Default::default(),
             search: Default::default(),
             poll_search: Default::default(),
@@ -257,13 +282,11 @@ impl NotesBridge {
         self.conn_receiver = Some(rx);
 
         let notes_path = self.notes_path.clone();
-        let notes_subdir = self.notes_dir();
         let data_dir = self.data_dir.clone();
 
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
             let _ = std::fs::create_dir_all(&notes_path);
-            let _ = std::fs::create_dir_all(&notes_subdir);
             let _ = std::fs::create_dir_all(data_dir.join("exports"));
             eprintln!("[debug] dirs created in {:?}", t0.elapsed());
 
@@ -278,11 +301,11 @@ impl NotesBridge {
                     eprintln!("[debug] init_schema in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::copy_examples(&conn, &notes_subdir, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"));
+                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"), "notes");
                     eprintln!("[debug] copy_examples in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::sync_and_index_pages(&conn, &notes_subdir);
+                    let _ = page::sync_and_index_pages(&conn, &notes_path);
                     eprintln!("[debug] sync_and_index_pages in {:?}", t.elapsed());
 
                     eprintln!("[debug] background init total: {:?}", t0.elapsed());
@@ -322,6 +345,31 @@ impl NotesBridge {
             }
         }
         false
+    }
+
+    /// Ensures the DB connection is ready, blocking briefly if background init is still running.
+    fn ensure_init_blocking(&mut self) -> bool {
+        if self.conn.is_some() {
+            return true;
+        }
+        self.ensure_init();
+        if let Some(rx) = self.conn_receiver.take() {
+            match rx.recv() {
+                Ok(Ok(conn)) => {
+                    self.conn = Some(conn);
+                    self.initialized = true;
+                    self.initialized_changed();
+                    return true;
+                }
+                Ok(Err(e)) => {
+                    self.report_error(e);
+                }
+                Err(e) => {
+                    self.report_error(format!("DB init channel disconnected: {}", e));
+                }
+            }
+        }
+        self.conn.is_some()
     }
 
     fn conn(&self) -> Option<&rusqlite::Connection> {

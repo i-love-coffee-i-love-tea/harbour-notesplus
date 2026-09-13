@@ -91,6 +91,20 @@ use crate::inline::InlineSpan;
     }
 
     #[test]
+    fn parse_svgbob_code_block() {
+        let text = "[source,svgbob]\n----\n+---+\n| A |\n+---+\n----";
+        let blocks = parse_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            Block::CodeBlock { language, lines, .. } => {
+                assert_eq!(language.as_deref(), Some("svgbob"));
+                assert_eq!(lines, &["+---+", "| A |", "+---+"]);
+            }
+            _ => panic!("expected CodeBlock"),
+        }
+    }
+
+    #[test]
     fn parse_literal_block() {
         let text = "....\nliteral text\n....";
         let blocks = parse_blocks(text);

@@ -199,6 +199,24 @@ Page {
                 }
             }
             MenuItem {
+                text: qsTr("Move to Group...")
+                visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
+                onClicked: {
+                    var fullPath = bridge.current_page_group_path.length > 0 ? bridge.current_page_group_path + "/" + pageName : pageName
+                    var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
+                        pageFullPath: fullPath,
+                        pageTitle: pageName,
+                        currentGroup: bridge.current_page_group_path
+                    })
+                    dialog.accepted.connect(function() {
+                        var target = dialog.targetGroup
+                        remorsePopup.execute(qsTr("Moving to %1").arg(target.length > 0 ? target : qsTr("Root")), function() {
+                            bridge.move_page_to_group(fullPath, target)
+                        })
+                    })
+                }
+            }
+            MenuItem {
                 text: qsTr("Delete Page")
                 visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
                 onClicked: {
@@ -215,6 +233,19 @@ Page {
 
             PageHeader {
                 title: pageName
+            }
+
+            Label {
+                id: breadcrumbLabel
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: Theme.horizontalPageMargin
+                anchors.rightMargin: Theme.horizontalPageMargin
+                visible: bridge.current_page_group_path.length > 0 && !bridge.is_journal_page
+                text: bridge.current_page_group_path.split("/").join(" › ")
+                color: Theme.highlightColor
+                font.pixelSize: Theme.fontSizeExtraSmall
+                truncationMode: TruncationMode.Fade
             }
 
             // Find-in-Page search bar

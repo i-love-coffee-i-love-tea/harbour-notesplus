@@ -34,7 +34,7 @@ use crate::agent::{
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub notes_dir: PathBuf,
-    pub notes_subdir: PathBuf,
+    pub assets_dir: PathBuf,
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub port: u16,
@@ -51,10 +51,10 @@ pub struct ServerConfig {
 impl ServerConfig {
     pub fn from_paths(paths: crate::paths::AppPaths) -> Self {
         let backup_dir = paths.backup_dir();
-        let notes_subdir = paths.notes_subdir();
+        let assets_dir = paths.assets_dir();
         Self {
             notes_dir: paths.notes_dir,
-            notes_subdir,
+            assets_dir,
             db_path: paths.db_path,
             backup_dir,
             port: crate::constants::DEFAULT_SERVER_PORT,
@@ -123,7 +123,7 @@ impl Drop for PermitGuard {
 #[derive(Clone)]
 pub struct ServerContext {
     pub notes_dir: PathBuf,
-    pub notes_subdir: PathBuf,
+    pub assets_dir: PathBuf,
     pub db_path: PathBuf,
     pub backup_dir: PathBuf,
     pub session: Arc<Mutex<AgentSession>>,
@@ -148,13 +148,12 @@ impl ServerContext {
 
     pub fn new_with_tls(config: ServerConfig, is_tls: bool) -> Self {
         let _ = fs::create_dir_all(&config.notes_dir);
-        let _ = fs::create_dir_all(&config.notes_subdir);
         let _ = fs::create_dir_all(&config.backup_dir);
 
         let perm_mgr = PermissionManager::new(config.permission_config.clone());
         let client = LlmClient::new(config.llm_config.clone());
         let mut session = AgentSession::new(
-            &config.notes_subdir,
+            &config.notes_dir,
             &config.db_path,
             &config.backup_dir,
             perm_mgr,
@@ -164,8 +163,8 @@ impl ServerContext {
 
         let conn = crate::db::open_db(&config.db_path).ok();
         let conn_arc = Arc::new(Mutex::new(conn.unwrap_or_else(|| rusqlite::Connection::open_in_memory().unwrap())));
-        let _ = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_subdir);
-        let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_subdir, Arc::clone(&conn_arc)));
+        let _ = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_dir);
+        let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_dir, Arc::clone(&conn_arc)));
 
         let sessions_path = config
             .db_path
@@ -175,7 +174,7 @@ impl ServerContext {
 
         Self {
             notes_dir: config.notes_dir,
-            notes_subdir: config.notes_subdir,
+            assets_dir: config.assets_dir,
             db_path: config.db_path,
             backup_dir: config.backup_dir,
             session: Arc::new(Mutex::new(session)),
@@ -320,10 +319,10 @@ pub fn start_server_full(
     llm_config: Option<LlmConfig>,
     permission_config: Option<PermissionConfig>,
 ) -> Result<HttpServerHandle, String> {
-    let notes_subdir = notes_dir.join("notes");
+    let assets_dir = notes_dir.parent().unwrap_or(&notes_dir).join(crate::constants::ASSETS_DIR_NAME);
     let config = ServerConfig {
         notes_dir,
-        notes_subdir,
+        assets_dir,
         db_path,
         backup_dir,
         port: requested_port,

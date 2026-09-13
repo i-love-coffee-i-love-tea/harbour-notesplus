@@ -8,7 +8,7 @@ pub fn open_db(path: impl AsRef<Path>) -> SqlResult<Connection> {
     Ok(conn)
 }
 
-/// Initialize the SQLite schema. Idempotent.
+/// Initialize the SQLite schema and perform migrations if necessary. Idempotent.
 pub fn init_schema(conn: &Connection) -> SqlResult<()> {
     // Performance PRAGMAs
     let _ = conn.pragma_update(None, "journal_mode", "WAL");
@@ -18,22 +18,112 @@ pub fn init_schema(conn: &Connection) -> SqlResult<()> {
 
     conn.execute_batch(
         "
-        CREATE TABLE IF NOT EXISTS pages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            is_journal INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            block_count INTEGER NOT NULL DEFAULT 0
+        CREATE TABLE IF NOT EXISTS schema_meta (
+            key TEXT PRIMARY KEY,
+            value INTEGER NOT NULL
         );
+        ",
+    )?;
 
+    migrate_schema(conn)?;
+
+    conn.execute_batch(
+        "
         CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
             filename, title, content,
             tokenize='porter unicode61'
         );
         ",
     )?;
+
+    Ok(())
+}
+
+/// Migrates schema to the latest version.
+pub fn migrate_schema(conn: &Connection) -> SqlResult<()> {
+    let current_version: i64 = conn
+        .query_row(
+            "SELECT value FROM schema_meta WHERE key = 'version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    if current_version < 2 {
+        // Check if legacy pages table exists
+        let pages_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pages'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if pages_exists {
+            // Check if group_path already exists
+            let mut stmt = conn.prepare("PRAGMA table_info(pages)")?;
+            let has_group_path = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .any(|col| col.map(|c| c == "group_path").unwrap_or(false));
+
+            if !has_group_path {
+                conn.execute_batch(
+                    "
+                    CREATE TABLE pages_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        filename TEXT NOT NULL,
+                        group_path TEXT NOT NULL DEFAULT '',
+                        title TEXT NOT NULL,
+                        is_journal INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        block_count INTEGER NOT NULL DEFAULT 0,
+                        UNIQUE(group_path, filename)
+                    );
+
+                    INSERT INTO pages_new (id, filename, group_path, title, is_journal, created_at, updated_at, block_count)
+                        SELECT id, filename, '', title, is_journal, created_at, updated_at, block_count FROM pages;
+
+                    DROP TABLE pages;
+                    ALTER TABLE pages_new RENAME TO pages;
+                    ",
+                )?;
+            }
+        } else {
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS pages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    filename TEXT NOT NULL,
+                    group_path TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL,
+                    is_journal INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    block_count INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(group_path, filename)
+                );
+                ",
+            )?;
+        }
+
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                collapsed INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', 2);
+            ",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -45,12 +135,18 @@ pub fn update_fts_content(conn: &Connection, page_id: i64, content: &str) -> Sql
         rusqlite::params![chrono::Utc::now().to_rfc3339(), page_id],
     )?;
 
-    // Get filename and title
-    let (filename, title): (String, String) = conn.query_row(
-        "SELECT filename, title FROM pages WHERE id = ?1",
+    // Get filename, group_path, and title
+    let (filename, group_path, title): (String, String, String) = conn.query_row(
+        "SELECT filename, group_path, title FROM pages WHERE id = ?1",
         rusqlite::params![page_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
+
+    let full_path = if group_path.is_empty() {
+        filename
+    } else {
+        format!("{}/{}", group_path, filename)
+    };
 
     // Delete old FTS entry (match by rowid)
     conn.execute(
@@ -61,7 +157,7 @@ pub fn update_fts_content(conn: &Connection, page_id: i64, content: &str) -> Sql
     // Insert new FTS entry
     conn.execute(
         "INSERT INTO pages_fts(rowid, filename, title, content) VALUES(?1, ?2, ?3, ?4)",
-        rusqlite::params![page_id, filename, title, content],
+        rusqlite::params![page_id, full_path, title, content],
     )?;
 
     Ok(())
@@ -193,5 +289,94 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count_new, 1);
+    }
+
+    #[test]
+    fn test_schema_migration_v1_to_v2_preserves_notes() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("v1.db");
+        let conn = Connection::open(&db_path).unwrap();
+
+        // Create legacy v1 schema manually
+        conn.execute_batch(
+            "
+            CREATE TABLE pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                is_journal INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                block_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE VIRTUAL TABLE pages_fts USING fts5(
+                filename, title, content,
+                tokenize='porter unicode61'
+            );
+            ",
+        ).unwrap();
+
+        // Insert legacy page
+        conn.execute(
+            "INSERT INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
+             VALUES ('legacy.adoc', 'Legacy Note', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0)",
+            [],
+        ).unwrap();
+
+        // Run schema initialization / migration
+        init_schema(&conn).unwrap();
+
+        // Check group_path is empty string and record survived
+        let (filename, group_path, title): (String, String, String) = conn.query_row(
+            "SELECT filename, group_path, title FROM pages WHERE filename = 'legacy.adoc'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(filename, "legacy.adoc");
+        assert_eq!(group_path, "");
+        assert_eq!(title, "Legacy Note");
+
+        // Check groups table exists
+        let groups_table_count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='groups'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(groups_table_count, 1);
+
+        // Check schema version in schema_meta
+        let version: i64 = conn.query_row(
+            "SELECT value FROM schema_meta WHERE key='version'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn test_composite_unique_constraint_allows_duplicate_filenames_in_different_groups() {
+        let (conn, _dir) = test_db();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Inserting same filename in different groups must succeed
+        conn.execute(
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+             VALUES ('Todo.adoc', 'Work', 'Work Todo', 0, ?1, ?1, 0)",
+            rusqlite::params![now],
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+             VALUES ('Todo.adoc', 'Personal', 'Personal Todo', 0, ?1, ?1, 0)",
+            rusqlite::params![now],
+        ).unwrap();
+
+        // Inserting same filename in the SAME group must fail due to UNIQUE(group_path, filename)
+        let duplicate_res = conn.execute(
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+             VALUES ('Todo.adoc', 'Work', 'Work Todo Dup', 0, ?1, ?1, 0)",
+            rusqlite::params![now],
+        );
+        assert!(duplicate_res.is_err(), "Expected unique constraint error for duplicate (group_path, filename)");
     }
 }

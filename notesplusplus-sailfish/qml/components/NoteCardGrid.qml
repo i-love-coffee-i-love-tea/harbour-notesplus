@@ -15,6 +15,9 @@ Grid {
     spacing: 0
 
     property real cellWidth: Math.floor(width / columns)
+    property int count: model ? (typeof model.length !== "undefined" ? model.length : (model.count !== undefined ? model.count : 0)) : 0
+    property int rows: count > 0 ? Math.ceil(count / columns) : 0
+    height: rows > 0 ? (rows * cellWidth + (rows - 1) * spacing) : 0
 
     Repeater {
         model: noteCardGrid.model

@@ -225,6 +225,12 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             // Use __LINK_COLOR__ placeholder — QML substitutes Theme.highlightColor
             format!("<h3 style='color:__LINK_COLOR__;margin:6px 0 2px 0;'>{}</h3>", render_spans(spans, ctx))
         }
+        Block::CodeBlock { lines, language, .. } if language.as_deref() == Some("svgbob") => {
+            let source = lines.join("\n");
+            let svg = crate::diagram::render_svgbob(&source);
+            let b64 = crate::html::base64_encode(svg.as_bytes());
+            format!("<p><img src='data:image/svg+xml;base64,{}' /></p>", b64)
+        }
         Block::CodeBlock { lines, .. } | Block::LiteralBlock { lines, .. } => {
             let code_lines = lines.iter().map(|l| escape_html(l)).collect::<Vec<_>>().join("<br/>");
             format!("<pre style='background:#18181c;color:#f2f2f7;padding:6px;border-radius:0;font-family:monospace;margin:4px 0;word-break:break-all;'>{}</pre>", code_lines)

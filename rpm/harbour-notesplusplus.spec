@@ -60,7 +60,7 @@ cargo build --release --locked -p harbour-notesplusplus -j 1
 
 # Compile translations
 cd notesplusplus-sailfish/translations
-lrelease harbour-notesplusplus.ts harbour-notesplusplus_de.ts harbour-notesplusplus_es.ts
+lrelease harbour-notesplusplus.ts harbour-notesplusplus_de.ts harbour-notesplusplus_es.ts harbour-notesplusplus_en.ts harbour-notesplusplus_en_US.ts
 cd ../..
 
 %install

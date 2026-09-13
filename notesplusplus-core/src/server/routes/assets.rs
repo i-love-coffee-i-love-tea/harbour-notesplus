@@ -75,19 +75,11 @@ pub fn handle_static_asset<W: Write>(
         return;
     }
 
-    let asset_path = ctx.notes_dir.join(rel_path);
+    let asset_path = ctx.assets_dir.join(rel_path);
 
     if let Ok(canonical_asset) = asset_path.canonicalize() {
-        if let Ok(canonical_notes_dir) = ctx.notes_dir.canonicalize() {
-            if canonical_asset.starts_with(&canonical_notes_dir) {
-                // Ensure asset is NOT inside notes_subdir (which contains note source documents)
-                if let Ok(canonical_notes_subdir) = ctx.notes_subdir.canonicalize() {
-                    if canonical_asset.starts_with(&canonical_notes_subdir) {
-                        send_response(stream, 404, "Not Found", MIME_HTML, b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Notes++ Editor</a></p>", cors_origin);
-                        return;
-                    }
-                }
-
+        if let Ok(canonical_assets_dir) = ctx.assets_dir.canonicalize() {
+            if canonical_asset.starts_with(&canonical_assets_dir) {
                 // Disallow sensitive file extensions from being served as static assets
                 let ext = canonical_asset.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
                 if ext == "adoc" || ext == "db" || ext == "sqlite" || ext == "json" || ext == "key" || ext == "pem" || ext == "shm" || ext == "wal" {

@@ -31,13 +31,11 @@ fn test_list_all_notes_json() {
 fn test_server_lifecycle_and_endpoints() {
     let tmp = tempdir().unwrap();
     let notes_dir = tmp.path().join("notes");
-    let notes_subdir = notes_dir.join("notes");
     let db_path = tmp.path().join("test.db");
     let backup_dir = tmp.path().join("backups");
     fs::create_dir_all(&notes_dir).unwrap();
-    fs::create_dir_all(&notes_subdir).unwrap();
 
-    fs::write(notes_subdir.join("welcome.adoc"), "= Welcome\nTest content for server.").unwrap();
+    fs::write(notes_dir.join("welcome.adoc"), "= Welcome\nTest content for server.").unwrap();
 
     let server_handle = start_server_full(
         notes_dir.clone(),
@@ -111,7 +109,7 @@ fn test_server_lifecycle_and_endpoints() {
         .send_string("= Welcome\nUpdated content from PUT test.")
         .unwrap();
     assert_eq!(put_res.status(), 200);
-    let updated_file = fs::read_to_string(notes_subdir.join("welcome.adoc")).unwrap();
+    let updated_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
     assert!(updated_file.contains("Updated content from PUT test"));
 
     // Test POST /api/notes (create new)
@@ -123,7 +121,7 @@ fn test_server_lifecycle_and_endpoints() {
         }))
         .unwrap();
     assert_eq!(create_res.status(), 200);
-    assert!(notes_subdir.join("New_Doc.adoc").exists());
+    assert!(notes_dir.join("New_Doc.adoc").exists());
 
     // Test POST /api/render
     let render_res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
@@ -148,7 +146,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(parse_json.get("blocks").and_then(|b| b.as_array()).unwrap().len() >= 3);
 
     // Test POST /api/notes/welcome.adoc/toggle (checklist toggle)
-    fs::write(notes_subdir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
+    fs::write(notes_dir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
     let toggle_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
@@ -157,7 +155,7 @@ fn test_server_lifecycle_and_endpoints() {
         }))
         .unwrap();
     assert_eq!(toggle_res.status(), 200);
-    let toggled_file = fs::read_to_string(notes_subdir.join("welcome.adoc")).unwrap();
+    let toggled_file = fs::read_to_string(notes_dir.join("welcome.adoc")).unwrap();
     assert!(toggled_file.contains("* [x] Task 1"));
 
     // Test POST /api/ai/config (update config)
@@ -208,7 +206,7 @@ fn test_server_lifecycle_and_endpoints() {
         .call()
         .unwrap();
     assert_eq!(del_res.status(), 200);
-    assert!(!notes_subdir.join("New_Doc.adoc").exists());
+    assert!(!notes_dir.join("New_Doc.adoc").exists());
 
     // Stop server
     server_handle.stop();
@@ -218,19 +216,17 @@ fn test_server_lifecycle_and_endpoints() {
 fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
     let tmp = tempdir().unwrap();
     let notes_dir = tmp.path().join("notes");
-    let notes_subdir = notes_dir.join("notes");
     let db_path = tmp.path().join("test_phone_auth.db");
     let backup_dir = tmp.path().join("backups");
     fs::create_dir_all(&notes_dir).unwrap();
-    fs::create_dir_all(&notes_subdir).unwrap();
 
-    fs::write(notes_subdir.join("protected.adoc"), "= Protected\nContent only for authenticated users.").unwrap();
+    fs::write(notes_dir.join("protected.adoc"), "= Protected\nContent only for authenticated users.").unwrap();
 
     let auth_cfg = auth::AuthConfig::default();
 
     let config = ServerConfig {
-        notes_subdir: notes_dir.join("notes"),
-        notes_dir,
+        notes_dir: notes_dir.clone(),
+        assets_dir: notes_dir.parent().unwrap_or(&notes_dir).join("assets"),
         db_path,
         backup_dir,
         port: 18945,
@@ -336,8 +332,8 @@ fn test_server_tls_initialization() {
     let key_path = tls_dir.join("server.key");
 
     let config = ServerConfig {
-        notes_subdir: notes_dir.join("notes"),
-        notes_dir,
+        notes_dir: notes_dir.clone(),
+        assets_dir: notes_dir.parent().unwrap_or(&notes_dir).join("assets"),
         db_path,
         backup_dir,
         port: 18960,
@@ -561,14 +557,12 @@ fn test_list_all_notes_json_metadata_and_filtering() {
 fn test_security_asset_path_isolation() {
     let tmp = tempdir().unwrap();
     let notes_dir = tmp.path().join("notes");
-    let notes_subdir = notes_dir.join("notes");
     let db_path = tmp.path().join("test_security.db");
     let backup_dir = tmp.path().join("backups");
     fs::create_dir_all(&notes_dir).unwrap();
-    fs::create_dir_all(&notes_subdir).unwrap();
 
-    // Put a .adoc file in the notes subdirectory (where notes live)
-    fs::write(notes_subdir.join("secret.adoc"), "= Secret\nConfidential content.").unwrap();
+    // Put a .adoc file in the notes directory
+    fs::write(notes_dir.join("secret.adoc"), "= Secret\nConfidential content.").unwrap();
 
     let server_handle = start_server_full(
         notes_dir.clone(),
@@ -939,12 +933,11 @@ fn test_import_from_url_and_file_web_assets() {
 fn test_fetch_url_and_read_file_endpoints() {
     let tmp = tempdir().unwrap();
     let notes_dir = tmp.path().join("notes");
-    let notes_subdir = notes_dir.join("notes");
     let db_path = tmp.path().join("test_import_endpoints.db");
     let backup_dir = tmp.path().join("backups");
-    fs::create_dir_all(&notes_subdir).unwrap();
+    fs::create_dir_all(&notes_dir).unwrap();
 
-    fs::write(notes_subdir.join("imported-sample.adoc"), "= Sample Imported Note\nThis is a test note for import.").unwrap();
+    fs::write(notes_dir.join("imported-sample.adoc"), "= Sample Imported Note\nThis is a test note for import.").unwrap();
 
     let server_handle = start_server_full(
         notes_dir.clone(),
@@ -1015,7 +1008,7 @@ fn test_fetch_url_and_read_file_endpoints() {
     }
 
     // 7. Test POST /api/ai/read_file with valid file within notes directory
-    let file_path = notes_subdir.join("imported-sample.adoc").to_str().unwrap().to_string();
+    let file_path = notes_dir.join("imported-sample.adoc").to_str().unwrap().to_string();
     let valid_file_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/read_file", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
@@ -1136,6 +1129,108 @@ fn test_composable_js_files_served() {
 
     let app_js = ureq::get(&format!("http://127.0.0.1:{}/app.js", port)).call().unwrap().into_string().unwrap();
     assert!(app_js.contains("from '/composables/utils.js'") || app_js.contains("from './composables/utils.js'"), "app.js should import from composables/utils.js");
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_render_svgbob_block() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_svgbob.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&notes_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let config = ServerConfig {
+        notes_dir: notes_dir.clone(),
+        assets_dir,
+        db_path,
+        backup_dir,
+        ..Default::default()
+    };
+
+    let server_handle = start_server_with_config(config).expect("Server should start");
+    let port = server_handle.port();
+
+    // Authenticate
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    let adoc = "[source,svgbob]\n----\n+---+\n| A |\n+---+\n----";
+    let res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
+        .set("Cookie", &session_cookie)
+        .send_json(json!({
+            "content": adoc
+        }))
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let body = res.into_string().unwrap();
+    assert!(body.contains("<svg"), "Expected SVG in rendered output, got: {}", &body[..500.min(body.len())]);
+    assert!(!body.contains("<pre><code"), "Should NOT render as code block");
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_groups_api_and_multisegment_notes() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_groups.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&notes_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let config = ServerConfig {
+        notes_dir: notes_dir.clone(),
+        assets_dir,
+        db_path,
+        backup_dir,
+        ..Default::default()
+    };
+
+    let server_handle = start_server_with_config(config).expect("Server should start");
+    let port = server_handle.port();
+
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // 1. Create group via POST /api/groups
+    let create_group_res = ureq::post(&format!("http://127.0.0.1:{}/api/groups", port))
+        .set("Cookie", &session_cookie)
+        .send_json(json!({
+            "name": "Projects",
+            "parent": "Work"
+        }))
+        .unwrap();
+    assert_eq!(create_group_res.status(), 200);
+
+    // 2. List groups via GET /api/groups
+    let list_groups_res = ureq::get(&format!("http://127.0.0.1:{}/api/groups", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(list_groups_res.status(), 200);
+    let groups_json: serde_json::Value = list_groups_res.into_json().unwrap();
+    assert!(groups_json.as_array().unwrap().iter().any(|g| g["path"] == "Work/Projects"));
+
+    // 3. Create nested note via PUT /api/notes/Work/Projects/Sprint.adoc
+    let put_note_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
+        .set("Cookie", &session_cookie)
+        .set("Content-Type", "text/plain")
+        .send_string("= Sprint Plan\nNested note content.")
+        .unwrap();
+    assert_eq!(put_note_res.status(), 200);
+
+    // 4. Read nested note via GET /api/notes/Work/Projects/Sprint.adoc
+    let get_note_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(get_note_res.status(), 200);
+    assert!(get_note_res.into_string().unwrap().contains("Sprint Plan"));
 
     server_handle.stop();
 }

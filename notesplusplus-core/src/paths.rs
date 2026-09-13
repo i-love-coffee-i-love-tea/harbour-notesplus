@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use crate::constants::{APP_DIR_NAME, DB_FILENAME, JOURNAL_FILENAME, NOTES_DIR_NAME};
+use crate::constants::{APP_DIR_NAME, ASSETS_DIR_NAME, DB_FILENAME, JOURNAL_FILENAME, NOTES_DIR_NAME};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NoteFilename(pub String);
@@ -106,8 +106,8 @@ impl AppPaths {
         self.data_dir.join("backups")
     }
 
-    pub fn notes_subdir(&self) -> PathBuf {
-        self.notes_dir.join("notes")
+    pub fn assets_dir(&self) -> PathBuf {
+        self.data_dir.join(ASSETS_DIR_NAME)
     }
 
     pub fn models_dir(&self) -> PathBuf {

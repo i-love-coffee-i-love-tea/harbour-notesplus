@@ -130,6 +130,12 @@ pub fn handle_http_client(mut request: tiny_http::Request, ctx: ServerContext) {
         return;
     }
 
+    // 7b. Groups API
+    if clean_path == "api/groups" || clean_path.starts_with("api/groups/") {
+        pages::handle_groups_api(&mut writer, &req, clean_path, &ctx, &cors_origin);
+        return;
+    }
+
     // 8. Notes API
     if clean_path == "api/notes" || clean_path.starts_with("api/notes/") {
         pages::handle_notes_api(&mut writer, &req, clean_path, &ctx, &cors_origin);

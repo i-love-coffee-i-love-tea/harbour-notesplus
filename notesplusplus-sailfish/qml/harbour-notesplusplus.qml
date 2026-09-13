@@ -79,6 +79,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: groupDisplayDepthConf
+        key: "/apps/harbour-notesplusplus/group_display_depth"
+        defaultValue: 2
+    }
+
+    ConfigurationValue {
         id: journalEnabledConf
         key: "/apps/harbour-notesplusplus/journal_enabled"
         defaultValue: true
@@ -173,6 +179,7 @@ ApplicationWindow {
     property bool rejectPublicNetworks: rejectPublicNetworksConf.value !== undefined ? rejectPublicNetworksConf.value : true
     property string bindAddress: bindAddressConf.value !== undefined ? bindAddressConf.value : "0.0.0.0"
     property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
+    property int groupDisplayDepth: groupDisplayDepthConf.value !== undefined ? groupDisplayDepthConf.value : 2
     property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
 
     function formatSize(bytes) {
@@ -255,6 +262,11 @@ ApplicationWindow {
 
     function setJournalEnabled(val) {
         journalEnabledConf.value = val
+    }
+
+    function setGroupDisplayDepth(val) {
+        groupDisplayDepthConf.value = val
+        bridge.set_group_display_depth(val)
     }
 
     function setAiEnabled(val) {
@@ -400,6 +412,7 @@ ApplicationWindow {
         bridge.set_reject_public_networks(app.rejectPublicNetworks)
         bridge.set_bind_address(app.bindAddress)
         bridge.set_session_expiry_hours(app.sessionExpiryHours)
+        bridge.set_group_display_depth(app.groupDisplayDepth)
         syncTheme()
         if (app.autostartWebServer) {
             bridge.start_web_server()

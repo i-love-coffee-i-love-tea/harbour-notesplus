@@ -30,7 +30,7 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
         fts_tokens.join(" ")
     };
 
-    let sql = "SELECT p.id, p.filename, p.title, p.is_journal, p.created_at, p.updated_at, p.block_count,
+    let sql = "SELECT p.id, p.filename, p.group_path, p.title, p.is_journal, p.created_at, p.updated_at, p.block_count,
                       snippet(pages_fts, 2, '<b>', '</b>', '...', 32) as snip,
                       pages_fts.content
                FROM pages_fts
@@ -47,9 +47,9 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
     };
 
     let results = stmt.query_map(rusqlite::params![fts_query], |row| {
-        let content: String = row.get(8).unwrap_or_default();
-        let mut snip: String = row.get(7).unwrap_or_default();
-        let title: String = row.get(2)?;
+        let content: String = row.get(9).unwrap_or_default();
+        let mut snip: String = row.get(8).unwrap_or_default();
+        let title: String = row.get(3)?;
         if snip.trim().is_empty() || snip == "..." {
             let first_line = content.lines().find(|l| !l.trim().is_empty()).unwrap_or(&title);
             snip = first_line.chars().take(80).collect();
@@ -87,15 +87,15 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
     let escaped = escape_like_pattern(query);
     let pattern = format!("%{}%", escaped);
     let mut stmt = conn.prepare(
-        "SELECT id, filename, title, is_journal, created_at, updated_at, block_count
+        "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count
          FROM pages
-         WHERE title LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\'
+         WHERE title LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\' OR group_path LIKE ?1 ESCAPE '\\'
          ORDER BY updated_at DESC
          LIMIT 50"
     )?;
 
     let results = stmt.query_map(rusqlite::params![pattern], |row| {
-        let title: String = row.get(2)?;
+        let title: String = row.get(3)?;
         Ok(SearchResult {
             page: PageInfo::from_row(row)?,
             snippet: title,
@@ -124,12 +124,30 @@ mod tests {
     fn create_test_page(conn: &Connection, name: &str) -> i64 {
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
-            "INSERT INTO pages (filename, title, is_journal, created_at, updated_at, block_count)
-             VALUES (?1, ?2, 0, ?3, ?3, 0)",
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+             VALUES (?1, '', ?2, 0, ?3, ?3, 0)",
             rusqlite::params![format!("{}.adoc", name), name, now],
         )
         .unwrap();
         conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn test_search_pages_returns_group_path() {
+        let (conn, _dir) = setup();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+             VALUES ('Sprint.adoc', 'Work/Projects', 'Sprint Plan', 0, ?1, ?1, 0)",
+            rusqlite::params![now],
+        ).unwrap();
+        let page_id = conn.last_insert_rowid();
+        db::update_fts_content(&conn, page_id, "Sprint goals and tickets").unwrap();
+
+        let results = search_pages(&conn, "goals").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].page.group_path, "Work/Projects");
+        assert_eq!(results[0].page.full_path(), "Work/Projects/Sprint.adoc");
     }
 
     #[test]

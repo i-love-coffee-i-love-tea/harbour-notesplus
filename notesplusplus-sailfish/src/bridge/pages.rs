@@ -26,7 +26,7 @@ impl NotesBridge {
     }
 
     pub fn notes_dir(&self) -> std::path::PathBuf {
-        self.notes_path.join("notes")
+        self.notes_path.clone()
     }
 
     pub fn report_error(&mut self, msg: String) {
@@ -65,7 +65,9 @@ impl NotesBridge {
     }
 
     fn load_page_impl(&mut self, name: String) {
-        self.ensure_init();
+        if !self.ensure_init_blocking() {
+            return;
+        }
         let conn = match self.conn() {
             Some(c) => c,
             None => return,
@@ -73,8 +75,10 @@ impl NotesBridge {
 
         match page::get_page(conn, &name) {
             Ok(Some(info)) => {
-                let filename = info.filename.clone();
+                let full_path = info.full_path();
                 self.current_page_name = info.title.clone();
+                self.current_page_group_path = info.group_path.clone();
+                self.current_page_group_path_changed();
                 self.is_journal_page = info.is_journal;
 
                 let notes_dir = self.notes_dir();
@@ -84,7 +88,7 @@ impl NotesBridge {
                 self.loading_changed();
 
                 std::thread::spawn(move || {
-                    let result = match page::read_page(&notes_dir, &filename) {
+                    let result = match page::read_page(&notes_dir, &full_path) {
                         Ok(content) => {
                             let blocks = parser::parse_blocks_with_options(&content, drop_comments);
                             PendingResult {
@@ -335,25 +339,10 @@ impl NotesBridge {
         }
     }
 
-    fn create_page_impl(&mut self, name: String) {
-        self.ensure_init();
-        let conn = match self.conn() {
-            Some(c) => c,
-            None => return,
-        };
-
-        match page::create_page(conn, &self.notes_dir(), &name, false) {
-            Ok(_) => {
-                self.load_main_page_data_impl();
-            }
-            Err(e) => {
-                self.report_error(e.to_string());
-            }
-        }
-    }
-
     fn delete_page_impl(&mut self, name: String) {
-        self.ensure_init();
+        if !self.ensure_init_blocking() {
+            return;
+        }
         let conn = match self.conn() {
             Some(c) => c,
             None => return,
@@ -453,52 +442,71 @@ impl NotesBridge {
         };
 
         let t = std::time::Instant::now();
-        match page::recent_pages(conn, 10) {
-            Ok(pages) => {
-                eprintln!("[debug] recent_pages query in {:?} ({} pages)", t.elapsed(), pages.len());
+        let all_pages = page::list_pages(conn).unwrap_or_default();
+        let all_groups = notesplusplus_core::group::get_groups_flat(conn).unwrap_or_default();
+        let display_depth = self.group_display_depth;
+        eprintln!("[debug] list_pages query in {:?} ({} pages, {} groups)", t.elapsed(), all_pages.len(), all_groups.len());
+        for p in &all_pages {
+            eprintln!("[debug]   page: id={} filename='{}' group_path='{}' title='{}' journal={}", p.id, p.filename, p.group_path, p.title, p.is_journal);
+        }
+        for g in &all_groups {
+            eprintln!("[debug]   group: path='{}' display_name='{}' notes={} children={}", g.path, g.display_name, g.note_count, g.child_group_count);
+        }
 
-                let notes_dir = self.notes_dir();
-                let notes_path = self.notes_path.to_string_lossy().to_string();
-                let drop_comments = self.drop_comments;
-                let pending = self.pending_main_page.clone();
-                let qt_theme = self.qt_theme.clone();
-                let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
-                    notes_dir: Some(notes_path),
-                    allow_external_images: true,
-                    ..Default::default()
-                };
+        let notes_dir = self.notes_dir();
+        let notes_path = self.notes_path.to_string_lossy().to_string();
+        let drop_comments = self.drop_comments;
+        let pending = self.pending_main_page.clone();
+        let qt_theme = self.qt_theme.clone();
+        let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
+            notes_dir: Some(notes_path),
+            allow_external_images: true,
+            ..Default::default()
+        };
 
-                std::thread::spawn(move || {
-                    let mut page_jsons = Vec::new();
-                    for p in &pages {
-                        let t_preview = std::time::Instant::now();
-                        let preview_values = page::get_page_preview_values_with_options(&notes_dir, &p.filename, 8, drop_comments, Some(&qt_theme), Some(&qt_options));
-                        let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
-                        eprintln!("[debug]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
+        std::thread::spawn(move || {
+            let tree_json = notesplusplus_core::tree::build_group_tree(
+                &all_pages,
+                &all_groups,
+                display_depth,
+                Some(&notes_dir),
+                drop_comments,
+                Some(&qt_theme),
+                Some(&qt_options),
+            );
 
-                        let mut map = serde_json::Map::new();
-                        map.insert("name".into(), serde_json::Value::String(p.title.clone()));
-                        map.insert("filename".into(), serde_json::Value::String(p.filename.clone()));
-                        map.insert("created_at".into(), serde_json::Value::String(p.created_at.clone()));
-                        map.insert("updated_at".into(), serde_json::Value::String(p.updated_at.clone()));
-                        map.insert("block_count".into(), serde_json::Value::Number(p.block_count.into()));
-                        map.insert("preview_blocks".into(), serde_json::Value::Array(preview_values));
-                        map.insert("preview_blocks_json".into(), serde_json::Value::String(preview_json_str));
+            let mut page_jsons = Vec::new();
+            let recent_slice: Vec<_> = all_pages.iter().filter(|p| !p.is_journal).take(10).collect();
+            for p in &recent_slice {
+                let t_preview = std::time::Instant::now();
+                let preview_values = page::get_page_preview_values_with_options(&notes_dir, &p.full_path(), 8, drop_comments, Some(&qt_theme), Some(&qt_options));
+                let preview_json_str = serde_json::to_string(&preview_values).unwrap_or_else(|_| "[]".to_string());
+                eprintln!("[debug]   preview '{}' in {:?}", p.filename, t_preview.elapsed());
 
-                        let json_str = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
-                        page_jsons.push(json_str);
-                    }
+                let mut map = serde_json::Map::new();
+                map.insert("id".into(), serde_json::Value::Number(p.id.into()));
+                map.insert("name".into(), serde_json::Value::String(p.title.clone()));
+                map.insert("filename".into(), serde_json::Value::String(p.filename.clone()));
+                map.insert("group_path".into(), serde_json::Value::String(p.group_path.clone()));
+                map.insert("full_path".into(), serde_json::Value::String(p.full_path()));
+                map.insert("created_at".into(), serde_json::Value::String(p.created_at.clone()));
+                map.insert("updated_at".into(), serde_json::Value::String(p.updated_at.clone()));
+                map.insert("block_count".into(), serde_json::Value::Number(p.block_count.into()));
+                map.insert("preview_blocks".into(), serde_json::Value::Array(preview_values));
+                map.insert("preview_blocks_json".into(), serde_json::Value::String(preview_json_str));
 
-                    if let Ok(mut slot) = pending.lock() {
-                        *slot = Some(MainPageData { recent_page_jsons: page_jsons });
-                    }
-                    eprintln!("[debug] background preview generation done");
+                let json_str = serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default();
+                page_jsons.push(json_str);
+            }
+
+            if let Ok(mut slot) = pending.lock() {
+                *slot = Some(MainPageData {
+                    recent_page_jsons: page_jsons,
+                    grouped_tree_json: tree_json,
                 });
             }
-            Err(e) => {
-                eprintln!("[debug] Failed to load recent pages: {}", e);
-            }
-        }
+            eprintln!("[debug] background preview generation done");
+        });
 
         eprintln!("[debug] load_main_page_data total: {:?}", t_start.elapsed());
         self.data_refreshed();
@@ -507,6 +515,14 @@ impl NotesBridge {
     /// Poll for background main-page preview data. Returns true if data was
     /// consumed and properties updated.
     fn poll_main_page_data_impl(&mut self) -> bool {
+        // If DB init was pending, poll it and trigger initial data load upon completion
+        if self.conn.is_none() {
+            if self.poll_init() {
+                self.load_main_page_data_impl();
+            }
+            return false;
+        }
+
         let has_result = if let Ok(guard) = self.pending_main_page.lock() {
             guard.is_some()
         } else {
@@ -528,6 +544,7 @@ impl NotesBridge {
                 list.push(QString::from(json_str).into());
             }
             self.recent_pages = list;
+            self.grouped_tree_json = QString::from(data.grouped_tree_json);
             self.data_refreshed();
             return true;
         }
@@ -567,16 +584,16 @@ impl NotesBridge {
         let _ = std::fs::create_dir_all(&export_dir);
 
         let mut exported_count = 0;
-        let notes_subdir = self.notes_dir();
-        // Export .adoc files from the notes subdirectory
-        if let Ok(entries) = std::fs::read_dir(&notes_subdir) {
+        let notes_dir = self.notes_dir();
+        // Export .adoc files from the notes directory
+        if let Ok(entries) = std::fs::read_dir(&notes_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("adoc") {
                     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                         let title = filename.strip_suffix(".adoc").unwrap_or(filename);
                         let out_file = export_dir.join(format!("{}.html", title));
-                        if notesplusplus_core::html::export_page_to_html5(&notes_subdir, &self.notes_path, filename, &out_file).is_ok() {
+                        if notesplusplus_core::html::export_page_to_html5(&notes_dir, &self.notes_path, filename, &out_file).is_ok() {
                             exported_count += 1;
                         }
                     }
@@ -692,7 +709,9 @@ impl NotesBridge {
     }
 
     fn get_linkable_pages_json_impl(&mut self, query: String) -> String {
-        self.ensure_init();
+        if !self.ensure_init_blocking() {
+            return "[]".to_string();
+        }
         let conn = match self.conn() {
             Some(c) => c,
             None => return "[]".to_string(),
@@ -755,6 +774,177 @@ impl NotesBridge {
     }
 
 
+    fn create_page_impl(&mut self, name: String) {
+        if !self.ensure_init_blocking() {
+            return;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return,
+        };
+
+        match page::create_page(conn, &self.notes_dir(), &name, false) {
+            Ok(info) => {
+                self.load_main_page_data_impl();
+                self.load_page_impl(info.full_path());
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+            }
+        }
+    }
+
+    fn create_group_impl(&mut self, parent_path: String, name: String) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        match notesplusplus_core::group::create_group(conn, &self.notes_dir(), &parent_path, &name) {
+            Ok(_) => {
+                self.load_main_page_data_impl();
+                true
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn rename_group_impl(&mut self, old_path: String, new_name: String) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        match notesplusplus_core::group::rename_group(conn, &self.notes_dir(), &old_path, &new_name) {
+            Ok(_) => {
+                self.load_main_page_data_impl();
+                true
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn delete_group_impl(&mut self, path: String, recursive: bool) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        match notesplusplus_core::group::delete_group(conn, &self.notes_dir(), &path, recursive) {
+            Ok(_) => {
+                self.load_main_page_data_impl();
+                true
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn move_page_to_group_impl(&mut self, page_full_path: String, target_group: String) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        match page::move_page(conn, &self.notes_dir(), &page_full_path, &target_group) {
+            Ok(info) => {
+                self.load_main_page_data_impl();
+                if self.current_page_name == info.title {
+                    self.current_page_group_path = info.group_path.clone();
+                    self.current_page_group_path_changed();
+                }
+                true
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn set_group_display_depth_impl(&mut self, depth: i32) {
+        if self.group_display_depth != depth {
+            self.group_display_depth = depth;
+            self.group_depth_changed();
+            self.load_main_page_data_impl();
+        }
+    }
+
+    fn toggle_group_collapsed_impl(&mut self, group_path: String) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        match notesplusplus_core::group::toggle_group_collapsed(conn, &group_path) {
+            Ok(collapsed) => {
+                // Rebuild main page data inline (fast, no background thread)
+                self.ensure_init();
+                if !self.poll_init() {
+                    return collapsed;
+                }
+                let conn = match self.conn() {
+                    Some(c) => c,
+                    None => return collapsed,
+                };
+                let all_pages = page::list_pages(conn).unwrap_or_default();
+                let all_groups = notesplusplus_core::group::get_groups_flat(conn).unwrap_or_default();
+                let notes_dir = self.notes_dir();
+                let notes_path = self.notes_path.to_string_lossy().to_string();
+                let drop_comments = self.drop_comments;
+                let qt_theme = self.qt_theme.clone();
+                let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                    notes_dir: Some(notes_path),
+                    allow_external_images: true,
+                    ..Default::default()
+                };
+                let tree_json = notesplusplus_core::tree::build_group_tree(
+                    &all_pages, &all_groups, self.group_display_depth,
+                    Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
+                );
+                self.grouped_tree_json = QString::from(tree_json);
+                self.data_refreshed();
+                collapsed
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn get_groups_json_impl(&mut self) -> String {
+        if !self.ensure_init_blocking() {
+            return "[]".to_string();
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return "[]".to_string(),
+        };
+        match notesplusplus_core::group::get_groups_flat(conn) {
+            Ok(groups) => serde_json::to_string(&groups).unwrap_or_else(|_| "[]".to_string()),
+            Err(_) => "[]".to_string(),
+        }
+    }
+
     // QML method wrappers
     pub fn get_linkable_pages_json(&mut self, query: String) -> String { self.get_linkable_pages_json_impl(query) }
     pub fn load_page(&mut self, name: String) { self.load_page_impl(name); }
@@ -768,6 +958,13 @@ impl NotesBridge {
     pub fn save_page_source(&mut self, name: String, content: String) { self.save_page_source_impl(name, content); }
     pub fn create_page(&mut self, name: String) { self.create_page_impl(name); }
     pub fn delete_page(&mut self, name: String) { self.delete_page_impl(name); }
+    pub fn create_group(&mut self, parent_path: String, name: String) -> bool { self.create_group_impl(parent_path, name) }
+    pub fn rename_group(&mut self, old_path: String, new_name: String) -> bool { self.rename_group_impl(old_path, new_name) }
+    pub fn delete_group(&mut self, path: String, recursive: bool) -> bool { self.delete_group_impl(path, recursive) }
+    pub fn move_page_to_group(&mut self, page_full_path: String, target_group: String) -> bool { self.move_page_to_group_impl(page_full_path, target_group) }
+    pub fn set_group_display_depth(&mut self, depth: i32) { self.set_group_display_depth_impl(depth); }
+    pub fn toggle_group_collapsed(&mut self, group_path: String) -> bool { self.toggle_group_collapsed_impl(group_path) }
+    pub fn get_groups_json(&mut self) -> String { self.get_groups_json_impl() }
     pub fn navigate_to_page(&mut self, name: String) { self.navigate_to_page_impl(name); }
     pub fn insert_link_at_cursor(&mut self, block_idx: i32, cursor_pos: i32, target: String) { self.insert_link_at_cursor_impl(block_idx, cursor_pos, target); }
     pub fn toggle_checkbox(&mut self, block_index: i32, item_path: String) { self.toggle_checkbox_impl(block_index, item_path); }
@@ -824,4 +1021,5 @@ mod tests {
     fn journal_filename_constant() {
         assert_eq!(JOURNAL_FILENAME, "journal.adoc");
     }
+
 }

@@ -181,7 +181,7 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
     let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(ref fname) = context_filename {
         let content = context_content.unwrap_or_else(|| {
-            fs::read_to_string(ctx.notes_subdir.join(fname)).unwrap_or_default()
+            fs::read_to_string(ctx.notes_dir.join(fname)).unwrap_or_default()
         });
         session_guard.reset_session(Some((fname.as_str(), &content)), None);
     }
@@ -353,9 +353,9 @@ pub fn handle_read_file<W: Write>(
     } else {
         PathBuf::from(file_path)
     };
-    let canonical_notes_subdir = match ctx.notes_subdir.canonicalize() {
+    let canonical_notes_dir = match ctx.notes_dir.canonicalize() {
         Ok(c) => c,
-        Err(_) => ctx.notes_subdir.clone(),
+        Err(_) => ctx.notes_dir.clone(),
     };
     let canonical = match expanded.canonicalize() {
         Ok(c) => c,
@@ -366,7 +366,7 @@ pub fn handle_read_file<W: Write>(
             return;
         }
     };
-    if !canonical.starts_with(&canonical_notes_subdir) {
+    if !canonical.starts_with(&canonical_notes_dir) {
         let resp = json!({ "ok": false, "error": "Access denied: file is outside the notes directory" });
         send_response(stream, 403, "Forbidden", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         return;

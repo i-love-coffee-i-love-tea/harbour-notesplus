@@ -477,6 +477,10 @@ img {
     text-align: center;
 }
 
+/* Diagram (svgbob) */
+.diagram { margin: 1em 0; text-align: center; overflow-x: auto; }
+.diagram svg { max-width: 100%; height: auto; }
+
 @media print {
     body.notes-body { background: #fff; color: #000; font-size: 12pt; }
     .notes-container { max-width: 100%; padding: 0; }

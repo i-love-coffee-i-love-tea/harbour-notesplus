@@ -148,6 +148,25 @@ Column {
     }
 
     SectionHeader {
+        text: qsTr("Note Groups")
+    }
+
+    Slider {
+        width: parent.width
+        minimumValue: 1
+        maximumValue: 5
+        stepSize: 1
+        value: (typeof app !== "undefined" && app && app.groupDisplayDepth !== undefined) ? app.groupDisplayDepth : 2
+        label: qsTr("Group Display Depth")
+        valueText: qsTr("%1 level(s)").arg(Math.round(value))
+        onSliderValueChanged: {
+            if (typeof app !== "undefined" && app && app.setGroupDisplayDepth) {
+                app.setGroupDisplayDepth(Math.round(value))
+            }
+        }
+    }
+
+    SectionHeader {
         text: qsTr("Live Preview")
     }
 

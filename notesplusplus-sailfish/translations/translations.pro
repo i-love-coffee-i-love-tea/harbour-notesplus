@@ -7,4 +7,6 @@ SOURCES += \
 TRANSLATIONS += \
     harbour-notesplusplus.ts \
     harbour-notesplusplus_de.ts \
-    harbour-notesplusplus_es.ts
+    harbour-notesplusplus_es.ts \
+    harbour-notesplusplus_en.ts \
+    harbour-notesplusplus_en_US.ts

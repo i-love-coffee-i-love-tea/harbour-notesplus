@@ -92,15 +92,6 @@ Column {
         }
     }
 
-    Button {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: qsTr("Open Web Portal in Browser")
-        visible: bridge.web_server_running
-        onClicked: {
-            bridge.open_in_browser("")
-        }
-    }
-
     property var serverUrls: {
         if (!bridge.web_server_running) return []
         try { return JSON.parse(bridge.get_server_urls_json()) } catch(e) { return [] }
@@ -110,7 +101,7 @@ Column {
         id: urlPicker
         width: parent.width
         visible: bridge.web_server_running && serverUrls.length > 1
-        label: qsTr("Copy URL")
+        label: qsTr("Server Address")
         currentIndex: 0
         menu: ContextMenu {
             Repeater {
@@ -122,7 +113,7 @@ Column {
 
     Button {
         anchors.horizontalCenter: parent.horizontalCenter
-        text: serverUrls.length > 1 ? qsTr("Copy Selected URL") : qsTr("Copy URL")
+        text: qsTr("Copy URL")
         visible: bridge.web_server_running
         onClicked: {
             var urls = serverUrls
@@ -130,7 +121,6 @@ Column {
             var idx = urls.length > 1 ? urlPicker.currentIndex : 0
             var url = urls[idx] || urls[0]
             Clipboard.text = url
-            servicesRemorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
         }
     }
 

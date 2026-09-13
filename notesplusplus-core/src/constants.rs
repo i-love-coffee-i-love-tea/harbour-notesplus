@@ -1,5 +1,6 @@
 pub const APP_DIR_NAME: &str = "harbour-notesplusplus";
 pub const NOTES_DIR_NAME: &str = "notes";
+pub const ASSETS_DIR_NAME: &str = "assets";
 pub const DB_FILENAME: &str = "notesplusplus.db";
 pub const JOURNAL_FILENAME: &str = "journal.adoc";
 pub const JOURNAL_TITLE: &str = "Journal";

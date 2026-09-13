@@ -73,6 +73,16 @@ Page {
         return list
     }
 
+    property var parsedGroupedTree: {
+        try {
+            var raw = bridge.grouped_tree_json
+            if (raw && raw.length > 0) {
+                return JSON.parse(raw)
+            }
+        } catch(e) {}
+        return []
+    }
+
     property var parsedJournalBlocks: {
         var list = []
         for (var i = 0; i < bridge.journal_blocks.length; i++) {
@@ -165,6 +175,17 @@ Page {
                 }
             }
             MenuItem {
+                text: qsTr("New Group")
+                onClicked: {
+                    var dialog = pageStack.push(Qt.resolvedUrl("NewGroupDialog.qml"))
+                    dialog.accepted.connect(function() {
+                        if (dialog.groupName.length > 0) {
+                            bridge.create_group("", dialog.groupName)
+                        }
+                    })
+                }
+            }
+            MenuItem {
                 text: qsTr("New Page")
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
@@ -233,7 +254,6 @@ Page {
                         var url = bridge.web_server_url
                         if (url) {
                             Clipboard.text = url
-                            remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
                         }
                     }
                 }
@@ -268,11 +288,12 @@ Page {
                 searchTerm: searchField.text
                 visible: searchField.text.length > 0 && parsedSearchResults.length > 0
                 onItemClicked: function(itemData, itemIndex) {
+                    var target = itemData.full_path || itemData.name
                     pageStack.push(Qt.resolvedUrl("PageView.qml"), {
                         pageName: itemData.name,
                         searchTerm: searchField.text
                     })
-                    bridge.load_page(itemData.name)
+                    bridge.load_page(target)
                 }
             }
 
@@ -434,23 +455,14 @@ Page {
                 }
             }
 
-            // Recent pages section
-            SectionHeader {
-                text: qsTr("Recent Pages")
-                visible: searchField.text.length === 0
-            }
-
-            NoteCardGrid {
-                id: recentGrid
-                width: parent.width
-                isPortraitOrientation: isPortrait
-                model: searchField.text.length === 0 ? parsedRecentPages : []
-                visible: searchField.text.length === 0
-                onItemClicked: function(itemData, itemIndex) {
-                    pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                        pageName: itemData.name
-                    })
-                    bridge.load_page(itemData.name)
+            // Grouped Notes Section
+            Repeater {
+                model: searchField.text.length === 0 ? parsedGroupedTree : []
+                delegate: NoteGroupSection {
+                    width: parent.width
+                    groupData: modelData
+                    isPortraitOrientation: isPortrait
+                    remorsePopupRef: remorsePopup
                 }
             }
 
@@ -459,7 +471,7 @@ Page {
                 width: parent.width - Theme.horizontalPageMargin * 2
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.paddingMedium
-                visible: searchField.text.length === 0 && parsedRecentPages.length === 0
+                visible: searchField.text.length === 0 && parsedRecentPages.length === 0 && parsedGroupedTree.length === 0
 
                 Label {
                     width: parent.width
@@ -479,6 +491,10 @@ Page {
                 }
             }
         }
+    }
+
+    RemorsePopup {
+        id: remorsePopup
     }
 
     // Stationary floating action sidebar for in-place journal editing (transparent, non-moving)
@@ -542,6 +558,4 @@ Page {
             }
         }
     }
-
-    RemorsePopup { id: remorsePopup }
 }

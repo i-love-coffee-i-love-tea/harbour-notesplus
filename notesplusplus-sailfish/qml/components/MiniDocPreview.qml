@@ -12,7 +12,7 @@ Item {
     property real contentScale: (typeof app !== "undefined" && app && app.previewScale !== undefined) ? app.previewScale : 0.52
     property real previewHeight: width  // square by default
 
-    height: previewHeight
+    implicitHeight: previewHeight
 
     property var parsedBlocks: {
         if (previewBlocks && previewBlocks.length > 0) {

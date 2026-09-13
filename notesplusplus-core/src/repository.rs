@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use crate::CoreError;
+use crate::group::{self, GroupInfo};
 use crate::page::{self, PageInfo};
 use crate::search::{self, SearchResult};
 
@@ -33,6 +34,21 @@ pub trait NoteRepository: Send + Sync {
 
     /// Perform a full filesystem reconciliation sync.
     fn sync_all(&self) -> Result<(), CoreError>;
+
+    /// Create a new note group.
+    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, CoreError>;
+
+    /// Rename an existing group.
+    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, CoreError>;
+
+    /// Delete a note group.
+    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), CoreError>;
+
+    /// List groups, optionally filtered.
+    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, CoreError>;
+
+    /// Move a page to a new group.
+    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError>;
 }
 
 /// Filesystem and SQLite backed NoteRepository.
@@ -98,6 +114,31 @@ impl NoteRepository for FsSqliteNoteRepository {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::sync_and_index_pages(&conn, &self.notes_dir)
     }
+
+    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        group::create_group(&conn, &self.notes_dir, parent_path, name)
+    }
+
+    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        group::rename_group(&conn, &self.notes_dir, old_path, new_name)
+    }
+
+    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        group::delete_group(&conn, &self.notes_dir, path, recursive)
+    }
+
+    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        group::list_groups(&conn, parent_path, max_depth)
+    }
+
+    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        page::move_page(&conn, &self.notes_dir, source_name_or_path, target_group)
+    }
 }
 
 #[cfg(test)]
@@ -145,5 +186,26 @@ mod tests {
         repo.delete_page(&page.filename).unwrap();
         let list_after = repo.list_pages().unwrap();
         assert!(list_after.is_empty());
+    }
+
+    #[test]
+    fn test_repo_group_and_move_page() {
+        let (repo, _dir) = setup_repo();
+
+        // Create group
+        let g = repo.create_group("", "Projects").unwrap();
+        assert_eq!(g.path, "Projects");
+
+        // Create page
+        let page = repo.create_page("Projects/Task.adoc", false).unwrap();
+        assert_eq!(page.group_path, "Projects");
+
+        // Move page to Archives
+        let moved = repo.move_page(&page.full_path(), "Archives").unwrap();
+        assert_eq!(moved.group_path, "Archives");
+        assert_eq!(moved.full_path(), "Archives/Task.adoc");
+
+        let groups = repo.list_groups(None, None).unwrap();
+        assert!(groups.iter().any(|g| g.path == "Archives"));
     }
 }

@@ -445,6 +445,18 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn render_code_block(&self, title: Option<&str>, language: Option<&str>, lines: &[String]) -> String {
+        // Svgbob: render ASCII art to inline SVG
+        if language.map(|l| l.eq_ignore_ascii_case("svgbob")).unwrap_or(false) {
+            let title_html = Self::render_title_html(title);
+            let source = lines.join("\n");
+            let svg = crate::diagram::render_svgbob(&source);
+            return format!(
+                r#"<div class="listingblock">{title}<div class="diagram">{svg}</div></div>"#,
+                title = title_html,
+                svg = svg
+            );
+        }
+
         let title_html = Self::render_title_html(title);
         let lang_class = language
             .map(|l| format!(" language-{}", escape_html(l)))

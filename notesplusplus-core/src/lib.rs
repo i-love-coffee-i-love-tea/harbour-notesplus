@@ -5,6 +5,8 @@ pub mod error;
 pub mod inline;
 pub mod journal;
 pub mod page;
+pub mod group;
+pub mod tree;
 pub mod parser;
 pub mod paths;
 pub mod repository;
@@ -14,6 +16,7 @@ pub mod server;
 pub mod agent;
 pub mod stt;
 pub mod escape;
+pub mod diagram;
 
 pub use constants::*;
 pub use error::CoreError;

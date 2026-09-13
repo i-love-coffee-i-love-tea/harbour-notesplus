@@ -284,6 +284,8 @@ impl AgentSession {
                                 let hits: Vec<serde_json::Value> = results.iter().map(|hit| {
                                     json!({
                                         "filename": hit.page.filename,
+                                        "group_path": hit.page.group_path,
+                                        "full_path": hit.page.full_path(),
                                         "title": hit.page.title,
                                         "snippet": hit.snippet,
                                     })
@@ -303,6 +305,8 @@ impl AgentSession {
                             let page_list: Vec<serde_json::Value> = pages.iter().map(|p| {
                                 json!({
                                     "filename": p.filename,
+                                    "group_path": p.group_path,
+                                    "full_path": p.full_path(),
                                     "title": p.title,
                                     "is_journal": p.is_journal,
                                     "updated_at": p.updated_at,
@@ -317,16 +321,23 @@ impl AgentSession {
             }
             "create_note" => {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
+                let group = args.get("group").and_then(|v| v.as_str()).unwrap_or("");
                 let initial_content = args.get("content").or_else(|| args.get("initial_content")).and_then(|v| v.as_str());
 
+                let note_path = if group.is_empty() {
+                    title.to_string()
+                } else {
+                    format!("{}/{}", group.trim_matches('/'), title)
+                };
+
                 match self.open_db() {
-                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, title, false) {
+                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, &note_path, false) {
                         Ok(created) => {
                             if let Some(content) = initial_content {
-                                let _ = page::save_and_index_page(&conn, &self.notes_dir, &created.filename, content);
+                                let _ = page::save_and_index_page(&conn, &self.notes_dir, &created.full_path(), content);
                             }
                             self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note = Some(created.title.clone());
-                            format!("Successfully created note '{}' ({})", created.title, created.filename)
+                            format!("Successfully created note '{}' ({})", created.title, created.full_path())
                         }
                         Err(e) => format!("Error creating note: {}", e),
                     },
@@ -352,14 +363,15 @@ impl AgentSession {
 
     /// Applies note update with pre-edit backup snapshot and SQLite FTS index update.
     pub fn apply_note_edit(&self, filename: &str, new_content: &str, reason: &str) -> String {
-        let safe_filename = page::sanitize_note_filename(filename);
+        let (group_path, safe_stem) = page::sanitize_note_path(filename);
+        let full_path = if group_path.is_empty() { safe_stem.clone() } else { format!("{}/{}", group_path, safe_stem) };
         let file_path = page::safe_note_path(&self.notes_dir, filename);
         let current_content = fs::read_to_string(&file_path).unwrap_or_default();
 
         // 1. Create pre-edit snapshot
         let snapshot = {
             let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
-            match backup.create_snapshot(&safe_filename, &current_content, reason) {
+            match backup.create_snapshot(&full_path, &current_content, reason) {
                 Ok(s) => {
                     self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id = Some(s.id.clone());
                     Some(s)
@@ -373,18 +385,18 @@ impl AgentSession {
 
         // 2. Save note and update DB atomically
         if let Ok(conn) = self.open_db() {
-            if let Err(e) = page::save_and_index_page(&conn, &self.notes_dir, &safe_filename, new_content) {
-                return format!("Failed to save note '{}': {}", safe_filename, e);
+            if let Err(e) = page::save_and_index_page(&conn, &self.notes_dir, filename, new_content) {
+                return format!("Failed to save note '{}': {}", full_path, e);
             }
         } else if let Err(e) = page::atomic_write(&file_path, new_content) {
-            return format!("Failed to write to file '{}': {}", safe_filename, e);
+            return format!("Failed to write to file '{}': {}", full_path, e);
         }
 
         let snap_msg = snapshot
             .map(|s| format!(" (Snapshot archived: {})", s.id))
             .unwrap_or_default();
 
-        format!("Successfully updated note '{}' with reason: {}{}", safe_filename, reason, snap_msg)
+        format!("Successfully updated note '{}' with reason: {}{}", full_path, reason, snap_msg)
     }
 
     /// Undoes the last recorded edit action by rolling back to its pre-edit snapshot.

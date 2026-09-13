@@ -17,7 +17,7 @@ impl NotesBridge {
 
         let config = notesplusplus_core::server::ServerConfig {
             notes_dir: self.notes_path.clone(),
-            notes_subdir: self.notes_dir(),
+            assets_dir: self.data_dir.join(notesplusplus_core::constants::ASSETS_DIR_NAME),
             db_path,
             backup_dir,
             port: 8080,

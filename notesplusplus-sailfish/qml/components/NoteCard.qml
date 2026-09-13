@@ -7,6 +7,23 @@ BackgroundItem {
     property var cardData: ({})
     property int noteIndex: 0
 
+    onPressAndHold: {
+        var fullPath = (cardData && cardData.full_path) ? cardData.full_path : ((cardData && cardData.group_path ? cardData.group_path + "/" : "") + (cardData ? cardData.filename : ""))
+        var title = (cardData && cardData.name) ? cardData.name : fullPath
+        var group = (cardData && cardData.group_path) ? cardData.group_path : ""
+        var dialog = pageStack.push(Qt.resolvedUrl("../pages/MovePageDialog.qml"), {
+            pageFullPath: fullPath,
+            pageTitle: title,
+            currentGroup: group
+        })
+        dialog.accepted.connect(function() {
+            var target = dialog.targetGroup
+            if (target !== group) {
+                bridge.move_page_to_group(fullPath, target)
+            }
+        })
+    }
+
     function getNoteColor(name) {
         var palette = [
             "#e67e22", "#3498db", "#2ecc71", "#9b59b6",

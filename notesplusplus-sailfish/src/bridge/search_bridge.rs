@@ -10,6 +10,8 @@ use super::NotesBridge;
 pub(super) struct SearchHit {
     title: String,
     filename: String,
+    group_path: String,
+    full_path: String,
     snippet: String,
     created_at: String,
     updated_at: String,
@@ -54,6 +56,8 @@ impl NotesBridge {
                 let hits = results.iter().map(|r| SearchHit {
                     title: r.page.title.clone(),
                     filename: r.page.filename.clone(),
+                    group_path: r.page.group_path.clone(),
+                    full_path: r.page.full_path(),
                     snippet: r.snippet.clone(),
                     created_at: r.page.created_at.clone(),
                     updated_at: r.page.updated_at.clone(),
@@ -90,14 +94,14 @@ impl NotesBridge {
         self.loading_changed();
 
         if let Some(Ok(hits)) = result {
-            // Store filenames for preview matching
-            self.current_search_filenames = hits.iter().map(|h| h.filename.clone()).collect();
+            // Store full paths for preview matching
+            self.current_search_filenames = hits.iter().map(|h| h.full_path.clone()).collect();
 
             // Deliver results immediately (without previews)
             self.emit_search_results(&hits);
 
             // Kick off background preview loading
-            let filenames = self.current_search_filenames.clone();
+            let full_paths = self.current_search_filenames.clone();
             let notes_path = self.notes_path.clone();
             let drop_comments = self.drop_comments;
             let preview_slot = self.search_preview_slot.clone();
@@ -111,13 +115,13 @@ impl NotesBridge {
 
             thread::spawn(move || {
                 let mut previews = Vec::new();
-                for filename in &filenames {
+                for full_path in &full_paths {
                     let preview_values = page::get_page_preview_values_with_options(
-                        &notes_path, filename, 8, drop_comments, Some(&qt_theme), Some(&qt_options),
+                        &notes_path, full_path, 8, drop_comments, Some(&qt_theme), Some(&qt_options),
                     );
                     let preview_json = serde_json::to_string(&preview_values)
                         .unwrap_or_else(|_| "[]".to_string());
-                    previews.push((filename.clone(), preview_json));
+                    previews.push((full_path.clone(), preview_json));
                 }
                 if let Ok(mut guard) = preview_slot.lock() {
                     *guard = Some(previews);
@@ -190,6 +194,8 @@ impl NotesBridge {
             let mut map = serde_json::Map::new();
             map.insert("name".into(), serde_json::Value::String(hit.title.clone()));
             map.insert("filename".into(), serde_json::Value::String(hit.filename.clone()));
+            map.insert("group_path".into(), serde_json::Value::String(hit.group_path.clone()));
+            map.insert("full_path".into(), serde_json::Value::String(hit.full_path.clone()));
             map.insert("snippet".into(), serde_json::Value::String(hit.snippet.clone()));
             map.insert("query".into(), serde_json::Value::String(self.search_query.clone()));
             map.insert("created_at".into(), serde_json::Value::String(hit.created_at.clone()));
