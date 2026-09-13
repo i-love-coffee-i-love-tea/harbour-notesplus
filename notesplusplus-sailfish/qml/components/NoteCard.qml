@@ -13,6 +13,7 @@ GridItem {
     property string _fullPath: (cardData && cardData.full_path) ? cardData.full_path : ((cardData && cardData.group_path ? cardData.group_path + "/" : "") + (cardData ? cardData.filename : ""))
     property string _title: (cardData && cardData.name) ? cardData.name : _fullPath
     property string _group: (cardData && cardData.group_path) ? cardData.group_path : ""
+    property real _previewPadding: width < Theme.itemSizeSmall ? Theme.paddingSmall : (width < Theme.itemSizeMedium ? Math.round(Theme.paddingMedium * 0.7) : Theme.paddingMedium)
 
     menu: ContextMenu {
         MenuItem {
@@ -77,14 +78,15 @@ GridItem {
         border.width: 1
 
         MiniDocPreview {
+            id: miniDocPreview
             anchors {
                 left: parent.left
                 right: parent.right
                 top: parent.top
                 bottom: cardFooter.top
-                leftMargin: Theme.paddingMedium
-                rightMargin: Theme.paddingMedium
-                topMargin: Theme.paddingMedium
+                leftMargin: _previewPadding
+                rightMargin: _previewPadding
+                topMargin: _previewPadding
                 bottomMargin: 0
             }
             showBorder: false
@@ -100,19 +102,20 @@ GridItem {
                 left: parent.left
                 right: parent.right
                 bottom: parent.bottom
-                leftMargin: Theme.paddingMedium
-                rightMargin: Theme.paddingMedium
+                leftMargin: _previewPadding
+                rightMargin: _previewPadding
                 bottomMargin: Theme.paddingSmall
             }
-            height: Theme.paddingLarge
+            height: (width < Theme.itemSizeSmall ? Theme.paddingMedium : Theme.paddingLarge) + Theme.paddingMedium
 
             Rectangle {
                 id: colorBar
                 anchors {
                     left: parent.left
+                    leftMargin: Theme.horizontalPageMargin * miniDocPreview.contentScale
                     verticalCenter: parent.verticalCenter
                 }
-                width: Math.round(Theme.itemSizeExtraSmall * 0.6)
+                width: Math.round(Theme.itemSizeExtraSmall * 1.2)
                 height: Theme.paddingSmall
                 radius: Math.round(Theme.paddingSmall / 2)
                 color: noteCardItem.getNoteColor(noteCardItem.cardData ? noteCardItem.cardData.name : "")
@@ -124,8 +127,8 @@ GridItem {
                     right: parent.right
                     verticalCenter: parent.verticalCenter
                 }
-                text: (noteCardItem.noteIndex + 1).toString()
-                font.pixelSize: Theme.fontSizeExtraSmall
+                text: (noteCardItem.cardData && noteCardItem.cardData.id) ? noteCardItem.cardData.id.toString() : ""
+                font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryColor
             }
         }
