@@ -82,7 +82,7 @@ pub fn build_group_tree(
         if !root_pages.is_empty() {
             root_trees.push(build_node(
                 "",
-                "Recent Notes",
+                "Notes",
                 false,
                 0,
                 max_depth,

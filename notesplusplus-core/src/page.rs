@@ -581,6 +581,7 @@ pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), C
 
     sync_dir_recursive(conn, notes_dir, notes_dir, "", 0)?;
     cleanup_orphaned_pages(conn, notes_dir)?;
+    cleanup_orphaned_groups(conn)?;
 
     Ok(())
 }
@@ -762,6 +763,42 @@ pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(),
         }
     }
 
+    Ok(())
+}
+
+/// Removes groups that have no pages and no child groups.
+fn cleanup_orphaned_groups(conn: &Connection) -> Result<(), CoreError> {
+    let groups: Vec<String> = conn
+        .prepare("SELECT path FROM groups")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .collect();
+
+    for group_path in groups {
+        let page_count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pages WHERE group_path = ?1",
+                rusqlite::params![group_path],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        let prefix = format!("{}/", group_path);
+        let child_count: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM groups WHERE path LIKE ?1",
+                rusqlite::params![format!("{}%", prefix)],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+
+        if page_count == 0 && child_count == 0 {
+            let _ = conn.execute(
+                "DELETE FROM groups WHERE path = ?1",
+                rusqlite::params![group_path],
+            );
+        }
+    }
     Ok(())
 }
 
