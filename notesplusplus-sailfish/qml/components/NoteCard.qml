@@ -1,27 +1,55 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 
-BackgroundItem {
+ListItem {
     id: noteCardItem
+
+    contentHeight: height
 
     property var cardData: ({})
     property int noteIndex: 0
 
-    onPressAndHold: {
-        var fullPath = (cardData && cardData.full_path) ? cardData.full_path : ((cardData && cardData.group_path ? cardData.group_path + "/" : "") + (cardData ? cardData.filename : ""))
-        var title = (cardData && cardData.name) ? cardData.name : fullPath
-        var group = (cardData && cardData.group_path) ? cardData.group_path : ""
-        var dialog = pageStack.push(Qt.resolvedUrl("../pages/MovePageDialog.qml"), {
-            pageFullPath: fullPath,
-            pageTitle: title,
-            currentGroup: group
-        })
-        dialog.accepted.connect(function() {
-            var target = dialog.targetGroup
-            if (target !== group) {
-                bridge.move_page_to_group(fullPath, target)
+    property string _fullPath: (cardData && cardData.full_path) ? cardData.full_path : ((cardData && cardData.group_path ? cardData.group_path + "/" : "") + (cardData ? cardData.filename : ""))
+    property string _title: (cardData && cardData.name) ? cardData.name : _fullPath
+    property string _group: (cardData && cardData.group_path) ? cardData.group_path : ""
+
+    menu: ContextMenu {
+        MenuItem {
+            text: qsTr("Move")
+            onClicked: {
+                var dialog = pageStack.push(Qt.resolvedUrl("../pages/MovePageDialog.qml"), {
+                    pageFullPath: _fullPath,
+                    pageTitle: _title,
+                    currentGroup: _group
+                })
+                dialog.accepted.connect(function() {
+                    var target = dialog.targetGroup
+                    if (target !== _group) {
+                        bridge.move_page_to_group(_fullPath, target)
+                    }
+                })
             }
-        })
+        }
+        MenuItem {
+            text: qsTr("Rename")
+            onClicked: {
+                var dialog = pageStack.push(Qt.resolvedUrl("../pages/RenamePageDialog.qml"), {
+                    currentTitle: _title
+                })
+                dialog.accepted.connect(function() {
+                    var newTitle = dialog.newTitle
+                    if (newTitle.length > 0 && newTitle !== _title) {
+                        bridge.rename_page(_fullPath, newTitle)
+                    }
+                })
+            }
+        }
+        MenuItem {
+            text: qsTr("Delete")
+            onClicked: {
+                bridge.delete_page(_fullPath)
+            }
+        }
     }
 
     function getNoteColor(name) {

@@ -373,6 +373,33 @@ impl NotesBridge {
         }
     }
 
+    fn rename_page_impl(&mut self, name: String, new_title: String) {
+        if !self.ensure_init_blocking() {
+            return;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let old_title = page::get_page(conn, &name).ok().flatten().map(|p| p.title.clone());
+        let is_current = self.current_page_name == name
+            || old_title.as_ref().map_or(false, |t| t == &self.current_page_name);
+
+        match page::rename_page(conn, &self.notes_dir(), &name, &new_title) {
+            Ok(_) => {
+                if is_current {
+                    self.current_page_name = new_title.clone();
+                    self.page_changed();
+                }
+                self.load_main_page_data_impl();
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+            }
+        }
+    }
+
     fn navigate_to_page_impl(&mut self, name: String) {
         self.load_page_impl(name);
     }
@@ -980,6 +1007,7 @@ impl NotesBridge {
     pub fn save_page_source(&mut self, name: String, content: String) { self.save_page_source_impl(name, content); }
     pub fn create_page(&mut self, name: String) { self.create_page_impl(name); }
     pub fn delete_page(&mut self, name: String) { self.delete_page_impl(name); }
+    pub fn rename_page(&mut self, name: String, new_title: String) { self.rename_page_impl(name, new_title); }
     pub fn create_group(&mut self, parent_path: String, name: String) -> bool { self.create_group_impl(parent_path, name) }
     pub fn rename_group(&mut self, old_path: String, new_name: String) -> bool { self.rename_group_impl(old_path, new_name) }
     pub fn delete_group(&mut self, path: String, recursive: bool) -> bool { self.delete_group_impl(path, recursive) }

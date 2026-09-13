@@ -1087,6 +1087,107 @@ pub fn move_page(
     })
 }
 
+/// Rename a page: changes the title, renames the file on disk, and updates DB + FTS.
+pub fn rename_page(
+    conn: &Connection,
+    notes_dir: &Path,
+    name_or_path: &str,
+    new_title: &str,
+) -> Result<PageInfo, CoreError> {
+    let source_page = get_page(conn, name_or_path)?
+        .ok_or_else(|| CoreError::Msg(format!("Page '{}' not found", name_or_path)))?;
+
+    if source_page.is_journal || source_page.filename == JOURNAL_FILENAME {
+        return Err(CoreError::Msg("Cannot rename journal page".to_string()));
+    }
+
+    let new_filename = ensure_adoc_extension(&sanitize_filename(new_title));
+    if new_filename == source_page.filename {
+        // Title changed but filename would be the same — just update title
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE pages SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![new_title, now, source_page.id],
+        )?;
+        return Ok(PageInfo {
+            id: source_page.id,
+            filename: source_page.filename,
+            group_path: source_page.group_path,
+            title: new_title.to_string(),
+            is_journal: source_page.is_journal,
+            created_at: source_page.created_at,
+            updated_at: now,
+            block_count: source_page.block_count,
+        });
+    }
+
+    let old_full_path = source_page.full_path();
+    let src_file = safe_note_path(notes_dir, &old_full_path);
+    let new_full_path = if source_page.group_path.is_empty() {
+        new_filename.clone()
+    } else {
+        format!("{}/{}", source_page.group_path, new_filename)
+    };
+    let dest_file = safe_note_path(notes_dir, &new_full_path);
+
+    if dest_file.exists() && dest_file != src_file {
+        return Err(CoreError::Msg(format!("A file named '{}' already exists", new_filename)));
+    }
+
+    // Update the title inside the .adoc content (first line `= Title`)
+    let mut content = std::fs::read_to_string(&src_file).unwrap_or_default();
+    if content.starts_with("= ") {
+        if let Some(newline_pos) = content.find('\n') {
+            content = format!("= {}\n{}", new_title, &content[newline_pos + 1..]);
+        } else {
+            content = format!("= {}", new_title);
+        }
+    }
+
+    // Rename file on disk
+    if src_file.exists() {
+        std::fs::rename(&src_file, &dest_file)?;
+    }
+    let _ = atomic_write(&dest_file, &content);
+
+    // Update database
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE pages SET filename = ?1, title = ?2, updated_at = ?3 WHERE id = ?4",
+        rusqlite::params![new_filename, new_title, now, source_page.id],
+    )?;
+
+    // Update cross-references in other notes
+    let all_pages = list_pages(conn)?;
+    for page in &all_pages {
+        if page.id == source_page.id {
+            continue;
+        }
+        let file_path = safe_note_path(notes_dir, &page.full_path());
+        if let Ok(c) = std::fs::read_to_string(&file_path) {
+            let rewritten = rewrite_xrefs(&c, &old_full_path, &new_full_path);
+            if rewritten != c {
+                let _ = atomic_write(&file_path, &rewritten);
+                let _ = db::update_fts_content(conn, page.id, &rewritten);
+            }
+        }
+    }
+
+    // Re-index renamed note in FTS
+    let _ = db::update_fts_content(conn, source_page.id, &content);
+
+    Ok(PageInfo {
+        id: source_page.id,
+        filename: new_filename,
+        group_path: source_page.group_path,
+        title: new_title.to_string(),
+        is_journal: source_page.is_journal,
+        created_at: source_page.created_at,
+        updated_at: now,
+        block_count: source_page.block_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
