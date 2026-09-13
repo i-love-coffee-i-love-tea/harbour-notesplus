@@ -44,7 +44,7 @@ pub fn build_group_tree(
 
     let mut top_level_groups: Vec<String> = groups
         .iter()
-        .filter(|g| !g.path.contains('/'))
+        .filter(|g| !g.path.is_empty() && !g.path.contains('/'))
         .map(|g| g.path.clone())
         .collect();
 
@@ -59,6 +59,9 @@ pub fn build_group_tree(
 
     // Guarantee all DB groups appear in the tree (even empty ones not referenced by any page)
     for g in groups {
+        if g.path.is_empty() {
+            continue;
+        }
         let top = if let Some(slash_pos) = g.path.find('/') {
             &g.path[..slash_pos]
         } else {
@@ -77,13 +80,17 @@ pub fn build_group_tree(
 
     let mut root_trees = Vec::new();
 
-    // Include ungrouped root pages under "Recent Pages" if any exist
+    // Include ungrouped root pages under "Notes" if any exist
     if let Some(root_pages) = pages_by_group.get("") {
         if !root_pages.is_empty() {
+            let collapsed = groups_by_path
+                .get("")
+                .map(|g| g.collapsed)
+                .unwrap_or(false);
             root_trees.push(build_node(
                 "",
                 "Notes",
-                false,
+                collapsed,
                 0,
                 max_depth,
                 &groups_by_path,
@@ -517,5 +524,35 @@ mod tests {
         let work = &arr[1];
         assert_eq!(work["path"], "Work");
         assert_eq!(work["pages"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_collapsed_groups_and_ungrouped() {
+        let pages = vec![
+            make_page(1, "Root.adoc", "", "Root Note"),
+            make_page(2, "Work.adoc", "Work", "Work Note"),
+        ];
+
+        let mut root_group = make_group("", "Notes");
+        root_group.collapsed = true;
+
+        let mut work_group = make_group("Work", "Work");
+        work_group.collapsed = true;
+
+        let groups = vec![root_group, work_group];
+
+        let tree_json = build_group_tree(&pages, &groups, 5, None, true, None, None);
+        let parsed: serde_json::Value = serde_json::from_str(&tree_json).unwrap();
+        let arr = parsed.as_array().unwrap();
+
+        assert_eq!(arr.len(), 2);
+
+        let recent = &arr[0];
+        assert_eq!(recent["path"], "");
+        assert_eq!(recent["collapsed"], true);
+
+        let work = &arr[1];
+        assert_eq!(work["path"], "Work");
+        assert_eq!(work["collapsed"], true);
     }
 }

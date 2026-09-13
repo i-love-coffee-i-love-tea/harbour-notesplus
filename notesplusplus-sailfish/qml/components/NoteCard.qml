@@ -1,10 +1,11 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 
-ListItem {
+GridItem {
     id: noteCardItem
 
-    contentHeight: height
+    contentHeight: _cellHeight
+    property real _cellHeight: width > 0 ? width : Theme.itemSizeExtraLarge
 
     property var cardData: ({})
     property int noteIndex: 0
@@ -69,7 +70,8 @@ ListItem {
 
     Rectangle {
         id: cardBox
-        anchors.fill: parent
+        width: parent.width
+        height: noteCardItem.contentHeight
         color: noteCardItem.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.22) : Theme.rgba(Theme.highlightBackgroundColor, 0.05)
         border.color: noteCardItem.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.12)
         border.width: 1
