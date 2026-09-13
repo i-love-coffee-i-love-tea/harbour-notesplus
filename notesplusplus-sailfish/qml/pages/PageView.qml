@@ -305,7 +305,9 @@ Page {
         footer: Item {
             id: listFooter
             width: listView.width
-            height: pageView.isAddingNewBlock ? (newBlockEditor.height + Theme.paddingLarge * 2) : (Theme.itemSizeExtraLarge * 2)
+            height: pageView.isAddingNewBlock
+                ? (newBlockEditor.height + Theme.paddingLarge * 2)
+                : Math.max(Theme.itemSizeExtraLarge * 2, listView.height - (Theme.itemSizeLarge + Theme.paddingLarge))
 
             MouseArea {
                 anchors.fill: parent
@@ -382,7 +384,7 @@ Page {
                 if (pageView.isAddingNewBlock) {
                     pageView.saveNewBlock()
                 }
-                var range = pageView.findConsecutiveListRange(idx)
+                var range = pageView.findEditRange(idx)
                 var actualRaw = ""
                 if (range.count > 1) {
                     var parts = []
@@ -464,26 +466,53 @@ Page {
         }
     }
 
-    function findConsecutiveListRange(idx) {
+    function findEditRange(idx) {
         if (!parsedBlocks || idx < 0 || idx >= parsedBlocks.length) return { start: idx, count: 1 }
         var block = parsedBlocks[idx]
         if (!block) return { start: idx, count: 1 }
         var t = block.type
-        if (t !== "unordered_list_item" && t !== "ordered_list_item" && t !== "description_list_item") return { start: idx, count: 1 }
-        var level = block.level || 0
-        var start = idx
-        var end = idx
-        while (start > 0) {
-            var prev = parsedBlocks[start - 1]
-            if (prev && prev.type === t && (prev.level || 0) === level) { start--; continue }
-            break
+
+        // Heading: include everything until next heading of equal-or-higher level
+        if (t === "heading") {
+            var level = block.level || 1
+            var end = idx
+            while (end < parsedBlocks.length - 1) {
+                var next = parsedBlocks[end + 1]
+                if (next && next.type === "heading" && (next.level || 1) <= level) break
+                end++
+            }
+            return { start: idx, count: end - idx + 1 }
         }
-        while (end < parsedBlocks.length - 1) {
-            var next = parsedBlocks[end + 1]
-            if (next && next.type === t && (next.level || 0) === level) { end++; continue }
-            break
+
+        // List item: include all contiguous list items (any type/level) + EmptyLines between them
+        var listTypes = ["unordered_list_item", "ordered_list_item",
+                         "description_list_item", "callout_list_item"]
+        if (listTypes.indexOf(t) >= 0) {
+            var start = idx
+            while (start > 0) {
+                var prev = parsedBlocks[start - 1]
+                if (!prev) break
+                if (listTypes.indexOf(prev.type) >= 0 || prev.type === "empty_line") {
+                    start--
+                    continue
+                }
+                break
+            }
+            var end = idx
+            while (end < parsedBlocks.length - 1) {
+                var next = parsedBlocks[end + 1]
+                if (!next) break
+                if (listTypes.indexOf(next.type) >= 0 || next.type === "empty_line") {
+                    end++
+                    continue
+                }
+                break
+            }
+            return { start: start, count: end - start + 1 }
         }
-        return { start: start, count: end - start + 1 }
+
+        // All other blocks: single-block edit
+        return { start: idx, count: 1 }
     }
 
     function getActiveEditorTextArea() {

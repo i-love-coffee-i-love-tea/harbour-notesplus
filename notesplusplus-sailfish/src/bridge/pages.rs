@@ -167,6 +167,23 @@ impl NotesBridge {
             }
         });
 
+        // Optimistic update: refresh in-memory blocks so UI updates immediately
+        let path = page::safe_note_path(&self.notes_dir(), &target_path);
+        if let Ok(new_content) = std::fs::read_to_string(&path) {
+            let new_blocks = parser::parse_blocks_with_options(&new_content, self.drop_comments);
+            self.current_blocks_data = new_blocks;
+            let options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                notes_dir: Some(self.notes_path.to_string_lossy().to_string()),
+                allow_external_images: true,
+                search_terms: Vec::new(),
+            };
+            self.current_blocks = Self::blocks_to_qvariantlist_with_html(
+                &self.current_blocks_data, &self.qt_theme, &options,
+            );
+            self.blocks_version += 1;
+            self.page_changed();
+        }
+
         if !target_path.is_empty() {
             self.load_page_impl(target_path);
         }

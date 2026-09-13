@@ -11,7 +11,8 @@ Grid {
     signal itemClicked(var itemData, int itemIndex)
 
     width: parent ? parent.width : Screen.width
-    columns: isPortraitOrientation ? 2 : (width > 1200 ? 4 : 3)
+    property int baseColumns: (typeof app !== "undefined" && app && app.gridColumns > 0) ? app.gridColumns : 2
+    columns: isPortraitOrientation ? baseColumns : baseColumns * 2
     spacing: 0
 
     property real cellWidth: Math.floor(width / columns)

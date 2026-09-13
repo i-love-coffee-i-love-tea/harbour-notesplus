@@ -111,6 +111,21 @@ Column {
         }
     }
 
+    Slider {
+        width: parent.width
+        minimumValue: 1
+        maximumValue: 6
+        stepSize: 1
+        value: (typeof app !== "undefined" && app && app.gridColumns !== undefined) ? app.gridColumns : 2
+        label: qsTr("Grid Columns")
+        valueText: value
+        onSliderValueChanged: {
+            if (typeof app !== "undefined" && app && app.setGridColumns) {
+                app.setGridColumns(Math.round(value))
+            }
+        }
+    }
+
     TextSwitch {
         width: parent.width
         text: qsTr("Strip Comments")

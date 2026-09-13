@@ -43,6 +43,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: gridColumnsConf
+        key: "/apps/harbour-notesplusplus/grid_columns"
+        defaultValue: 2
+    }
+
+    ConfigurationValue {
         id: dropCommentsConf
         key: "/apps/harbour-notesplusplus/drop_comments"
         defaultValue: true
@@ -173,6 +179,7 @@ ApplicationWindow {
     property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
     property int tocCollapseThreshold: tocCollapseThresholdConf.value !== undefined ? tocCollapseThresholdConf.value : 5
     property real previewScale: previewScaleConf.value !== undefined && previewScaleConf.value > 0 ? previewScaleConf.value : 0.52
+    property int gridColumns: gridColumnsConf.value !== undefined ? gridColumnsConf.value : 2
     property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
     property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
     property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
@@ -228,6 +235,10 @@ ApplicationWindow {
 
     function setPreviewScale(scale) {
         previewScaleConf.value = scale
+    }
+
+    function setGridColumns(cols) {
+        gridColumnsConf.value = cols
     }
 
     function setDropComments(drop) {
