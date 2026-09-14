@@ -109,6 +109,31 @@ Page {
                 width: parent.width
                 height: Theme.itemSizeMedium
                 onClicked: {
+                    groupMenuPage.actionSelected("toggle_sort")
+                    pageStack.pop()
+                }
+                Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin
+                    spacing: Theme.paddingMedium
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "image://theme/icon-m-reorder"
+                        color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    }
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("Toggle Note Sorting")
+                        color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    }
+                }
+            }
+
+            BackgroundItem {
+                width: parent.width
+                height: Theme.itemSizeMedium
+                onClicked: {
                     groupMenuPage.actionSelected("delete")
                     pageStack.pop()
                 }

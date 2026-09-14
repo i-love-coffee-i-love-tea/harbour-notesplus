@@ -397,7 +397,11 @@ Page {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewGroupDialog.qml"))
                     dialog.accepted.connect(function() {
                         if (dialog.groupName.length > 0) {
-                            bridge.create_group("", dialog.groupName)
+                            if (bridge.create_group("", dialog.groupName)) {
+                                if (dialog.noteSort && dialog.noteSort !== "newest") {
+                                    bridge.set_group_note_sort(dialog.groupName, dialog.noteSort)
+                                }
+                            }
                         }
                     })
                 }

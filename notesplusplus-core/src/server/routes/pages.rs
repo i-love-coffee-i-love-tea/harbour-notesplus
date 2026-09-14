@@ -486,6 +486,7 @@ pub fn handle_groups_api<W: Write>(
             let json_val = req.json_body();
             let name = json_val.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
             let parent = json_val.get("parent").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let note_sort = json_val.get("note_sort").and_then(|v| v.as_str()).map(|s| s.trim());
 
             if name.is_empty() {
                 send_json_error(stream, 400, "Bad Request", "Group name is required", cors_origin);
@@ -493,7 +494,13 @@ pub fn handle_groups_api<W: Write>(
             }
 
             match ctx.repository.create_group(parent, name) {
-                Ok(group) => {
+                Ok(mut group) => {
+                    if let Some(sort_str) = note_sort {
+                        let sort_order = sort_str.parse::<crate::group::NoteSortOrder>().unwrap_or_default();
+                        if let Ok(updated_sort) = ctx.repository.set_group_note_sort(&group.path, sort_order) {
+                            group.note_sort = updated_sort;
+                        }
+                    }
                     let resp = json!({ "ok": true, "group": group });
                     send_json_ok(stream, &resp, cors_origin);
                 }
@@ -523,19 +530,37 @@ pub fn handle_groups_api<W: Write>(
             let old_path = clean_path.strip_prefix("api/groups/").unwrap_or("").trim();
             let json_val = req.json_body();
             let new_name = json_val.get("new_name").or_else(|| json_val.get("name")).and_then(|v| v.as_str()).unwrap_or("").trim();
-            if old_path.is_empty() || new_name.is_empty() {
-                send_json_error(stream, 400, "Bad Request", "old_path and new_name required", cors_origin);
+            let note_sort = json_val.get("note_sort").and_then(|v| v.as_str()).map(|s| s.trim());
+
+            if old_path.is_empty() || (new_name.is_empty() && note_sort.is_none()) {
+                send_json_error(stream, 400, "Bad Request", "old_path and new_name or note_sort required", cors_origin);
                 return;
             }
-            match ctx.repository.rename_group(old_path, new_name) {
-                Ok(new_path) => {
-                    let resp = json!({ "ok": true, "new_path": new_path });
-                    send_json_ok(stream, &resp, cors_origin);
-                }
-                Err(e) => {
-                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+
+            let mut current_path = old_path.to_string();
+            let current_base = old_path.rsplit('/').next().unwrap_or(old_path);
+            if !new_name.is_empty() && new_name != current_base {
+                match ctx.repository.rename_group(old_path, new_name) {
+                    Ok(new_path) => {
+                        current_path = new_path;
+                    }
+                    Err(e) => {
+                        send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                        return;
+                    }
                 }
             }
+
+            if let Some(sort_str) = note_sort {
+                let sort_order = sort_str.parse::<crate::group::NoteSortOrder>().unwrap_or_default();
+                if let Err(e) = ctx.repository.set_group_note_sort(&current_path, sort_order) {
+                    send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                    return;
+                }
+            }
+
+            let resp = json!({ "ok": true, "new_path": current_path, "path": current_path });
+            send_json_ok(stream, &resp, cors_origin);
         }
         _ => {
             send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin);

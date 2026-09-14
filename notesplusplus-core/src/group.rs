@@ -6,6 +6,42 @@ use crate::CoreError;
 use crate::db;
 use crate::page::{self, sanitize_filename};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteSortOrder {
+    #[default]
+    #[serde(rename = "newest", alias = "newest_first", alias = "recent")]
+    NewestFirst,
+    #[serde(rename = "name", alias = "by_name", alias = "title", alias = "alphabetical")]
+    ByName,
+}
+
+impl NoteSortOrder {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            NoteSortOrder::NewestFirst => "newest",
+            NoteSortOrder::ByName => "name",
+        }
+    }
+}
+
+impl std::fmt::Display for NoteSortOrder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for NoteSortOrder {
+    type Err = std::convert::Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let normalized = s.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+        match normalized.as_str() {
+            "name" | "by_name" | "title" | "alphabetical" => Ok(NoteSortOrder::ByName),
+            _ => Ok(NoteSortOrder::NewestFirst),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupInfo {
     pub path: String,           // e.g. "Work/Projects"
@@ -14,6 +50,8 @@ pub struct GroupInfo {
     pub child_group_count: usize,
     pub collapsed: bool,
     pub sort_order: i32,
+    #[serde(default)]
+    pub note_sort: NoteSortOrder,
 }
 
 /// Creates a new note group on disk and registers it in the database.
@@ -42,11 +80,13 @@ pub fn create_group(
 
     let now = chrono::Utc::now().to_rfc3339();
     conn.execute(
-        "INSERT INTO groups (path, display_name, collapsed, sort_order, created_at)
-         VALUES (?1, ?2, 0, 0, ?3)
+        "INSERT INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+         VALUES (?1, ?2, 0, 0, 'newest', ?3)
          ON CONFLICT(path) DO UPDATE SET display_name = ?2",
         rusqlite::params![full_path, name.trim(), now],
     )?;
+
+    let note_sort = get_group_note_sort(conn, &full_path).unwrap_or_default();
 
     Ok(GroupInfo {
         path: full_path,
@@ -55,6 +95,7 @@ pub fn create_group(
         child_group_count: 0,
         collapsed: false,
         sort_order: 0,
+        note_sort,
     })
 }
 
@@ -244,21 +285,22 @@ pub fn list_groups(
     max_depth: Option<i32>,
 ) -> Result<Vec<GroupInfo>, CoreError> {
     let mut stmt = conn.prepare(
-        "SELECT path, display_name, collapsed, sort_order FROM groups ORDER BY sort_order ASC, display_name ASC"
+        "SELECT path, display_name, collapsed, sort_order, note_sort FROM groups ORDER BY sort_order ASC, display_name ASC"
     )?;
 
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i32>(2)? != 0,
-            row.get::<_, i32>(3)?,
-        ))
+        let path: String = row.get(0)?;
+        let display_name: String = row.get(1)?;
+        let collapsed: bool = row.get::<_, i32>(2)? != 0;
+        let sort_order: i32 = row.get(3)?;
+        let note_sort_str: Option<String> = row.get(4).ok();
+        let note_sort = note_sort_str.and_then(|s| s.parse().ok()).unwrap_or_default();
+        Ok((path, display_name, collapsed, sort_order, note_sort))
     })?;
 
     let mut result = Vec::new();
     for row in rows.flatten() {
-        let (path, display_name, collapsed, sort_order) = row;
+        let (path, display_name, collapsed, sort_order, note_sort) = row;
 
         // Depth check
         let depth = path.split('/').count() as i32;
@@ -308,6 +350,7 @@ pub fn list_groups(
             child_group_count,
             collapsed,
             sort_order,
+            note_sort,
         });
     }
 
@@ -319,14 +362,54 @@ pub fn get_groups_flat(conn: &Connection) -> Result<Vec<GroupInfo>, CoreError> {
     list_groups(conn, None, None)
 }
 
+/// Sets a group's note sort order (e.g. by name or newest first).
+pub fn set_group_note_sort(
+    conn: &Connection,
+    path: &str,
+    note_sort: NoteSortOrder,
+) -> Result<NoteSortOrder, CoreError> {
+    let clean_path = path.trim().trim_matches('/');
+    let now = chrono::Utc::now().to_rfc3339();
+    let display_name = if clean_path.is_empty() {
+        "Notes"
+    } else {
+        clean_path.rsplit('/').next().unwrap_or(clean_path)
+    };
+    conn.execute(
+        "INSERT INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+         VALUES (?1, ?2, 0, 0, ?3, ?4)
+         ON CONFLICT(path) DO UPDATE SET note_sort = ?3",
+        rusqlite::params![clean_path, display_name, note_sort.as_str(), now],
+    )?;
+    Ok(note_sort)
+}
+
+/// Retrieves a group's note sort order, defaulting to `NewestFirst`.
+pub fn get_group_note_sort(
+    conn: &Connection,
+    path: &str,
+) -> Result<NoteSortOrder, CoreError> {
+    let clean_path = path.trim().trim_matches('/');
+    let sort_str: Option<String> = conn
+        .query_row(
+            "SELECT note_sort FROM groups WHERE path = ?1",
+            rusqlite::params![clean_path],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(sort_str
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_default())
+}
+
 /// Toggles a group's collapsed state and returns the new boolean value.
 pub fn toggle_group_collapsed(conn: &Connection, path: &str) -> Result<bool, CoreError> {
     let clean_path = path.trim().trim_matches('/');
     let now = chrono::Utc::now().to_rfc3339();
     let display_name = clean_path.rsplit('/').next().unwrap_or(clean_path);
     conn.execute(
-        "INSERT INTO groups (path, display_name, collapsed, sort_order, created_at)
-         VALUES (?1, ?2, 1, 0, ?3)
+        "INSERT INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+         VALUES (?1, ?2, 1, 0, 'newest', ?3)
          ON CONFLICT(path) DO UPDATE SET collapsed = NOT collapsed",
         rusqlite::params![clean_path, display_name, now],
     )?;
@@ -460,5 +543,51 @@ mod tests {
         assert!(c1);
         let c2 = toggle_group_collapsed(&conn, "Work").unwrap();
         assert!(!c2);
+    }
+
+    #[test]
+    fn test_group_note_sort_setting() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+
+        let g = create_group(&conn, &notes, "", "Archive").unwrap();
+        assert_eq!(g.note_sort, NoteSortOrder::NewestFirst);
+
+        let initial_sort = get_group_note_sort(&conn, "Archive").unwrap();
+        assert_eq!(initial_sort, NoteSortOrder::NewestFirst);
+
+        let updated = set_group_note_sort(&conn, "Archive", NoteSortOrder::ByName).unwrap();
+        assert_eq!(updated, NoteSortOrder::ByName);
+
+        let retrieved = get_group_note_sort(&conn, "Archive").unwrap();
+        assert_eq!(retrieved, NoteSortOrder::ByName);
+
+        let groups = get_groups_flat(&conn).unwrap();
+        let archive_group = groups.iter().find(|g| g.path == "Archive").unwrap();
+        assert_eq!(archive_group.note_sort, NoteSortOrder::ByName);
+
+        // Root/ungrouped notes setting
+        set_group_note_sort(&conn, "", NoteSortOrder::ByName).unwrap();
+        let root_sort = get_group_note_sort(&conn, "").unwrap();
+        assert_eq!(root_sort, NoteSortOrder::ByName);
+    }
+
+    #[test]
+    fn test_note_sort_order_parsing_and_serialization() {
+        assert_eq!("name".parse::<NoteSortOrder>().unwrap(), NoteSortOrder::ByName);
+        assert_eq!("by_name".parse::<NoteSortOrder>().unwrap(), NoteSortOrder::ByName);
+        assert_eq!("newest".parse::<NoteSortOrder>().unwrap(), NoteSortOrder::NewestFirst);
+        assert_eq!("newest_first".parse::<NoteSortOrder>().unwrap(), NoteSortOrder::NewestFirst);
+        assert_eq!("unknown".parse::<NoteSortOrder>().unwrap(), NoteSortOrder::NewestFirst);
+
+        let json_name = serde_json::to_string(&NoteSortOrder::ByName).unwrap();
+        assert_eq!(json_name, "\"name\"");
+        let json_newest = serde_json::to_string(&NoteSortOrder::NewestFirst).unwrap();
+        assert_eq!(json_newest, "\"newest\"");
+
+        let deserialized: NoteSortOrder = serde_json::from_str("\"name\"").unwrap();
+        assert_eq!(deserialized, NoteSortOrder::ByName);
+        let deserialized_alias: NoteSortOrder = serde_json::from_str("\"by_name\"").unwrap();
+        assert_eq!(deserialized_alias, NoteSortOrder::ByName);
     }
 }

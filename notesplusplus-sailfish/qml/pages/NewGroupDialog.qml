@@ -7,6 +7,7 @@ Dialog {
 
     property string parentPath: ""
     property string groupName: nameField ? nameField.text.trim() : ""
+    property string noteSort: sortCombo ? (sortCombo.currentIndex === 1 ? "name" : "newest") : "newest"
 
     canAccept: groupName.length > 0
 
@@ -42,6 +43,17 @@ Dialog {
             EnterKey.enabled: text.trim().length > 0
             EnterKey.iconSource: "image://theme/icon-m-enter-accept"
             EnterKey.onClicked: newGroupDialog.accept()
+        }
+
+        ComboBox {
+            id: sortCombo
+            width: parent.width
+            label: qsTr("Sort Notes")
+            currentIndex: 0
+            menu: ContextMenu {
+                MenuItem { text: qsTr("Newest first") }
+                MenuItem { text: qsTr("By name") }
+            }
         }
     }
 }

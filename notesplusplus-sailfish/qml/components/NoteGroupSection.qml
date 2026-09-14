@@ -12,6 +12,7 @@ Column {
     property var remorsePopupRef: null
 
     property string groupPath: groupData && groupData.path !== undefined ? groupData.path : ""
+    property string noteSort: groupData && groupData.note_sort ? groupData.note_sort : "newest"
     property string displayName: {
         if (groupData && groupData.display_name && groupData.display_name.length > 0) {
             return groupData.display_name
@@ -79,9 +80,22 @@ Column {
                     })
                     newSub.accepted.connect(function() {
                         if (newSub.groupName && newSub.groupName.length > 0) {
-                            bridge.create_group(groupPath, newSub.groupName)
+                            if (bridge.create_group(groupPath, newSub.groupName)) {
+                                if (newSub.noteSort && newSub.noteSort !== "newest") {
+                                    var fullChildPath = groupPath.length > 0 ? (groupPath + "/" + newSub.groupName) : newSub.groupName
+                                    bridge.set_group_note_sort(fullChildPath, newSub.noteSort)
+                                }
+                            }
                         }
                     })
+                }
+            }
+
+            MenuItem {
+                text: noteSort === "name" ? qsTr("Sort Notes: Newest First") : qsTr("Sort Notes: By Name")
+                onClicked: {
+                    var nextSort = (noteSort === "name") ? "newest" : "name"
+                    bridge.set_group_note_sort(groupPath, nextSort)
                 }
             }
 

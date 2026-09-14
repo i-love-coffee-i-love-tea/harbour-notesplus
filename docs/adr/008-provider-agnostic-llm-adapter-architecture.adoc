@@ -1,0 +1,95 @@
+= ADR-008: Extensible LLM Client Adapter for Local and Cloud AI Backends
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ implements a provider-agnostic LLM client adapter in `notesplusplus-core`, supporting local Ollama, on-device models, and OpenAI-compatible endpoints with unified streaming.
+
+== Context
+
+AI note assistants must accommodate diverse deployment configurations:
+
+* *Local / Private*: Zero-data-leakage local models running via Ollama or llama.cpp on a workstation or home server.
+* *Remote / Cloud*: OpenAI-compatible endpoints (such as OpenRouter, MiMoCode, Groq, or vLLM).
+* *On-Device*: Local lightweight speech-to-text and language models.
+
+Hardcoding provider-specific payload schemas or SSE stream parsing into the UI creates tight coupling and makes supporting new AI providers difficult.
+
+== Decision
+
+Implement a modular, provider-agnostic `LlmClient` architecture in `notesplusplus-core`:
+
+=== Provider Protocol Translation
+
+[cols="1,2,2", options="header"]
+|===
+| Provider | Request Schema | Stream Format
+
+| *Ollama*
+| Prompt context, options, model name
+| NDJSON line stream (`{"response": "...", "done": false}`)
+
+| *OpenAI-Compatible*
+| `messages` array, system prompt, temperature
+| Server-Sent Events (`data: {"choices":[{"delta":{"content":"..."}}]}`)
+|===
+
+=== Streaming Pipeline Architecture
+
+[source,ascii]
+----
+                      ┌────────────────────────┐
+                      │    User Input / STT    │
+                      └───────────┬────────────┘
+                                  │
+                                  ▼
+                      ┌────────────────────────┐
+                      │   Agent Prompt Builder │ // <1>
+                      │ (Interpolate {content})│
+                      └───────────┬────────────┘
+                                  │
+                                  ▼
+                      ┌────────────────────────┐
+                      │    LlmClient Adapter   │ // <2>
+                      └─────┬────────────┬─────┘
+                            │            │
+            Ollama (NDJSON) │            │ OpenAI SSE
+                            ▼            ▼
+                      [ Local Ollama ]  [ Cloud / OpenAI ]
+                            │            │
+                            └─────┬──────┘
+                                  │ Normalized Token Chunks
+                                  ▼
+                ┌───────────────────────────────────┐
+                │ Async Agent Channel / Event Stream│ // <3>
+                └─────────┬───────────────┬─────────┘
+                          │               │
+                          ▼               ▼
+                 Sailfish UI Bridge   Web SSE /api/agent/chat
+----
+<1> Formats custom prompts and attaches active note/clipboard context.
+<2> Serializes request payload according to provider configuration.
+<3> Normalizes incoming tokens and dispatches asynchronously to QML and web consumers.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:plug[] *Extensible Provider Support* -- Adding or modifying AI providers requires only self-contained adapter logic without destabilizing agent tools or UI layers.
+* icon:sliders[] *Consistent Streaming* -- Real-time token streaming operates identically across mobile Silica views and desktop browser sessions.
+* icon:lock[] *Privacy Control* -- Users seamlessly choose between zero-cloud local Ollama models and cloud APIs via Settings.
+
+=== Trade-offs & Mitigations
+
+[TIP]
+.Custom Tool Schemas
+Provider-specific tool calling differences are normalized into the prompt engineering pipeline (`prompt.rs`), enabling consistent tool dispatch across all models.
+
+== Related Decisions
+
+* xref:001-hybrid-core-and-gui-architecture.adoc[ADR-001: Hybrid Core and UI Architecture]
+* xref:005-embedded-zero-dependency-web-server.adoc[ADR-005: Embedded HTTP Server]

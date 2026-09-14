@@ -12,9 +12,9 @@ Page {
 
         PullDownMenu {
             MenuItem {
-                text: qsTr("Reset to Defaults")
+                text: qsTr("Reset Built-in Defaults")
                 onClicked: {
-                    Remorse.popupAction(customInstructionsPage, qsTr("Resetting AI instructions"), function() {
+                    Remorse.popupAction(customInstructionsPage, qsTr("Resetting built-in instructions to defaults"), function() {
                         if (typeof app !== "undefined" && app.resetCustomAiInstructions) {
                             app.resetCustomAiInstructions()
                         }
@@ -60,24 +60,39 @@ Page {
 
         delegate: ListItem {
             id: instructionItem
-            contentHeight: Theme.itemSizeMedium
+            contentHeight: Math.max(Theme.itemSizeMedium, itemRow.height + Theme.paddingMedium * 2)
 
-            function edit() {
-                var inst = modelData.instruction || ""
-                if (!inst && typeof app !== "undefined" && app.defaultCustomAiInstructions) {
-                    for (var k = 0; k < app.defaultCustomAiInstructions.length; k++) {
-                        if (app.defaultCustomAiInstructions[k].id === modelData.id) {
-                            inst = app.defaultCustomAiInstructions[k].instruction || ""
-                            break
-                        }
+            readonly property bool isVendored: (typeof app !== "undefined" && app.isDefaultAiInstruction) ?
+                                                   app.isDefaultAiInstruction(modelData.id) : false
+
+            readonly property string fullInstructionText: {
+                if (modelData.instruction && modelData.instruction.length > 0) {
+                    return modelData.instruction
+                }
+                if (typeof app !== "undefined" && app.getDefaultAiInstruction) {
+                    var def = app.getDefaultAiInstruction(modelData.id)
+                    if (def && def.instruction) {
+                        return def.instruction
                     }
                 }
+                return ""
+            }
+
+            function edit() {
                 pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"), {
                     "instructionId": modelData.id || "",
                     "initialButtonText": modelData.buttonText || "",
                     "initialIcon": modelData.icon || "icon-m-note",
-                    "initialInstruction": inst,
+                    "initialInstruction": instructionItem.fullInstructionText,
                     "isEdit": true
+                })
+            }
+
+            function resetToDefault() {
+                remorseAction(qsTr("Resetting instruction to default"), function() {
+                    if (typeof app !== "undefined" && app.resetSingleAiInstruction) {
+                        app.resetSingleAiInstruction(modelData.id)
+                    }
                 })
             }
 
@@ -96,6 +111,12 @@ Page {
                 }
 
                 MenuItem {
+                    text: qsTr("Reset to Default")
+                    visible: instructionItem.isVendored
+                    onClicked: instructionItem.resetToDefault()
+                }
+
+                MenuItem {
                     text: qsTr("Delete")
                     onClicked: instructionItem.remove()
                 }
@@ -104,6 +125,7 @@ Page {
             onClicked: instructionItem.edit()
 
             Row {
+                id: itemRow
                 anchors {
                     left: parent.left
                     right: parent.right
@@ -116,8 +138,12 @@ Page {
                     width: Theme.itemSizeExtraSmall
                     height: Theme.itemSizeExtraSmall
                     radius: Theme.paddingSmall / 2
-                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.2)
-                    border.color: Theme.rgba(Theme.primaryColor, 0.2)
+                    color: instructionItem.isVendored ?
+                               Theme.rgba(Theme.highlightBackgroundColor, 0.25) :
+                               Theme.rgba(Theme.primaryColor, 0.08)
+                    border.color: instructionItem.isVendored ?
+                                      Theme.rgba(Theme.highlightColor, 0.35) :
+                                      Theme.rgba(Theme.primaryColor, 0.2)
                     border.width: 1
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -126,30 +152,65 @@ Page {
                         source: modelData.icon ? (modelData.icon.indexOf("image://") === 0 ? modelData.icon : ("image://theme/" + modelData.icon)) : "image://theme/icon-m-note"
                         width: Theme.iconSizeMedium
                         height: Theme.iconSizeMedium
-                        color: instructionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                        color: instructionItem.highlighted ? Theme.highlightColor :
+                               (instructionItem.isVendored ? Theme.primaryColor : Theme.secondaryColor)
                     }
                 }
 
                 Column {
                     width: parent.width - Theme.itemSizeExtraSmall - Theme.paddingMedium
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                    spacing: Theme.paddingSmall / 2
 
-                    Label {
-                        text: modelData.buttonText || qsTr("Untitled Instruction")
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.bold: true
-                        color: instructionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
-                        truncationMode: TruncationMode.Fade
+                    Row {
                         width: parent.width
+                        spacing: Theme.paddingSmall
+
+                        Label {
+                            text: modelData.buttonText || qsTr("Untitled Instruction")
+                            font.pixelSize: Theme.fontSizeMedium
+                            font.bold: true
+                            color: instructionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            truncationMode: TruncationMode.Fade
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, parent.width - badgeRect.width - Theme.paddingSmall)
+                        }
+
+                        Rectangle {
+                            id: badgeRect
+                            height: badgeLabel.height + 4
+                            width: badgeLabel.width + Theme.paddingSmall
+                            radius: 3
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: instructionItem.isVendored ?
+                                       Theme.rgba(Theme.highlightBackgroundColor, 0.3) :
+                                       Theme.rgba(Theme.primaryColor, 0.1)
+                            border.color: instructionItem.isVendored ?
+                                              Theme.rgba(Theme.highlightColor, 0.4) :
+                                              Theme.rgba(Theme.primaryColor, 0.2)
+                            border.width: 1
+
+                            Label {
+                                id: badgeLabel
+                                anchors.centerIn: parent
+                                text: instructionItem.isVendored ? qsTr("Built-in") : qsTr("Custom")
+                                font.pixelSize: Theme.fontSizeTiny
+                                font.bold: true
+                                color: instructionItem.highlighted ? Theme.highlightColor :
+                                       (instructionItem.isVendored ? Theme.primaryColor : Theme.secondaryColor)
+                            }
+                        }
                     }
 
                     Label {
-                        text: modelData.instruction || ""
+                        text: instructionItem.fullInstructionText
                         font.pixelSize: Theme.fontSizeExtraSmall
                         color: Theme.secondaryColor
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 3
                         truncationMode: TruncationMode.Fade
                         width: parent.width
+                        visible: text.length > 0
                     }
                 }
             }

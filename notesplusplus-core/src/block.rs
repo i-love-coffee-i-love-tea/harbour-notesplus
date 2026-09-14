@@ -202,6 +202,7 @@ pub enum Block {
     },
     Toc {
         raw: String,
+        depth: Option<u8>,
     },
     EmptyLine,
 }
@@ -318,7 +319,7 @@ impl Block {
             Block::Open { raw, .. } => raw,
             Block::PageBreak { raw } => raw,
             Block::Comment { raw, .. } => raw,
-            Block::Toc { raw } => raw,
+            Block::Toc { raw, .. } => raw,
             Block::EmptyLine => "",
         }
     }
@@ -373,7 +374,24 @@ impl Block {
                         let code = lines.join("\n");
                         let normalized = crate::highlight::normalize_language(lang);
                         let highlighted = crate::highlight::highlight_code(&code, &normalized);
-                        map.insert("highlighted_html".into(), serde_json::Value::String(highlighted));
+                        // QML Text.RichText doesn't honour <pre> whitespace — convert
+                        // newlines to <br/> and leading spaces to &nbsp; for indentation.
+                        // Leading spaces may appear as bare text or inside <span> tags,
+                        // so track whether we're past all opening tags on the current line.
+                        let mut qml_html = String::with_capacity(highlighted.len());
+                        let mut at_line_start = true;
+                        let mut in_tag = false;
+                        for c in highlighted.chars() {
+                            match c {
+                                '\n' => { qml_html.push_str("<br/>"); at_line_start = true; in_tag = false; }
+                                '<' => { qml_html.push(c); in_tag = true; }
+                                '>' => { qml_html.push(c); in_tag = false; }
+                                ' ' if at_line_start && !in_tag => { qml_html.push_str("&nbsp;"); }
+                                ' ' if at_line_start && in_tag => { qml_html.push(c); }
+                                _ => { qml_html.push(c); if !in_tag { at_line_start = false; } }
+                            }
+                        }
+                        map.insert("highlighted_html".into(), serde_json::Value::String(qml_html));
                     }
                 }
                 map.insert("lines".into(), lines_to_json_array(lines));
@@ -451,7 +469,12 @@ impl Block {
                     map.insert("height".into(), serde_json::Value::String(h.clone()));
                 }
             }
-            Block::HorizontalRule { .. } | Block::Toc { .. } | Block::PageBreak { .. } | Block::EmptyLine => {}
+            Block::HorizontalRule { .. } | Block::PageBreak { .. } | Block::EmptyLine => {}
+            Block::Toc { depth, .. } => {
+                if let Some(d) = depth {
+                    map.insert("depth".into(), serde_json::Value::Number((*d).into()));
+                }
+            }
             Block::Comment { text, .. } => {
                 map.insert("text".into(), serde_json::Value::String(text.clone()));
             }
@@ -562,6 +585,23 @@ mod tests {
     }
 
     #[test]
+    fn code_block_highlighted_html_qml_format() {
+        let b = Block::CodeBlock {
+            title: None,
+            language: Some("rust".into()),
+            lines: vec!["fn main() {".into(), "    println!(\"hi\");".into(), "}".into()],
+            raw: "----\nfn main() {\n    println!(\"hi\");\n}\n----".into(),
+        };
+        let json = b.to_qvariant_map();
+        let html = json["highlighted_html"].as_str().unwrap();
+        // Newlines must be <br/> for QML Text.RichText
+        assert!(!html.contains('\n'), "should not contain raw newlines: {}", html);
+        assert!(html.contains("<br/>"), "should contain <br/> tags: {}", html);
+        // Leading 4-space indent must use &nbsp;
+        assert!(html.contains("&nbsp;"), "should contain &nbsp; for indentation: {}", html);
+    }
+
+    #[test]
     fn svgbob_code_block_qvariant_map() {
         let b = Block::CodeBlock {
             title: Some("Architecture Diagram".into()),
@@ -592,7 +632,7 @@ mod tests {
             Block::Table { title: None, rows: vec![], col_widths: vec![], frame: None, grid: None, raw: "| a |".into() },
             Block::HorizontalRule { raw: "---".into() },
             Block::Admonition { title: None, kind: AdmonitionKind::Warning, children: vec![], raw: "[WARNING]\n====\n====".into() },
-            Block::Toc { raw: ":toc:".into() },
+            Block::Toc { raw: ":toc:".into(), depth: None },
             Block::EmptyLine,
         ];
         for b in &blocks {

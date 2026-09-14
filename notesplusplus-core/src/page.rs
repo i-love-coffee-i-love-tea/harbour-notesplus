@@ -263,13 +263,26 @@ pub fn get_page_preview_values_with_options(
 ) -> Vec<serde_json::Value> {
     let path = safe_note_path(notes_dir, filename);
     if let Ok(content) = std::fs::read_to_string(&path) {
-        let has_toc = content.lines().any(|l| {
+        // Parse :toc: or :toc:N to determine if TOC is present and its depth
+        let mut toc_depth: Option<u8> = None;
+        for l in content.lines() {
             let t = l.trim();
-            t == ":toc:" || t.starts_with(":toc:")
-        });
+            if t == ":toc:" {
+                toc_depth = Some(5); // default: all levels
+            } else if let Some(rest) = t.strip_prefix(":toc:") {
+                if let Ok(d) = rest.trim().parse::<u8>() {
+                    if (1..=5).contains(&d) {
+                        toc_depth = Some(d);
+                    }
+                }
+            }
+        }
+
+        let has_toc = toc_depth.is_some();
 
         let mut headings_vec = Vec::new();
         if has_toc {
+            let max_level = toc_depth.unwrap_or(5);
             // Fast line scanner for headings when TOC is present
             let mut block_idx = 0;
             for line in content.lines() {
@@ -279,7 +292,7 @@ pub fn get_page_preview_values_with_options(
                     continue;
                 }
                 if let Some((level, rest)) = crate::parser::blocks::headings::parse_heading(line) {
-                    if (1..=5).contains(&level) {
+                    if level >= 1 && level <= max_level {
                         let spans = crate::inline::parse_inline(rest.trim());
                         let text = spans.iter().map(|s| s.plain_text()).collect::<String>();
                         let mut h_map = serde_json::Map::new();
@@ -572,13 +585,20 @@ fn copy_dir_recursive(
                 let _ = copy_dir_recursive(conn, notes_root, &path, &sub_dest, current_group, true);
             } else {
                 // Normal directory: register as group, recurse with new group path
-                let sub_dest = current_dest_dir.join(&filename);
+                let sanitized_dir = sanitize_filename(&filename).trim_matches('_').to_string();
+                let sub_dest = current_dest_dir.join(&sanitized_dir);
                 let _ = std::fs::create_dir_all(&sub_dest);
                 let child_group = if current_group.is_empty() {
-                    filename.clone()
+                    sanitized_dir.clone()
                 } else {
-                    format!("{}/{}", current_group, filename)
+                    format!("{}/{}", current_group, sanitized_dir)
                 };
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = conn.execute(
+                    "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+                     VALUES (?1, ?2, 0, 0, 'newest', ?3)",
+                    rusqlite::params![child_group, filename, now],
+                );
                 let _ = copy_dir_recursive(conn, notes_root, &path, &sub_dest, &child_group, false);
             }
         }
@@ -702,8 +722,8 @@ fn sync_dir_recursive(
 
                 let now = chrono::Utc::now().to_rfc3339();
                 let _ = conn.execute(
-                    "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, created_at)
-                     VALUES (?1, ?2, 0, 0, ?3)",
+                    "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+                     VALUES (?1, ?2, 0, 0, 'newest', ?3)",
                     rusqlite::params![child_group, dir_name, now],
                 );
 
@@ -1026,8 +1046,8 @@ pub fn move_page(
         let now = chrono::Utc::now().to_rfc3339();
         let display_name = target_group_clean.rsplit('/').next().unwrap_or(&target_group_clean);
         let _ = conn.execute(
-            "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, created_at)
-             VALUES (?1, ?2, 0, 0, ?3)",
+            "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+             VALUES (?1, ?2, 0, 0, 'newest', ?3)",
             rusqlite::params![target_group_clean, display_name, now],
         );
     }
@@ -1381,6 +1401,28 @@ mod tests {
         assert!(!notes.join("not_adoc.txt").exists());
         let pages = list_pages(&conn).unwrap();
         assert!(pages.iter().any(|p| p.filename == "test.adoc"));
+    }
+
+    #[test]
+    fn copy_examples_nested_groups_and_subgroups() {
+        let (conn, dir) = setup();
+        let examples = dir.path().join("examples");
+        let adr_dir = examples.join("Notes Plus Documentation").join("ADRs");
+        std::fs::create_dir_all(&adr_dir).unwrap();
+        std::fs::write(adr_dir.join("001-test.adoc"), "= ADR-001\nADR Content\n").unwrap();
+
+        let notes = dir.path().join("notes");
+        copy_examples(&conn, &notes, &examples, "").unwrap();
+
+        assert!(notes.join("Notes_Plus_Documentation").join("ADRs").join("001-test.adoc").exists());
+        let page = get_page(&conn, "Notes_Plus_Documentation/ADRs/001-test.adoc").unwrap();
+        assert!(page.is_some());
+        let p = page.unwrap();
+        assert_eq!(p.group_path, "Notes_Plus_Documentation/ADRs");
+        assert_eq!(p.filename, "001-test.adoc");
+
+        let groups = crate::group::list_groups(&conn, None, None).unwrap();
+        assert!(groups.iter().any(|g| g.path == "Notes_Plus_Documentation" || g.path == "Notes_Plus_Documentation/ADRs"));
     }
 
     #[test]

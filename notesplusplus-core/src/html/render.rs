@@ -393,8 +393,13 @@ impl<'a> HtmlRenderContext<'a> {
             }
             Block::PageBreak { .. } => r#"<div class="page-break"></div>"#.to_string(),
             Block::Comment { .. } | Block::EmptyLine => String::new(),
-            Block::Toc { .. } => {
-                let toc_content = render_toc_tree(&self.toc_headings);
+            Block::Toc { depth, .. } => {
+                let filtered: Vec<TocHeading> = if let Some(max) = depth {
+                    self.toc_headings.iter().filter(|h| h.level <= *max).cloned().collect()
+                } else {
+                    self.toc_headings.clone()
+                };
+                let toc_content = render_toc_tree(&filtered);
                 format!(
                     r#"<nav class="toc" id="toc" role="doc-toc"><div class="toctitle">Table of Contents</div>{}</nav>"#,
                     toc_content

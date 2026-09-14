@@ -271,6 +271,26 @@ ApplicationWindow {
         return defaultCustomAiInstructions
     }
 
+    function isDefaultAiInstruction(id) {
+        if (!id) return false
+        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
+            if (defaultCustomAiInstructions[i].id === id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    function getDefaultAiInstruction(id) {
+        if (!id) return null
+        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
+            if (defaultCustomAiInstructions[i].id === id) {
+                return defaultCustomAiInstructions[i]
+            }
+        }
+        return null
+    }
+
     function saveCustomAiInstruction(item) {
         var list = []
         var current = customAiInstructions
@@ -310,8 +330,37 @@ ApplicationWindow {
         customAiInstructionsConf.value = JSON.stringify(filtered)
     }
 
+    function resetSingleAiInstruction(id) {
+        var def = getDefaultAiInstruction(id)
+        if (!def) return
+        saveCustomAiInstruction(def)
+    }
+
     function resetCustomAiInstructions() {
-        customAiInstructionsConf.value = JSON.stringify(defaultCustomAiInstructions)
+        var current = customAiInstructions
+        var defaultIds = {}
+        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
+            defaultIds[defaultCustomAiInstructions[i].id] = true
+        }
+
+        // Retain all custom user-created instructions (non-vendored)
+        var userCustomList = []
+        for (var j = 0; j < current.length; j++) {
+            if (current[j] && current[j].id && !defaultIds[current[j].id]) {
+                userCustomList.push(current[j])
+            }
+        }
+
+        // Construct list: all original default vendored instructions + retained user custom instructions
+        var resultList = []
+        for (var k = 0; k < defaultCustomAiInstructions.length; k++) {
+            resultList.push(defaultCustomAiInstructions[k])
+        }
+        for (var m = 0; m < userCustomList.length; m++) {
+            resultList.push(userCustomList[m])
+        }
+
+        customAiInstructionsConf.value = JSON.stringify(resultList)
     }
 
     function setFontScale(scale) {

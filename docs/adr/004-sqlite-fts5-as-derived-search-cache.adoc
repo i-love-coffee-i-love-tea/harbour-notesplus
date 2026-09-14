@@ -1,0 +1,79 @@
+= ADR-004: SQLite FTS5 Index as an Asynchronous, Disposable Search Cache
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ implements a local SQLite FTS5 virtual table strictly as a disposable, derived search cache, delivering sub-millisecond full-text queries without compromising plain-text portability.
+
+== Context
+
+Searching across dozens or hundreds of plain-text `.adoc` files on resource-constrained mobile hardware with slow flash storage leads to noticeable UI freezes and battery drain if done via naive filesystem grep on every keystroke.
+
+Conversely, treating a database as the primary source of truth violates our plain-text portability principles (xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002]).
+
+== Decision
+
+Implement a local SQLite database (`index.db`) utilizing the *FTS5 (Full-Text Search 5)* extension strictly as an ephemeral, derived search cache.
+
+=== Architecture Contract
+
+[cols="1,3", options="header"]
+|===
+| Principle | Implementation Rule
+
+| *Derived Cache Contract*
+| The database is *never* the authoritative source of truth. If missing, corrupted, or deleted, it is automatically recreated and populated by scanning `.adoc` files on disk.
+
+| *Asynchronous Indexing*
+| Document indexing runs asynchronously in worker threads upon document creation, modification, or on-demand background sync.
+
+| *FTS5 Capabilities*
+| Leverages BM25 relevance ranking, Porter stemming, prefix matching, and snippet extraction (`snippet(pages_fts, 2, '<b>', '</b>', '...', 16)`).
+|===
+
+=== SQL Schema Definition
+
+[source,sql]
+----
+CREATE TABLE IF NOT EXISTS pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    group_path TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    is_journal INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    block_count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(group_path, filename)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+    filename,
+    title,
+    content,
+    tokenize='porter unicode61'
+);
+----
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:bolt[] *Sub-Millisecond Search Queries* -- Instant search-as-you-type response times across the entire note collection on mobile hardware.
+* icon:database[] *Zero Risk of Data Loss* -- The SQLite database file can be deleted at any time without losing any note content or structure.
+* icon:search[] *Rich Snippets & Ranking* -- Delivers highlighted matching excerpts and BM25 relevance ordering in search results.
+
+=== Trade-offs & Mitigations
+
+[TIP]
+.External Filesystem Changes
+When files are modified externally (e.g. via Syncthing or desktop editing), incremental `mtime` checks during application startup reconcile the FTS index in milliseconds.
+
+== Related Decisions
+
+* xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002: AsciiDoc Canonical Storage]
+* xref:010-note-storage-directory-convention.adoc[ADR-010: Note Storage Directory Convention]

@@ -91,7 +91,9 @@ Dialog {
             spacing: Theme.paddingMedium
 
             DialogHeader {
-                title: customInstructionDialog.isEdit ? qsTr("Edit AI Instruction") : qsTr("New AI Instruction")
+                title: customInstructionDialog.isStandardInstruction ?
+                           qsTr("Edit Built-in Instruction") :
+                           (customInstructionDialog.isEdit ? qsTr("Edit AI Instruction") : qsTr("New AI Instruction"))
                 acceptText: customInstructionDialog.isEdit ? qsTr("Save") : qsTr("Create")
                 cancelText: qsTr("Cancel")
             }
@@ -137,7 +139,13 @@ Dialog {
                         width: Theme.itemSizeExtraSmall
                         height: Theme.itemSizeExtraSmall
                         radius: Theme.paddingSmall / 2
-                        color: Theme.rgba(Theme.primaryColor, 0.08)
+                        color: customInstructionDialog.isStandardInstruction ?
+                                   Theme.rgba(Theme.highlightBackgroundColor, 0.25) :
+                                   Theme.rgba(Theme.primaryColor, 0.08)
+                        border.color: customInstructionDialog.isStandardInstruction ?
+                                          Theme.rgba(Theme.highlightColor, 0.35) :
+                                          Theme.rgba(Theme.primaryColor, 0.2)
+                        border.width: 1
                         anchors.verticalCenter: parent.verticalCenter
 
                         Icon {
@@ -145,7 +153,7 @@ Dialog {
                             source: customInstructionDialog.selectedIcon.length > 0 ? "image://theme/" + customInstructionDialog.selectedIcon : "image://theme/icon-m-note"
                             width: Theme.iconSizeMedium
                             height: Theme.iconSizeMedium
-                            color: Theme.primaryColor
+                            color: customInstructionDialog.isStandardInstruction ? Theme.primaryColor : Theme.secondaryColor
                         }
                     }
 

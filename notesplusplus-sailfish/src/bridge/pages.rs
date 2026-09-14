@@ -53,20 +53,6 @@ impl NotesBridge {
         }
     }
 
-    fn update_current_page_file_path(&mut self) {
-        let rel = self.current_page_relative_path();
-        let new_file_path = if rel.is_empty() {
-            String::new()
-        } else {
-            let full = page::safe_note_path(&self.notes_dir(), &rel);
-            notesplusplus_core::paths::collapse_tilde(&full)
-        };
-        if self.current_page_file_path != new_file_path {
-            self.current_page_file_path = new_file_path;
-            self.current_page_file_path_changed();
-        }
-    }
-
     pub fn notes_dir(&self) -> std::path::PathBuf {
         self.notes_path.clone()
     }
@@ -123,8 +109,9 @@ impl NotesBridge {
                 self.current_page_group_path_changed();
                 self.current_page_full_path = full_path.clone();
                 self.current_page_full_path_changed();
+                self.current_page_file_path = info.full_path();
                 self.is_journal_page = info.is_journal;
-                self.update_current_page_file_path();
+                self.page_changed();
 
                 let notes_dir = self.notes_dir();
                 let pending = self.pending.clone();
@@ -428,7 +415,7 @@ impl NotesBridge {
                     self.current_blocks_data.clear();
                     self.current_blocks = QVariantList::default();
                     self.is_journal_page = false;
-                    self.update_current_page_file_path();
+                    self.current_page_file_path.clear();
                     self.page_changed();
                 }
                 self.load_main_page_data_impl();
@@ -464,7 +451,7 @@ impl NotesBridge {
                     self.current_page_group_path_changed();
                     self.current_page_full_path = info.full_path();
                     self.current_page_full_path_changed();
-                    self.update_current_page_file_path();
+                    self.current_page_file_path = info.full_path();
                     self.page_changed();
                 }
                 self.load_main_page_data_impl();
@@ -973,7 +960,8 @@ impl NotesBridge {
                     self.current_page_group_path_changed();
                     self.current_page_full_path = info.full_path();
                     self.current_page_full_path_changed();
-                    self.update_current_page_file_path();
+                    self.current_page_file_path = info.full_path();
+                    self.page_changed();
                 }
                 true
             }
@@ -1037,6 +1025,66 @@ impl NotesBridge {
         }
     }
 
+    fn set_group_note_sort_impl(&mut self, group_path: String, note_sort: String) -> bool {
+        if !self.ensure_init_blocking() {
+            return false;
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return false,
+        };
+        let sort_order = note_sort.parse::<notesplusplus_core::group::NoteSortOrder>().unwrap_or_default();
+        match notesplusplus_core::group::set_group_note_sort(conn, &group_path, sort_order) {
+            Ok(_) => {
+                // Rebuild main page data inline so tree is refreshed immediately
+                self.ensure_init();
+                if !self.poll_init() {
+                    return true;
+                }
+                let conn = match self.conn() {
+                    Some(c) => c,
+                    None => return true,
+                };
+                let all_pages = page::list_pages(conn).unwrap_or_default();
+                let all_groups = notesplusplus_core::group::get_groups_flat(conn).unwrap_or_default();
+                let notes_dir = self.notes_dir();
+                let notes_path = self.notes_path.to_string_lossy().to_string();
+                let drop_comments = self.drop_comments;
+                let qt_theme = self.qt_theme.clone();
+                let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
+                    notes_dir: Some(notes_path),
+                    allow_external_images: true,
+                    ..Default::default()
+                };
+                let tree_json = notesplusplus_core::tree::build_group_tree(
+                    &all_pages, &all_groups, self.group_display_depth,
+                    Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
+                );
+                self.grouped_tree_json = QString::from(tree_json);
+                self.data_refreshed();
+                true
+            }
+            Err(e) => {
+                self.report_error(e.to_string());
+                false
+            }
+        }
+    }
+
+    fn get_group_note_sort_impl(&mut self, group_path: String) -> String {
+        if !self.ensure_init_blocking() {
+            return "newest".to_string();
+        }
+        let conn = match self.conn() {
+            Some(c) => c,
+            None => return "newest".to_string(),
+        };
+        match notesplusplus_core::group::get_group_note_sort(conn, &group_path) {
+            Ok(sort_order) => sort_order.as_str().to_string(),
+            Err(_) => "newest".to_string(),
+        }
+    }
+
     fn get_groups_json_impl(&mut self) -> String {
         if !self.ensure_init_blocking() {
             return "[]".to_string();
@@ -1093,6 +1141,8 @@ impl NotesBridge {
     pub fn move_page_to_group(&mut self, page_full_path: String, target_group: String) -> bool { self.move_page_to_group_impl(page_full_path, target_group) }
     pub fn set_group_display_depth(&mut self, depth: i32) { self.set_group_display_depth_impl(depth); }
     pub fn toggle_group_collapsed(&mut self, group_path: String) -> bool { self.toggle_group_collapsed_impl(group_path) }
+    pub fn set_group_note_sort(&mut self, group_path: String, note_sort: String) -> bool { self.set_group_note_sort_impl(group_path, note_sort) }
+    pub fn get_group_note_sort(&mut self, group_path: String) -> String { self.get_group_note_sort_impl(group_path) }
     pub fn get_groups_json(&mut self) -> String { self.get_groups_json_impl() }
     pub fn navigate_to_page(&mut self, name: String) { self.navigate_to_page_impl(name); }
     pub fn insert_link_at_cursor(&mut self, block_idx: i32, cursor_pos: i32, target: String) { self.insert_link_at_cursor_impl(block_idx, cursor_pos, target); }

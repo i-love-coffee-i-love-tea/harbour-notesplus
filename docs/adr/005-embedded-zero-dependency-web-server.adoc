@@ -1,0 +1,77 @@
+= ADR-005: Lightweight Embedded HTTP Server with Server-Sent Events (SSE)
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ embeds a pure standard-library HTTP/1.1 server in `notesplusplus-core`, enabling local network browser editing and streaming AI completions with 0% idle CPU drain.
+
+== Context
+
+Users need to view, edit, search, and present notes from desktop browsers or laptops on the same local Wi-Fi network without installing external desktop clients or uploading notes to third-party cloud servers.
+
+****
+.The Problem
+Running heavyweight web runtimes (Node.js, Python, or WebAssembly containers) on Sailfish OS consumes prohibitive memory, drains mobile battery, and complicates RPM packaging.
+****
+
+== Decision
+
+Implement a zero-external-dependency embedded HTTP/1.1 server in `notesplusplus-core` using Rust standard library networking (`std::net::TcpListener`, `std::net::TcpStream`) and a worker thread pool.
+
+=== Key Architectural Capabilities
+
+REST API Endpoints::
+Serves notes (`/api/notes`, `/api/pages`), renders HTML previews (`/api/render`), handles authentication (`/api/auth`), and serves embedded static assets (Vue 3 ESM app, CSS stylesheets, icons).
+
+Server-Sent Events (SSE)::
+Streams real-time token chunks from the AI assistant endpoint (`/api/agent/chat`) using HTTP chunked transfer encoding (`text/event-stream`).
+
+Zero-Drain Socket Polling::
+The TCP listener utilizes blocking OS kernel socket polling (`accept()`), maintaining 0% CPU consumption and zero battery drain when idle.
+
+Persistent Session Auth::
+Enforces cookie-based session management (`fishdoc_session`) with persistent session tokens surviving application restarts (see xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006]).
+
+=== HTTP / SSE Streaming Architecture
+
+[source,ascii]
+----
+Desktop Browser (Vue 3 UI)            Notes++ Core (Embedded HTTP)
+         │                                       │
+         ├────── GET /api/pages ────────────────►┤
+         │◄───── 200 OK (JSON Pages Array) ──────┤
+         │                                       │
+         ├────── POST /api/agent/chat ──────────►│
+         │◄───── 200 OK (text/event-stream) ─────┤ // <1>
+         │                                       │
+         │◄───── data: {"chunk": "Hello"} ───────┤ // <2>
+         │◄───── data: {"chunk": " world!"} ─────┤
+         │◄───── data: [DONE] ───────────────────┤
+----
+<1> Initiates Server-Sent Events stream using chunked transfer encoding.
+<2> Incremental token chunks are streamed as they arrive from the LLM backend.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:server[] *Zero External Runtime Dependencies* -- Compiles directly into the native Sailfish application binary with zero third-party web framework dependencies.
+* icon:battery-full[] *Negligible Power Footprint* -- Blocks on OS socket interrupts with no busy loops or polling timers on the host device.
+* icon:laptop[] *Full Desktop Companion* -- Delivers full note editing, split preview, document search, and slide presentations over local Wi-Fi.
+
+=== Trade-offs & Mitigations
+
+[WARNING]
+.Raw HTTP Parsing
+Raw HTTP/1.1 parsing requires strict handling of request boundaries, header casing, path traversal sanitization, and CORS preflight headers. Covered thoroughly by integration tests in `server_tests.rs`.
+
+== Related Decisions
+
+* xref:001-hybrid-core-and-gui-architecture.adoc[ADR-001: Hybrid Core and UI Architecture]
+* xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006: Socket-Level Public IP Rejection]
+* xref:007-offline-vendored-web-assets.adoc[ADR-007: Vendored Web Assets]
+* xref:009-presentation-mode-document-segmentation.adoc[ADR-009: Presentation Mode]

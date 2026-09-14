@@ -1,0 +1,82 @@
+= ADR-009: Dynamic Slide Deck Partitioning via Headings and Page Breaks
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ includes a native presentation mode in the companion web UI, dynamically converting standard AsciiDoc notes into responsive slide decks without third-party presentation frameworks.
+
+== Context
+
+Users frequently use notes for presentations, meeting agendas, and technical briefs. Embedding dedicated third-party slide frameworks (such as Reveal.js, Marp, or impress.js) would add significant bundle weight, introduce external dependencies, and create disparate styling rules.
+
+== Decision
+
+Implement a native *Presentation Mode* within the web companion UI (`usePresentation.js`) that dynamically partitions parsed AsciiDoc AST blocks into slides:
+
+=== 1. Slide Partitioning Rules
+
+Headings (`= Title`, `== Section`)::
+Top-level headings automatically define new slide boundaries.
+
+Explicit Page Breaks (`<<<`)::
+Triggers an immediate slide split within a section without requiring a new heading.
+
+=== Slide Deck Transformation Flow
+
+[source,ascii]
+----
+AsciiDoc Source Text
+         │
+         ▼
+AST Blocks: [H1(Intro), P1, P2, PageBreak, P3, H2(Details), Table]
+         │
+         ▼ Dynamic Partitioning
+┌────────────────────┬────────────────────┬────────────────────┐
+│      Slide 1       │      Slide 2       │      Slide 3       │
+│  H1: Intro         │  P3 (Continuation) │  H2: Details       │
+│  P1, P2            │                    │  Table             │
+└────────────────────┴────────────────────┴────────────────────┘
+----
+
+=== 2. Interactive Presentation Controls
+
+[cols="1,2", options="header"]
+|===
+| Control Mechanism | Actions Supported
+
+| *Keyboard Navigation*
+| `Arrow Right` / `Space` (Next), `Arrow Left` (Prev), `Home` / `End`, `Esc` (Exit)
+
+| *Shortcuts*
+| `F` (Toggle Fullscreen), `O` (Slide Overview Grid)
+
+| *Touch Gestures*
+| Horizontal swipe left / swipe right for mobile and tablet touchscreens
+
+| *Progress Indicators*
+| Real-time slide counter and bottom progress bar
+|===
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:magic[] *Zero Syntax Overhead* -- Any standard AsciiDoc note can be presented immediately without special slide macros or proprietary frontmatter.
+* icon:cubes[] *Zero External Dependencies* -- Built entirely with vendored Vue 3 and CSS, preserving the 100% offline architecture (xref:007-offline-vendored-web-assets.adoc[ADR-007]).
+* icon:refresh[] *Live Synchronized Workflow* -- Editing a note in the companion editor updates the live presentation deck in real time.
+
+=== Trade-offs & Mitigations
+
+[TIP]
+.Responsive Viewport Scaling
+Long sections without subheadings or `<<<` page breaks may overflow slide boundaries on smaller displays. This is mitigated by responsive typography scaling and the visual overview grid (`O`).
+
+== Related Decisions
+
+* xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002: AsciiDoc Canonical Storage]
+* xref:005-embedded-zero-dependency-web-server.adoc[ADR-005: Embedded HTTP Server]
+* xref:007-offline-vendored-web-assets.adoc[ADR-007: Vendored Web Assets]

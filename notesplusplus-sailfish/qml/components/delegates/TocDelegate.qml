@@ -122,7 +122,7 @@ Item {
                             anchors.leftMargin: indent
                             anchors.rightMargin: Theme.paddingSmall
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "• " + headingText
+                            text: headingText
                             font.family: app.resolvedFontFamily()
                             font.pixelSize: app.scaledFontSize(Theme.fontSizeSmall)
                             color: tocEntry.highlighted ? Theme.primaryColor : Theme.highlightColor

@@ -1,0 +1,96 @@
+= ADR-010: Note Storage Directory Convention and Asset Directories
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ distinguishes note groups from note asset folders through a filesystem convention (`note.adoc` + `note/`), enabling image and asset attachments without sidebar clutter.
+
+== Context
+
+Notes++ stores user notes as plain-text `.adoc` files on the filesystem (xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002]). Users organize notes into hierarchical groups by creating subdirectories.
+
+However, documents frequently reference images, SVGs, or custom themes. Without a convention for asset storage, users face a dilemma:
+
+1. Place all binary assets in the root notes folder, cluttering the top-level directory.
+2. Create dedicated asset folders, which would pollute the UI group list as empty groups.
+
+Additionally, example documents shipped with the application (`/usr/share/harbour-notesplusplus/examples/`) must follow the exact same layout as user directories.
+
+== Decision
+
+Establish a convention distinguishing *Regular Groups* from *Asset Directories* based on directory names:
+
+=== Detection Rule (`is_asset_dir`)
+
+****
+A directory `foo/` is classified as an *Asset Directory* if `foo.adoc` exists alongside it in the same parent folder. Otherwise, it is treated as a *Regular Group*.
+****
+
+=== Behavioral Matrix
+
+[cols="2,2,2", options="header"]
+|===
+| Behavior | Regular Group (e.g. `Projects/`) | Asset Directory (e.g. `Plan/` for `Plan.adoc`)
+
+| *SQLite `groups` Table*
+| icon:check[] Registered
+| icon:times[] Skipped
+
+| *Visible in UI Sidebar*
+| icon:check[] Yes
+| icon:eye-slash[] Hidden
+
+| *`.adoc` Files Inside*
+| Registered under this group's `group_path`
+| Skipped (duplicates of parent)
+
+| *Non-`.adoc` Assets Inside*
+| Available to notes in this group
+| Copied to notes root for image resolution
+
+| *Subdirectories*
+| Inherit group hierarchy
+| Handled transparently
+|===
+
+=== Directory Structure Example
+
+[source,ascii]
+----
+~/Documents/Notes++/
+├── Meeting_Notes.adoc           // Regular note
+├── Chronicles.adoc              // Note with attached assets
+├── Chronicles/                  // Asset directory for Chronicles.adoc (HIDDEN from sidebar) // <1>
+│   ├── banner.svg
+│   └── illustration.jpg
+└── Notes_Plus_Documentation/    // Regular Group (VISIBLE in sidebar)                        // <2>
+    └── ADRs/                    // Nested Subgroup (VISIBLE in sidebar)
+        ├── 001-hybrid-core-and-gui-architecture.adoc
+        └── 010-note-storage-directory-convention.adoc
+----
+<1> Hidden from the group list because `Chronicles.adoc` exists in the parent directory.
+<2> Visible as a collapsible group section because no `Notes_Plus_Documentation.adoc` exists.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:folder-open[] *Flat Default* -- Users who only write text notes see no extra directories.
+* icon:image[] *Progressive Complexity* -- Adding images to a note requires only creating a same-named folder (`note/`) and placing files in it without configuration.
+* icon:archive[] *Single Source Tree* -- Shipped examples and user note storage use identical directory mechanics.
+* icon:database[] *Zero DB Schema Changes* -- Asset directories are resolved at the filesystem level.
+
+=== Trade-offs & Mitigations
+
+[TIP]
+.Collisions
+If a user creates a folder with the same name as an existing note (e.g. `Work/Work.adoc`), the folder is treated as an asset directory. Deleting or renaming the `.adoc` file instantly restores the folder to a regular group on the next directory sync.
+
+== Related Decisions
+
+* xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002: AsciiDoc Canonical Storage]
+* xref:004-sqlite-fts5-as-derived-search-cache.adoc[ADR-004: SQLite FTS5 Search Cache]

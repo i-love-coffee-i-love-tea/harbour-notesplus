@@ -1,0 +1,79 @@
+= ADR-007: Zero External CDN Dependency and Vendored Vue 3 ESM Assets
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes++ vendors all companion web UI dependencies and frontend assets locally within `notesplusplus-core`, guaranteeing 100% offline air-gapped functionality with zero privacy leakage.
+
+== Context
+
+Web companion interfaces frequently fetch JavaScript frameworks and stylesheets from public Content Delivery Networks (CDNs, such as jsDelivr, unpkg, or Google Fonts).
+
+In a local-first mobile note system, CDN dependencies introduce severe operational failures:
+
+1. *Air-Gapped & Offline Breakdown*: On private local Wi-Fi or mobile hotspots without upstream Internet access, external CDN scripts fail to load, breaking the web interface.
+2. *Metadata & Privacy Leakage*: Loading external assets leaks user IP addresses, browsing timestamps, and user-agent strings to third-party CDN providers.
+3. *Supply Chain & Availability Risk*: Unpinned or remote CDN scripts expose users to upstream outages and script tampering.
+
+== Decision
+
+Vendor all frontend dependencies locally within `notesplusplus-core/assets/web/`:
+
+=== Vendored Asset Architecture
+
+[source,ascii]
+----
+notesplusplus-core/assets/web/
+├── index.html                     // Main single-page web app with ESM Import Maps
+├── app.js                         // Reactive Vue 3 application logic
+├── style.css                      // Adaptive light/dark styling with CSS variables
+├── icon.png                       // High-resolution application icon
+├── composables/                   // Modular state management
+│   ├── useAuth.js                 // Session login & persistence
+│   ├── useNotes.js                // Note CRUD, search & FTS
+│   ├── useTheme.js                // Adaptive Ambiance & System theme synchronization
+│   └── usePresentation.js         // Slide deck splitting & keyboard controls
+└── vue.esm-browser.prod.js        // Vendored Vue 3 ESM production build (zero CDN)
+----
+
+=== Import Maps & Static Embedding
+
+1. *Native ESM Import Maps*: `index.html` maps `"vue"` directly to the local endpoint:
++
+[source,html]
+----
+<script type="importmap">
+{
+  "imports": {
+    "vue": "/vue.esm-browser.prod.js"
+  }
+}
+</script>
+----
+
+2. *Rust Binary Embedding*: Static files are compiled into the binary using `include_str!` and `include_bytes!`, served with immutable cache headers and Gzip/content negotiation.
+3. *Template Cloaking*: Uses `[v-cloak] { display: none !important; }` to prevent uncompiled Vue directives from flashing before JavaScript initialization.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:check-circle[] *100% Offline Resilience* -- The companion web UI functions seamlessly in air-gapped, offline, and local-only environments.
+* icon:user-secret[] *Complete Privacy* -- Zero external network traffic or metadata leakage to third-party CDNs.
+* icon:tachometer[] *Zero-Latency Delivery* -- Static assets are served directly from device memory.
+
+=== Trade-offs & Mitigations
+
+[NOTE]
+.Binary Footprint
+Embedding Vue 3 ESM adds ~300 KB to the binary size, which is negligible compared to the full application bundle.
+
+== Related Decisions
+
+* xref:005-embedded-zero-dependency-web-server.adoc[ADR-005: Embedded HTTP Server]
+* xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006: Socket-Level Public IP Rejection]
+* xref:009-presentation-mode-document-segmentation.adoc[ADR-009: Presentation Mode]

@@ -1232,6 +1232,25 @@ fn test_groups_api_and_multisegment_notes() {
     assert_eq!(get_note_res.status(), 200);
     assert!(get_note_res.into_string().unwrap().contains("Sprint Plan"));
 
+    // 5. Update group note_sort via PUT /api/groups/Work/Projects
+    let put_group_res = ureq::put(&format!("http://127.0.0.1:{}/api/groups/Work/Projects", port))
+        .set("Cookie", &session_cookie)
+        .send_json(json!({
+            "note_sort": "name"
+        }))
+        .unwrap();
+    assert_eq!(put_group_res.status(), 200);
+
+    // 6. Verify updated sort in GET /api/groups
+    let list_after_res = ureq::get(&format!("http://127.0.0.1:{}/api/groups", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(list_after_res.status(), 200);
+    let groups_after_json: serde_json::Value = list_after_res.into_json().unwrap();
+    let updated_group = groups_after_json.as_array().unwrap().iter().find(|g| g["path"] == "Work/Projects").unwrap();
+    assert_eq!(updated_group["note_sort"], "name");
+
     server_handle.stop();
 }
 

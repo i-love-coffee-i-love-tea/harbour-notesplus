@@ -13,9 +13,7 @@ Page {
                                   : (bridge.current_page_group_path.length > 0
                                      ? bridge.current_page_group_path + "/" + pageName
                                      : pageName)
-    property string pageFilePath: (typeof bridge !== "undefined" && bridge && bridge.current_page_file_path && bridge.current_page_file_path.length > 0)
-                                  ? bridge.current_page_file_path
-                                  : pageFullPath
+    property string pageFilePath: bridge.current_page_file_path || pageName
     property string findInPageTerm: ""
     property bool showFindBar: false
     property var allFindMatches: []

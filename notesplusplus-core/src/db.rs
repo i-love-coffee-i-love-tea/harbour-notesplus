@@ -116,11 +116,52 @@ pub fn migrate_schema(conn: &Connection) -> SqlResult<()> {
                 display_name TEXT NOT NULL,
                 collapsed INTEGER NOT NULL DEFAULT 0,
                 sort_order INTEGER NOT NULL DEFAULT 0,
+                note_sort TEXT NOT NULL DEFAULT 'newest',
                 created_at TEXT NOT NULL
             );
 
             INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', 2);
             ",
+        )?;
+    }
+
+    if current_version < 3 {
+        let groups_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='groups'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if groups_exists {
+            let mut stmt = conn.prepare("PRAGMA table_info(groups)")?;
+            let has_note_sort = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .any(|col| col.map(|c| c == "note_sort").unwrap_or(false));
+
+            if !has_note_sort {
+                conn.execute_batch("ALTER TABLE groups ADD COLUMN note_sort TEXT NOT NULL DEFAULT 'newest';")?;
+            }
+        } else {
+            conn.execute_batch(
+                "
+                CREATE TABLE IF NOT EXISTS groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    path TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,
+                    collapsed INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    note_sort TEXT NOT NULL DEFAULT 'newest',
+                    created_at TEXT NOT NULL
+                );
+                ",
+            )?;
+        }
+
+        conn.execute_batch(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', 3);",
         )?;
     }
 
@@ -350,7 +391,73 @@ mod tests {
             [],
             |row| row.get(0),
         ).unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
+
+        // Check note_sort column exists
+        let mut stmt = conn.prepare("PRAGMA table_info(groups)").unwrap();
+        let has_note_sort = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .any(|col| col.map(|c| c == "note_sort").unwrap_or(false));
+        assert!(has_note_sort);
+    }
+
+    #[test]
+    fn test_schema_migration_v2_to_v3_adds_note_sort() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("v2.db");
+        let conn = Connection::open(&db_path).unwrap();
+
+        // Create v2 schema manually
+        conn.execute_batch(
+            "
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
+            INSERT INTO schema_meta (key, value) VALUES ('version', 2);
+            CREATE TABLE pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                group_path TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                is_journal INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                block_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(group_path, filename)
+            );
+            CREATE TABLE groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                collapsed INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO groups (path, display_name, collapsed, sort_order, created_at)
+            VALUES ('Projects', 'Projects', 0, 0, '2026-01-01T00:00:00Z');
+            ",
+        ).unwrap();
+
+        // Run schema initialization / migration
+        init_schema(&conn).unwrap();
+
+        // Check schema version
+        let version: i64 = conn.query_row(
+            "SELECT value FROM schema_meta WHERE key='version'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(version, 3);
+
+        // Check note_sort column added with default value 'newest'
+        let note_sort: String = conn.query_row(
+            "SELECT note_sort FROM groups WHERE path = 'Projects'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(note_sort, "newest");
     }
 
     #[test]

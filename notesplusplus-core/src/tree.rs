@@ -161,16 +161,38 @@ fn build_node(
     let my_pages = pages_by_group
         .get(group_path)
         .unwrap_or(&empty_pages);
+    let note_sort = groups_by_path
+        .get(group_path)
+        .map(|g| g.note_sort)
+        .unwrap_or_default();
+
+    let mut my_pages_sorted = my_pages.clone();
+    match note_sort {
+        crate::group::NoteSortOrder::ByName => {
+            my_pages_sorted.sort_by(|a, b| {
+                let name_a = a.title.to_lowercase();
+                let name_b = b.title.to_lowercase();
+                name_a.cmp(&name_b).then_with(|| a.title.cmp(&b.title))
+            });
+        }
+        crate::group::NoteSortOrder::NewestFirst => {
+            my_pages_sorted.sort_by(|a, b| {
+                b.updated_at.cmp(&a.updated_at).then_with(|| b.id.cmp(&a.id))
+            });
+        }
+    }
+
     eprintln!(
-        "[debug] build_node: group_path='{}' depth={} pages_found={} groups_by_path_keys={:?}",
+        "[debug] build_node: group_path='{}' depth={} pages_found={} note_sort={:?} groups_by_path_keys={:?}",
         group_path,
         current_depth,
         my_pages.len(),
+        note_sort,
         groups_by_path.keys().collect::<Vec<_>>()
     );
 
     let mut page_json_list = Vec::new();
-    for p in my_pages.iter() {
+    for p in my_pages_sorted.iter() {
         let mut p_map = serde_json::Map::new();
         p_map.insert("id".into(), serde_json::Value::Number(p.id.into()));
         p_map.insert(
@@ -326,6 +348,10 @@ fn build_node(
         serde_json::Value::Number(child_nodes.len().into()),
     );
     node.insert(
+        "note_sort".into(),
+        serde_json::Value::String(note_sort.as_str().to_string()),
+    );
+    node.insert(
         "pages".into(),
         serde_json::Value::Array(page_json_list),
     );
@@ -364,6 +390,7 @@ mod tests {
             child_group_count: 0,
             collapsed: false,
             sort_order: 0,
+            note_sort: crate::group::NoteSortOrder::NewestFirst,
         }
     }
 
@@ -554,5 +581,45 @@ mod tests {
         let work = &arr[1];
         assert_eq!(work["path"], "Work");
         assert_eq!(work["collapsed"], true);
+    }
+
+    #[test]
+    fn test_group_note_sorting_by_name_and_newest() {
+        let mut p1 = make_page(1, "Banana.adoc", "Fruits", "Banana");
+        p1.updated_at = "2026-01-01T10:00:00Z".into();
+
+        let mut p2 = make_page(2, "Apple.adoc", "Fruits", "Apple");
+        p2.updated_at = "2026-01-02T10:00:00Z".into();
+
+        let mut p3 = make_page(3, "Cherry.adoc", "Fruits", "Cherry");
+        p3.updated_at = "2026-01-03T10:00:00Z".into();
+
+        let pages = vec![p1, p2, p3];
+
+        // 1. Test newest first (default)
+        let mut group_newest = make_group("Fruits", "Fruits");
+        group_newest.note_sort = crate::group::NoteSortOrder::NewestFirst;
+
+        let tree_json_newest = build_group_tree(&pages, &[group_newest], 5, None, true, None, None);
+        let parsed_newest: serde_json::Value = serde_json::from_str(&tree_json_newest).unwrap();
+        let pages_newest = parsed_newest[0]["pages"].as_array().unwrap();
+        assert_eq!(pages_newest.len(), 3);
+        assert_eq!(pages_newest[0]["name"], "Cherry"); // newest updated_at
+        assert_eq!(pages_newest[1]["name"], "Apple");
+        assert_eq!(pages_newest[2]["name"], "Banana");
+        assert_eq!(parsed_newest[0]["note_sort"], "newest");
+
+        // 2. Test by name
+        let mut group_by_name = make_group("Fruits", "Fruits");
+        group_by_name.note_sort = crate::group::NoteSortOrder::ByName;
+
+        let tree_json_by_name = build_group_tree(&pages, &[group_by_name], 5, None, true, None, None);
+        let parsed_by_name: serde_json::Value = serde_json::from_str(&tree_json_by_name).unwrap();
+        let pages_by_name = parsed_by_name[0]["pages"].as_array().unwrap();
+        assert_eq!(pages_by_name.len(), 3);
+        assert_eq!(pages_by_name[0]["name"], "Apple"); // alphabetical
+        assert_eq!(pages_by_name[1]["name"], "Banana");
+        assert_eq!(pages_by_name[2]["name"], "Cherry");
+        assert_eq!(parsed_by_name[0]["note_sort"], "name");
     }
 }

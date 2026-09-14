@@ -1,0 +1,1572 @@
+= Notes++ User Documentation
+:toc:
+:sectnums:
+
+== Managing Notes
+
+=== Creating a Note
+
+Pull down the menu on the main page and tap *New Note*. Type a name, choose a group (or create one inline), and confirm. The note is saved as an `.adoc` file and appears in your note list.
+
+You can also create notes from a group's context menu (long-press a group header) or via the AI assistant's import feature.
+
+=== Viewing Notes
+
+Notes are rendered with rich formatting -- headings, lists, tables, code, admonitions, images, and more. Each part of the note is displayed with appropriate styling for the Sailfish OS screen.
+
+=== In-Place Editing
+
+Tap any block to edit it in place. The raw AsciiDoc text appears in an editable area with a left-border highlight. A floating sidebar provides:
+
+* *Accept* / *Cancel* buttons
+* Heading prefixes (H1 through H4)
+* List prefixes: task checkbox, bullet, numbered
+* *Link* button to insert a cross-reference (opens the link dialog)
+* *Paste* to insert clipboard content
+* *Special paste mode*: long-press Paste, then tap a prefix button to paste the clipboard formatted as that list type
+
+[TIP]
+Adjacent same-level list items are grouped into a single editing unit, so you can edit multiple items at once.
+
+=== Appending Blocks
+
+Tap the empty area at the bottom of a note to add a new block. Choose between text, task (checkbox), or heading, type your AsciiDoc, and save.
+
+=== Full Source Editor
+
+Pull down the menu and tap *Edit Source* to open the raw AsciiDoc editor. A formatting toolbar above the text area provides quick-insert buttons for:
+
+H2, H3, *bold*, _italic_, `monospace`, checkbox, bullet list, numbered list, link, image macro, table template, code block, NOTE/TIP/WARNING admonition, sidebar block, and date insertion.
+
+Select text before tapping a formatting button to wrap the selection.
+
+=== Rename, Delete, Move
+
+* *Rename*: long-press a note card and choose Rename
+* *Delete*: pull-down menu on the note view, or long-press a card. A remorse timer gives you a few seconds to undo.
+* *Move to Group*: pull-down menu on the note view. Pick the target group from the list.
+
+=== Checkbox Tasks
+
+Items marked with `[ ]` or `[x]` are rendered as tappable checkboxes. Tap to toggle between done and not-done. Works in notes and in the journal. Here is a live demo:
+
+- [x] Create the documentation structure
+- [x] Write the notes & editing reference
+- [x] Write the organizing & search guide
+- [x] Write the AI assistant guide
+- [ ] Review with the team
+- [ ] Publish
+
+=== Cross-Reference Navigation
+
+Click any `xref:` link or `<<anchor>>` to navigate to the target note. The app resolves the link by filename.
+
+== AsciiDoc Syntax Reference
+
+The following is a complete reference of every syntax Notes++ supports, verified against the parser source code. Where possible, each feature is shown both as source code and as a live rendered example -- the document you are reading is itself a demo.
+
+[quote, Donald Knuth]
+____
+Premature optimization is the root of all evil.
+____
+
+> This is a live blockquote using the `>` shorthand syntax. It renders as an indented quote.
+
+****
+This sidebar is a live demo. Sidebars are visually distinct boxes for supplementary content. You are reading one right now.
+****
+
+[verse, William Shakespeare, Hamlet]
+____
+To be, or not to be,
+that is the question.
+____
+
+A description list defines term--definition pairs:
+
+AsciiDoc::
+A lightweight markup language for writing structured documents. This entire documentation is written in it.
+
+Markdown::
+A different markup language. AsciiDoc supports richer constructs like tables with column specs, admonitions, and cross-references.
+
+FTS5::
+Full-text search extension for SQLite. Notes++ uses it for instant search across all your notes.
+
+The horizontal rule below (three dashes on its own line) is a live demo:
+
+---
+
+=== Document Structure
+
+==== Headings
+
+Levels 1 through 6. A space is required after the `=` signs. Use headings to organize your note into sections -- they also generate the table of contents when `:toc:` is enabled.
+
+[source,asciidoc]
+----
+= Meeting Notes
+== Agenda
+=== Project Updates
+==== Budget Review
+===== Line Items
+====== Sub-details
+----
+
+==== Comments
+
+Lines starting with `//` are comments. They are stripped from the rendered output and never shown to the reader. Useful for leaving reminders or TODO notes to yourself.
+
+[source,asciidoc]
+----
+// TODO: add the Q3 numbers once accounting sends them
+== Financial Summary
+Revenue increased by 12% this quarter.
+----
+
+==== Horizontal Rules
+
+Three or more of the same character on a line draws a visual separator between sections:
+
+[source,asciidoc]
+----
+Part one of the document.
+
+---
+
+Part two begins here.
+----
+
+Supported characters: `-`, `*`, `'` (three or more of the same).
+
+==== Page Breaks
+
+Useful in presentation mode to force a new slide:
+
+[source,asciidoc]
+----
+<<<
+----
+
+==== Document Attributes
+
+Document-wide settings placed at the top of a note. The most common one is `:toc:`:
+
+[source,asciidoc]
+----
+= Project Charter
+:toc:
+:source-highlighter: highlight.js
+----
+
+[TIP]
+`:toc:` inserts a table of contents at the top of the note, generated from the headings. The collapse threshold (how many headings before the TOC auto-collapses) is configurable in Settings > Display.
+
+==== Block Titles
+
+Prefix a line with `.Title` (no space after the dot) before any block to give it a caption or label. Works with code blocks, images, tables, and more:
+
+[source,asciidoc]
+----
+.The authentication flow
+[source,mermaid]
+----
+graph LR
+  A[Login] --> B[Verify]
+----
+----
+
+=== Inline Formatting
+
+Use these markers within paragraphs, list items, headings, and table cells to style your text:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|*make it bold*
+a|Use *bold* for emphasis on key terms like *deadline* or *action item*.
+
+m|_make it italic_
+a|Use _italic_ for titles, foreign words, or gentle emphasis: _The Great Gatsby_.
+
+m|`make it monospace`
+a|Use `backticks` for code, filenames, or commands: edit `config.toml` and run `cargo build`.
+
+m|~strike it through~
+a|Use ~strikethrough~ to show removed text: the meeting is ~at 3pm~ now at 4pm.
+
+m|^superscript^
+a|For footnotes or exponents: E = mc^2^, or reference a footnote^1^.
+
+m|#highlight it#
+a|Use #highlighting# to draw attention: the #deadline is Friday#.
+
+m|[.role]#styled#
+a|Advanced: applies a CSS role to the text for custom styling.
+|===
+
+==== Quotation Marks with Proper Opening and Closing Glyphs
+
+When you type `"text"` you get straight quotes on both sides. AsciiDoc can produce the proper opening ("...") and closing ("...") glyphs used in books and professional typesetting:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|"`text`"
+a|She said "`the deadline is Friday`" and left. Notice the opening and closing marks curve in opposite directions.
+
+m|'`text`'
+a|It was '`the best of times`' in Dickens' novel. Same idea, but for single quotes.
+|===
+
+==== Escape Characters
+
+When you need a literal formatting character (not interpreted as markup), backslash-escape it:
+
+[source,asciidoc]
+----
+The \*asterisks\* stay literal, and the \_underscores\_ too.
+Use \\ for a literal backslash.
+----
+
+This is useful when writing documentation about AsciiDoc itself, or when your text contains characters that would otherwise trigger formatting.
+
+==== Links
+
+Connect your notes to each other and to the web:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|xref:meeting-notes.adoc[Meeting Notes]
+a|Link to another note by filename. Tap to navigate.
+
+m|<<budget-review>>
+a|Shorthand link to a heading anchor within a note.
+
+m|https://github.com/gobuki/harbour-notesplusplus[GitHub]
+a|External web link with a display label.
+
+m|link:mailto:team@example.com[Email us]
+a|Link to an email address.
+|===
+
+The Page Link Dialog (accessible from the in-place edit sidebar's *Link* button) lets you search for pages and insert xref links with a live preview of the generated AsciiDoc.
+
+==== Inline Images
+
+Place a small image inline with surrounding text:
+
+[source,asciidoc]
+----
+The app icon image:icon.png[Notes++ logo, width=24] appears in the toolbar.
+----
+
+The image file is resolved from the note's own directory or its asset directory.
+
+==== Icons
+
+Built-in icons for common symbols. Live examples:
+
+icon:check[] Task complete
+icon:warning[] Review required
+icon:star[] Favourite
+icon:info[] For your information
+icon:gear[] Settings
+icon:heart[] Like
+icon:file[] Document
+icon:tag[] Label
+icon:search[] Find
+
+Available names: `heart`, `star`, `check`, `info`, `warning`, `file`, `tag`, `search`, `gear`
+
+[source,asciidoc]
+----
+icon:check[] Task complete
+icon:warning[] Review required
+icon:star[] Favourite
+----
+
+==== Footnotes
+
+Add explanatory notes without cluttering the main text:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|footnote:[explanation]
+a|Revenue grew 12% footnote:[Compared to Q2 2025, adjusted for inflation] this quarter.
+
+m|footnote:id[label]
+a|The feature ships in v2 footnote:v2release[See the release plan for details].
+
+m|footnoteref:[id, text]
+a|Reusable footnote. First occurrence defines it, later `footnoteref` with the same ID reuses it.
+|===
+
+==== UI Macros
+
+For documentation that describes software interfaces:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|kbd:[Ctrl+S]
+a|Keyboard shortcuts: press kbd:[Ctrl+S] to save. Use `+` between keys that are pressed together, or `,` for sequential keys: kbd:[Ctrl,Alt,Delete].
+
+m|btn:[Save]
+a|Clickable buttons: tap btn:[Submit] to confirm, or btn:[Cancel] to go back.
+
+m|menu:File[Export]
+a|Menu paths: go to menu:File[Export] or menu:Settings[Display > Font Size].
+|===
+
+==== Math / STEM
+
+Mathematical formulas are rendered as monospace text. Live examples:
+
+The Pythagorean theorem: stem:[a^2 + b^2 = c^2]
+AsciiMath notation: asciimath:[sum_(i=1)^n i = (n(n+1))/2]
+LaTeX notation: latexmath:[\frac{d}{dx}e^x = e^x]
+
+[source,asciidoc]
+----
+The Pythagorean theorem: stem:[a^2 + b^2 = c^2]
+AsciiMath notation: asciimath:[sum_(i=1)^n i = (n(n+1))/2]
+LaTeX notation: latexmath:[\frac{d}{dx}e^x = e^x]
+----
+
+==== Passthrough (Raw HTML)
+
+Pass raw HTML directly to the output. Use with care -- the content is inserted as-is. Live example:
+
+pass:[<span style="color:#e74c3c">This text is red via raw HTML passthrough.</span>]
+
+[source,asciidoc]
+----
+pass:[<span style="color:#e74c3c">red text</span>]
++++<mark>highlighted with HTML mark tag</mark>+++
+----
+
+==== Index Terms and Anchors
+
+Index terms mark words for indexing (useful if you build a back-of-note index). Anchors create link targets:
+
+[cols="2,3"]
+|===
+|What |Example
+
+m|((term))
+a|Visible inline index term: the ((AsciiDoc)) parser handles this.
+
+m|(((term1, term2)))
+a|Hidden index entry. The text does not appear in the output but the terms are indexed.
+
+m|[[id,label]]
+a|Inline anchor: creates a link target. Use with `<<id>>` to link to it.
+|===
+
+==== Callout References
+
+Annotate lines of code with numbered callouts. Place `<N>` at the end of a code line, then write a callout list after the code block:
+
+[source,asciidoc]
+----
+[source,python]
+----
+def greet(name):    # <1>
+    print(f"Hi {name}")  # <2>
+----
+
+<1> The function takes a name parameter.
+<2> f-string formatting inserts the variable into the output.
+----
+
+==== HTML Entities
+
+Common HTML entities are decoded automatically:
+
+[cols="1,3"]
+|===
+|Entity |Renders as
+
+|`&amp;`   |&amp;
+|`&lt;`    |&lt;
+|`&gt;`    |&gt;
+|`&#x20ac;`|&#x20ac;
+|`&euro;`  |&euro;
+|`&copy;`  |&copy;
+|`&mdash;` |&mdash;
+|`&ndash;` |&ndash;
+|`&hellip;`|&hellip;
+|`&bull;`  |&bull;
+|`&nbsp;`  |non-breaking space
+|`&reg;`   |&reg;
+|`&trade;` |&trade;
+|===
+
+=== Lists
+
+==== Unordered Lists
+
+Use `*` or `-` markers for bullet points. Nest by indenting with 2 spaces, or by adding more `*` characters (up to 5 levels deep):
+
+[source,asciidoc]
+----
+* Groceries
+  ** Fruit
+    - Apples
+    - Bananas
+  ** Dairy
+  - Milk
+  - Cheese
+* Errands
+----
+
+Live example of the same structure rendered:
+
+* Groceries
+  ** Fruit
+    - Apples
+    - Bananas
+  ** Dairy
+  - Milk
+  - Cheese
+* Errands
+
+==== Ordered Lists
+
+Numbered steps. The marker type (`1.`, `a.`, `i.`, `A.`, `I.`) determines the numbering style at each nesting level:
+
+[source,asciidoc]
+----
+1. Prepare the slides
+2. Book the meeting room
+  a. Check availability
+  b. Send the invite
+    i. Add agenda
+    ii. Attach documents
+----
+
+Live example of nested ordered lists:
+
+1. Prepare the slides
+2. Book the meeting room
+  a. Check availability
+  b. Send the invite
+    i. Add agenda
+    ii. Attach documents
+
+Attributes for ordered lists:
+
+[source,asciidoc]
+----
+[start=5]
+5. Continue numbering from a previous list
+6. Next item
+
+[%reversed]
+3. Countdown
+2. Two
+1. One
+----
+
+Style overrides: `[arabic]` (1, 2, 3), `[loweralpha]` (a, b, c), `[upperalpha]` (A, B, C), `[lowerroman]` (i, ii, iii), `[upperroman]` (I, II, III)
+
+==== Description Lists
+
+Term--definition pairs, perfect for glossaries or metadata:
+
+[source,asciidoc]
+----
+AsciiDoc:: A lightweight markup language for writing structured documents.
+FTS5:: Full-text search extension for SQLite. Used by Notes++ for instant search.
+xref:: A cross-reference macro that links to another note by filename.
+----
+
+==== Callout Lists
+
+Placed after code blocks to annotate specific lines:
+
+[source,asciidoc]
+----
+[source,rust]
+----
+let config = load_config();  // <1>
+let server = Server::new(config);  // <2>
+server.start();  // <3>
+----
+
+<1> Load configuration from the settings file.
+<2> Create a new server instance with the loaded config.
+<3> Start listening for incoming connections.
+----
+
+==== Checkbox Tasks
+
+Tappable checkboxes for to-do lists. Use `[ ]` for unchecked, `[x]` or `[X]` for checked:
+
+[source,asciidoc]
+----
+- [x] Review pull request
+- [ ] Write unit tests
+- [ ] Update documentation
+- [x] Deploy to staging
+----
+
+[TIP]
+Tap any checkbox in the app to toggle its state. Works in notes and in the journal.
+
+==== List Continuation
+
+To attach multiple blocks (code, quotes, images) to a single list item, indent the continuation content by 2 spaces:
+
+[source,asciidoc]
+----
+* Step 1: Configure the server
+  Edit `config.toml` and set the port:
+  ----
+  [server]
+  port = 8080
+  ----
+  Then restart the service.
+
+* Step 2: Verify it works
+----
+
+=== Blocks
+
+==== Code Blocks
+
+Delimited by `----`. Add `[source,language]` above for syntax highlighting. The language hint can also go inline after the opening delimiter:
+
+[source,asciidoc]
+----
+[source,rust]
+----
+fn main() {
+    let name = "Notes++";
+    println!("Hello from {name}!");
+}
+----
+----
+
+Or inline: `----python`, `----sql`, `----json`, etc.
+
+===== SVG Bob Diagrams
+
+Use `[source,svgbob]` to draw ASCII-art diagrams that render as inline SVG. Boxes, arrows, lines, and text are converted to crisp vector graphics. Here is a live example:
+
+[source,svgbob]
+----
+    +----------+       +----------+
+    |  Notes++ |       |  Browser |
+    |  on phone|       |  on PC   |
+    +----+-----+       +----+-----+
+         |                  |
+         |    HTTPS / TLS   |
+         +-------> <--------+
+                   |
+            +------+------+
+            |  Embedded   |
+            |  Web Server |
+            +-------------+
+----
+
+And here is how you write it:
+
+[source,asciidoc]
+----
+[source,svgbob]
+----
++---+      +---+
+| A | ---> | B |
++---+      +---+
+----
+----
+
+==== Literal Blocks
+
+Delimited by `....`. Unlike code blocks, literal blocks preserve all whitespace exactly as written -- useful for showing formatted output or ASCII art that should not be interpreted as svgbob:
+
+[source,asciidoc]
+----
+....
+  File        Size
+  ----        ----
+  readme.adoc   2KB
+  notes.adoc   14KB
+....
+----
+
+==== Blockquotes
+
+Delimited by `____`. Use the `[quote]` attribute to add attribution:
+
+[source,asciidoc]
+----
+[quote, Albert Einstein]
+____
+Imagination is more important than knowledge.
+Knowledge is limited. Imagination encircles the world.
+____
+----
+
+You can also use consecutive `>` lines for a quick inline quote:
+
+[source,asciidoc]
+----
+> First line of the quote.
+> Second line continues it.
+----
+
+==== Verse Blocks
+
+Like blockquotes, but whitespace is preserved. Good for poetry or lyrics:
+
+[source,asciidoc]
+----
+[verse, Robert Frost, The Road Not Taken]
+____
+Two roads diverged in a wood,
+and I took the one less traveled by,
+and that has made all the difference.
+____
+----
+
+==== Sidebar Blocks
+
+Delimited by `****`. A sidebar is a visually distinct aside -- good for tips, warnings, or related information that supplements the main content:
+
+[source,asciidoc]
+----
+****
+This sidebar explains something tangential to the main discussion.
+It can contain multiple paragraphs and other blocks.
+****
+----
+
+==== Example Blocks
+
+Delimited by `====`. A generic container for grouping related content, often used alongside admonitions:
+
+[source,asciidoc]
+----
+====
+This is an example block. Use it to group
+related content that belongs together.
+====
+----
+
+==== Open Blocks
+
+Delimited by `--`. The most generic container -- can hold any other block type:
+
+[source,asciidoc]
+----
+--
+An open block wraps content without adding
+any visual styling. It acts as a transparent container.
+--
+----
+
+==== Comment Blocks
+
+Delimited by `////`. The entire block is stripped from the output. Use for notes to yourself or sections you want to temporarily hide:
+
+[source,asciidoc]
+----
+////
+FIXME: this section needs to be rewritten
+once the new API is finalized.
+////
+----
+
+==== Admonitions
+
+Five kinds: `NOTE`, `TIP`, `WARNING`, `IMPORTANT`, `CAUTION`. Each has a distinct icon and color.
+
+Delimited form -- for longer admonitions that span multiple paragraphs or contain other blocks:
+
+[source,asciidoc]
+----
+[NOTE]
+====
+The database is backed up automatically every night at 2am.
+You do not need to trigger manual backups under normal circumstances.
+====
+----
+
+Paragraph form -- for short, one-line admonitions:
+
+[source,asciidoc]
+----
+[TIP]
+Press and hold a note card to access the context menu.
+----
+
+Admonitions support custom titles:
+
+[source,asciidoc]
+----
+.Data Loss Risk
+[WARNING]
+====
+Deleting a group removes all notes inside it.
+The remorse timer gives you a few seconds to undo.
+====
+----
+
+=== Tables
+
+==== Basic Table
+
+Delimited by `|===`. Each `|` starts a new cell:
+
+[source,asciidoc]
+----
+|===
+|Name       |Role     |Team
+|Alice      |Admin    |Engineering
+|Bob        |Editor   |Design
+|Charlie    |Viewer   |Marketing
+|===
+----
+
+==== Simple Pipe Table (No Delimiters)
+
+For quick, small tables you can omit the `|===` fences:
+
+[source,asciidoc]
+----
+| Name  | Role  |
+| Alice | Admin |
+| Bob   | User  |
+----
+
+==== Column Specifications
+
+The `cols` attribute controls column widths as proportional numbers. `1,2,1` means the middle column gets twice the width of the others:
+
+[source,asciidoc]
+----
+[cols="1,2,1"]
+|===
+|Priority |Task |Due Date
+|High |Write user documentation |Friday
+|Medium |Review pull requests |Next week
+|Low |Refactor old modules |Backlog
+|===
+----
+
+Repeat syntax: `3*1` means "3 columns each with width 1":
+
+[source,asciidoc]
+----
+[cols="3*1,2"]
+|===
+|Mon |Tue |Wed |Notes
+|Sprint review |Standup |Demo |Focus on Q3 goals
+|===
+----
+
+==== Cell Styles
+
+Prefix each cell with a style letter to control how its content is rendered:
+
+[cols="1,2"]
+|===
+|Prefix |Effect
+
+|`|` (none)
+|Default inline text. Parses inline formatting (bold, italic, links, etc.)
+
+|`a|`
+|AsciiDoc cell. Full markup support including nested blocks, lists, code, blank lines.
+
+|`e|` or `i|`
+|Italic. Content is wrapped in italic formatting.
+
+|`s|` or `b|`
+|Bold. Content is wrapped in bold formatting.
+
+|`m|` or `c|`
+|Monospace / code. Content is rendered in monospace.
+
+|`h|`
+|Header style. Visually distinct header cell.
+
+|`l|`
+|Literal. Whitespace is preserved, no inline formatting parsed.
+
+|`v|`
+|Verse. Whitespace is preserved with inline formatting.
+
+|`d|`
+|Default. Same as `|` with no prefix.
+|===
+
+Example with AsciiDoc cells (`a|`) -- these support full markup, including lists and code blocks inside a cell:
+
+[source,asciidoc]
+----
+[cols="1,2a"]
+|===
+|Feature |Details
+
+|Search
+|a|
+Full-text search powered by FTS5:
+
+* Searches filename, title, and content
+* Supports porter stemming
+* Results stream incrementally
+
+|Export
+|a|
+Export formats:
+
+- Standalone HTML5
+- Copy page URL to clipboard
+|===
+----
+
+==== Column Alignment
+
+Horizontal alignment: `<` left, `^` center, `>` right. Place before the width number.
+
+Vertical alignment: same characters, placed after a dot.
+
+[source,asciidoc]
+----
+[cols="<1,^1,>1"]
+|===
+|Left-aligned |Centered |Right-aligned
+|Task name |Status |Hours
+|Write docs |In progress |3.5
+|Code review |Done |1.0
+|===
+----
+
+Combined with vertical alignment and cell style:
+
+[source,asciidoc]
+----
+[cols="2^.^m,1>.e"]
+|===
+|Centered monospace |Right-aligned italic
+|`port = 8080` |Default value
+|===
+----
+
+==== Cell-Level Attributes
+
+Override alignment and style per-cell. `2+` means "span this cell across 2 columns":
+
+[source,asciidoc]
+----
+|===
+|2+^.^h|Sprint Goals
+|High priority |Ship v1.0
+|Medium priority |Write docs
+|===
+----
+
+Syntax breakdown: `2+` = colspan 2, `^` = center horizontally, `.^` = center vertically, `h` = header style.
+
+==== Frame and Grid
+
+The `frame` attribute controls the outer border. The `grid` attribute controls the inner grid lines.
+
+[source,asciidoc]
+----
+[frame=all, grid=all]
+|===
+|Full borders |Inner lines too
+|Cell A |Cell B
+|===
+
+[frame=sides, grid=cols]
+|===
+|Outer sides only |Column dividers
+|Cell A |Cell B
+|===
+
+[frame=topbot, grid=rows]
+|===
+|Top and bottom borders |Row dividers
+|Cell A |Cell B
+|===
+
+[frame=none, grid=none]
+|===
+|No borders at all |Clean look
+|Cell A |Cell B
+|===
+----
+
+[cols="1,2"]
+|===
+|Attribute |Values
+
+|`frame`
+|`all`, `sides`, `topbot`, `top`, `bottom`, `none`
+
+|`grid`
+|`all`, `cols`, `rows`, `none`
+|===
+
+==== Table Titles
+
+Add a `.Title` line before the table attributes or delimiter to give the table a caption:
+
+[source,asciidoc]
+----
+.Feature Comparison
+[cols="1,1,1"]
+|===
+|Feature |Notes++ |Other App
+
+|Offline-first |icon:check[] |icon:warning[role=yellow]
+|AI assistant |icon:check[] |icon:warning[role=yellow]
+|AsciiDoc support |icon:check[] |icon:warning[role=yellow]
+|===
+----
+
+=== Images
+
+==== Block Images
+
+Display an image on its own line, optionally with a caption and size:
+
+[source,asciidoc]
+----
+image::photo.jpg[Sunset over the harbour]
+image::photo.jpg[Sunset, width=300]
+image::diagram.png[Architecture, 600, 400]
+----
+
+With a title (rendered as a caption below the image):
+
+[source,asciidoc]
+----
+.Figure 1: The Notes++ architecture
+image::architecture.svg[Architecture diagram, width=500]
+----
+
+==== Inline Images
+
+Place a small image within a line of text:
+
+[source,asciidoc]
+----
+The Notes++ icon image:icon.png[Notes++, width=20] appears in the app launcher.
+----
+
+=== Table of Contents
+
+Add `:toc:` as a document attribute to generate a clickable table of contents from your headings:
+
+[source,asciidoc]
+----
+= My Project Plan
+:toc:
+
+== Background
+Some context here.
+
+== Goals
+What we want to achieve.
+
+== Timeline
+When it happens.
+----
+
+The TOC collapse threshold (number of headings before it auto-collapses) is configurable in Settings > Display.
+
+== Organizing Notes with Groups
+
+Groups are folders on disk. They appear as collapsible sections on the main page, with notes listed under each group.
+
+=== Creating Groups
+
+Pull down the main page menu and tap *New Group*. Type a name and confirm. You can also create a group inline when creating a new note, or from a group's context menu via *New Subgroup*.
+
+=== Group Context Menu
+
+Long-press any group header to access:
+
+* *New Note* -- create a note inside this group
+* *New Subgroup* -- create a nested group
+* *Rename* -- change the group name
+* *Delete* -- remove the group and its contents (with remorse timer)
+
+=== Collapse and Expand
+
+Tap a group header to collapse or expand it. The state is persisted, so groups stay collapsed across app restarts.
+
+=== Group Display Depth
+
+In *Settings > Display*, the *Group Display Depth* slider controls how many nesting levels are shown (1 to 5). Deeper groups are hidden until you increase the depth.
+
+=== Asset Directories
+
+A directory with the same name as an adjacent `.adoc` file is treated as an *asset directory* for that note. Asset directories are hidden from the group list.
+
+[source,asciidoc]
+----
+my-project.adoc          <-- the note
+my-project/              <-- asset directory (hidden from group list)
+  diagram.png
+  screenshot.jpg
+----
+
+This convention matches tools like Logseq and Obsidian. Images referenced with `image::diagram.png[]` in `my-project.adoc` are resolved from the asset directory.
+
+[source,svgbob]
+----
+"~/Documents/Notes++/"
+ |
+ +-- "meeting-notes.adoc"
+ +-- "project-plan.adoc"
+ +-- "project-plan/"               "(asset directory - hidden)"
+ |    |
+ |    +-- "mockup.png"
+ |    `-- "data.csv"
+ |
+ +-- "Work/"                       "(group)"
+ |    |
+ |    +-- "report.adoc"
+ |    `-- "Ideas/"                 "(subgroup)"
+ |         |
+ |         `-- "brainstorm.adoc"
+ |
+ `-- "Personal/"                   "(group)"
+      |
+      +-- "journal.adoc"
+      `-- "recipes.adoc"
+----
+
+== Daily Journal
+
+The journal is an auto-managed note (`journal.adoc`) with date-based headings. When enabled, today's entries appear directly on the main page.
+
+=== Enabling the Journal
+
+Toggle *Enable Daily Journal* in *Settings > Display*. When enabled, the main page shows a journal section above the note list.
+
+=== Working with Journal Entries
+
+* *Add*: tap the "+ Add to today's journal..." placeholder at the bottom of the journal section. Choose a task (checkbox), plain note, or heading.
+* *Edit*: tap any journal entry to edit its raw AsciiDoc.
+* *Toggle tasks*: tap checkboxes to mark items done or not done.
+* *Full journal*: pull down the main page menu and tap *Journal*, or tap the "Full Journal" link at the bottom of the journal section.
+
+=== Date Headings
+
+Each day gets a `== YYYY-MM-DD` heading in `journal.adoc`. The app manages these automatically:
+
+* Today's heading is always present (auto-created if missing)
+* Empty headings from past days are cleaned up
+* Duplicate today headings are merged
+
+== Full-Text Search
+
+=== Global Search
+
+The search bar at the top of the main page searches across all note filenames, titles, and content. Powered by SQLite FTS5 with porter stemming and a unicode tokenizer for fast, typo-tolerant results.
+
+Search results appear as note cards with block-level preview snippets. Results load in two phases: filename/title matches first, then content previews stream in incrementally.
+
+Tap a result to open the note scrolled to the matching block.
+
+=== Find in Page
+
+When viewing a note, pull down the menu and tap *Find in Page*. A search bar appears at the top. Matching blocks are highlighted. Press Enter to jump to the next match.
+
+=== Rebuilding the Index
+
+If search results seem stale, go to *Settings > Display* and tap *Rebuild Index*. This rescans all `.adoc` files from disk and regenerates the search database.
+
+== AI Assistant
+
+=== Tool Permissions
+
+The AI assistant can read, create, and edit your notes. You control what it is allowed to do without asking.
+
+[WARNING]
+====
+By default, *Require Confirmation for Edits* is enabled. This means the AI shows a diff preview before modifying any note, and you must approve each change. Keep this enabled unless you fully trust the model's output.
+====
+
+==== Permission Settings
+
+All four settings are found in *Settings > AI Assistant*:
+
+* *Auto-Allow Note Reading* -- the AI can read any note's content and search your notes without prompting you. Disable this to be asked each time.
+* *Auto-Allow Note Creation* -- the AI can create new notes without asking. When disabled, each creation requires your approval.
+* *Require Confirmation for Edits* -- when the AI wants to modify an existing note, it shows a line-by-line diff (additions in green, deletions in red with strikethrough). You choose *Approve & Apply* or *Reject*. *Keep this enabled.*
+* *Allow Web Requests* -- the AI can fetch external URLs. This is needed for the import assistant's "Fetch URL" feature. When disabled, the AI cannot access the internet.
+
+[TIP]
+A safe starting configuration: enable reading, enable creation, require confirmation for edits, disable web requests. This lets the AI help freely but keeps destructive changes under your control.
+
+==== Privacy
+
+[NOTE]
+====
+With *Ollama* (local provider), all data stays on your device. With cloud providers (OpenAI-compatible, MiMoCode), your note content and AI conversation are sent to the provider's servers. Review the provider's privacy policy before using cloud AI with sensitive notes.
+====
+
+=== Setting Up the AI
+
+Go to *Settings > AI Assistant* and enable AI features.
+
+==== Providers
+
+[cols="1,2"]
+|===
+|Provider |Description
+
+|Ollama
+|Local LLM server. Runs on-device. Set the endpoint URL (default: `http://localhost:11434`). Requires Ollama to be installed and running.
+
+|OpenAI Compatible
+|Any API following the OpenAI chat completions format. Set the endpoint URL and API key.
+
+|MiMoCode
+|Xiaomi's AI provider. Set the endpoint URL and API key.
+|===
+
+==== Model Selection
+
+After configuring the provider, tap *Refresh Models* to fetch the available models from the endpoint. Select the model you want to use.
+
+Additional settings: *Request Timeout* (15--1200 seconds), *Accept Self-Signed Certificates* (for local HTTPS endpoints).
+
+=== Chat Interface
+
+Open the AI assistant from the pull-down menu on any note (*Ask AI Assistant*) or from the dedicated assistant page.
+
+==== Conversation
+
+Type your prompt in the text field and send. The AI responds with streaming text -- you see tokens appear in real time.
+
+The AI has access to these tools during conversation:
+
+* Read notes (search and read content)
+* List notes (enumerate your notes)
+* Create notes (write new `.adoc` files)
+* Edit notes (modify existing notes with diff preview)
+* Fetch external URLs (with SSRF protection)
+* Read local files (within the notes directory)
+
+==== Quick-Action Templates
+
+The template bar below the input field provides one-tap prompts for common tasks:
+
+* *Beautify* -- reformat and polish the current note
+* *Extract To-Dos* -- find action items and create a checklist
+* *Fix Grammar* -- correct spelling and grammar
+* *Expand & Draft* -- turn bullet points into full prose
+* *External Text* -- analyze pasted or imported content
+
+==== Additional Actions
+
+Pull down the assistant menu for:
+
+* *Paste Clipboard Context* -- add clipboard content as extra context for the conversation
+* *Clear Conversation* -- reset the chat history while keeping the note context
+
+=== Edit Workflow
+
+When the AI proposes a change to an existing note:
+
+1. A *confirmation card* appears showing the target filename, the reason for the change, and a *diff view*
+2. Additions are shown in green, deletions in red with strikethrough
+3. Choose *Approve & Apply* to accept, or *Reject* to discard
+4. After applying, an *Undo banner* appears -- tap it to revert. The system creates a snapshot before every AI edit.
+
+[source,svgbob]
+----
+  User asks AI to edit a note
+          |
+          v
+  AI calls edit_note tool
+          |
+          v
+  +------------------+
+  | Diff preview     |
+  | shown to user    |
+  +------------------+
+          |
+    +-----+-----+
+    |           |
+    v           v
+ Approve     Reject
+    |           |
+    v           v
+ Apply &    Discard
+ show Undo  changes
+----
+
+=== Import Assistant
+
+The import tab converts external content into structured AsciiDoc notes via AI.
+
+==== Input Sources
+
+* *Paste Clipboard* -- use clipboard text as source
+* *Fetch URL* -- fetch a web page by URL (with SSRF protection)
+* *Local File* -- read a file from the notes directory
+* *Voice Dictation* -- dictate content via speech-to-text
+* *Direct Text Input* -- type or paste text directly
+
+==== Conversion Modes
+
+[cols="1,2"]
+|===
+|Mode |Description
+
+|Full Document
+|Complete conversion to AsciiDoc with headings, lists, and formatting preserved
+
+|Summarize & Structure
+|Condensed summary organized with headings
+
+|Extract Action Items
+|Pull out to-do items as a checklist
+|===
+
+An optional *Custom Instructions* field lets you add specific directives for the conversion.
+
+==== Result
+
+After conversion, a success card shows the created note's title with an *Open Created Note* button.
+
+== Speech-to-Text
+
+Offline voice recognition powered by Whisper. No internet connection required.
+
+=== Enabling
+
+Go to *Settings > Speech-to-Text* and enable speech recognition.
+
+=== Downloading Models
+
+Tap a model in the list to download it. Available sizes:
+
+[cols="1,1,1"]
+|===
+|Model |Size |Quality
+
+|Tiny
+|~75 MB
+|Fast, basic accuracy
+
+|Base
+|~142 MB
+|Good accuracy, reasonable speed
+|===
+
+Models are cached in memory after the first transcription for fast subsequent use.
+
+=== Recording
+
+Tap the microphone button in the AI prompt bar to start recording. While recording:
+
+* A live *7-bar waveform visualizer* responds to your voice
+* The current *audio level* is displayed as a percentage
+* Tap the mic button again to stop and transcribe, or tap cancel to discard
+
+The transcribed text is inserted into the prompt bar (for AI chat) or the import source text field (for import assistant).
+
+=== Model Management
+
+In *Settings > Speech-to-Text*, each model shows its status with download/delete actions. The first installed model is auto-selected as active.
+
+== Web Editor & Remote Access
+
+=== Overview
+
+Notes++ includes an embedded HTTPS web server that serves a Vue 3 single-page application. From any browser on your local network, you can view and edit notes, use the AI assistant, and run presentations.
+
+[source,svgbob]
+----
++--------------------+         HTTPS          +--------------------+
+|  Notes++ on phone  | <--------------------> |  Browser on laptop |
+| "(embedded server)"|                        |"(Vue 3 web editor)"|
++--------------------+                        +--------------------+
+        |                                              |
+        v                                              v
+  AsciiDoc files                               Split-pane editor
+  SQLite database                              Live preview
+ "AI / LLM"                                    AI assistant
+----
+
+=== Starting the Server
+
+Go to *Settings > Services* and tap the start/stop toggle. The server URL (e.g., `https://192.168.1.42:8443`) is displayed on the main page and can be copied to the clipboard.
+
+==== Auto-Start
+
+Enable *Auto-start on launch* in settings to have the server start automatically when you open the app.
+
+==== Network Interface
+
+If your device is connected to multiple networks (Wi-Fi, USB, Bluetooth), choose which interface to bind to in *Settings > Services > Bind Address*.
+
+=== Authentication
+
+When you open the web editor URL in a browser for the first time, a verification code is displayed on both the phone and the browser.
+
+1. Compare the codes on both screens
+2. On the phone, tap *Accept* to authorize the login, or *Cancel* to reject
+3. The code expires after 60 seconds
+
+After authorization, a session cookie is set. Configure session duration in *Settings > Services*: 1 hour, 4 hours, 8 hours, 24 hours, 7 days, or 30 days.
+
+[NOTE]
+====
+The web editor also supports OIDC/OAuth 2.0 PKCE for providers that support it, in addition to the built-in verification code flow.
+====
+
+=== TLS / SSL
+
+==== Self-Signed Certificate
+
+By default, the server generates a self-signed TLS certificate on first start. Your browser will show a warning -- this is expected. Accept the certificate to proceed.
+
+==== Custom Certificate
+
+To install your own certificate:
+
+1. Go to *Settings > Services > SSL/TLS*
+2. Provide the certificate path and key path, or paste PEM-encoded text directly
+3. Tap *Install Certificate*
+
+To reset to the self-signed default, tap *Reset to Self-Signed*.
+
+=== Security
+
+==== Public Network Rejection
+
+When enabled (default), the server rejects connections from public IP addresses. Only private networks (RFC 1918 ranges: `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`) are allowed. This prevents accidental exposure to the internet.
+
+Disable this only if you intentionally need remote access from outside your local network.
+
+==== Rate Limiting
+
+The server includes rate limiting to protect against brute-force attempts on the authentication endpoint.
+
+=== Web Editor Features
+
+The browser-based editor provides:
+
+* *Split-pane view* -- AsciiDoc source on the left, live rendered preview on the right
+* *Full AI assistant* -- chat, templates, and import directly from the browser
+* *Presentation mode* -- dynamic slide decks generated from headings and page breaks (`<<<`)
+
+==== Presentation Mode
+
+In the web editor, enter presentation mode to view your note as a slide deck. The note is segmented at level-1 headings and page breaks. Navigate with keyboard arrows or touch/swipe gestures.
+
+== Settings Reference
+
+=== Display Tab
+
+[cols="1,2,1"]
+|===
+|Setting |Description |Default
+
+|Font Family
+|Document font: Sailfish Default, Serif, Sans-Serif, Monospace
+|Sailfish Default
+
+|Document Font Size
+|Scale body text from 80% to 150%
+|100%
+
+|Code Font Size
+|Scale code blocks from 80% to 150%
+|100%
+
+|Collapse Table of Contents
+|Heading count threshold below which the TOC is auto-collapsed. 0 = always collapsed, 20 = never collapsed.
+|10
+
+|Preview Scaling
+|Scale factor for miniature document previews on note cards (30%--80%)
+|50%
+
+|Strip Comments
+|Drop `//` comment lines from the rendered output
+|Off
+
+|Allow External Images
+|Load images from HTTP/HTTPS URLs (not just local files)
+|Off
+
+|Enable Daily Journal
+|Show the journal section on the main page
+|On
+
+|Group Display Depth
+|How many levels of nested groups to show (1--5)
+|3
+
+|Rebuild Index
+|Button: rescan all `.adoc` files from disk and regenerate the search database
+| --
+|===
+
+A live preview at the bottom of the display settings shows how changes affect rendering in real time.
+
+=== AI Assistant Tab
+
+[cols="1,2,1"]
+|===
+|Setting |Description |Default
+
+|Enable AI Features
+|Master toggle for the AI assistant
+|Off
+
+|AI Provider
+|Local Ollama, MiMoCode, or OpenAI Compatible API
+|Ollama
+
+|Endpoint URL
+|API endpoint for the selected provider
+|`http://localhost:11434`
+
+|Accept Self-Signed Certificates
+|Allow HTTPS connections with unverified certificates
+|Off
+
+|API Key
+|Bearer token for authenticated providers
+|(empty)
+
+|Request Timeout
+|Maximum wait time for AI responses (15--1200 seconds)
+|120
+
+|Model
+|LLM model to use (populated by Refresh Models)
+| --
+|===
+
+==== Tool Permissions
+
+[cols="1,2,1"]
+|===
+|Setting |Description |Default
+
+|Auto-Allow Note Reading
+|AI can read and search notes without prompting
+|On
+
+|Auto-Allow Note Creation
+|AI can create new notes without prompting
+|Off
+
+|Require Confirmation for Edits
+|Show diff preview before applying AI-suggested changes
+|On
+
+|Allow Web Requests
+|AI can fetch external URLs
+|Off
+|===
+
+[TIP]
+See the *AI Assistant > Tool Permissions* section above for detailed explanations of each permission.
+
+=== Speech-to-Text Tab
+
+[cols="1,2,1"]
+|===
+|Setting |Description |Default
+
+|Enable Speech Recognition
+|Master toggle for offline Whisper-based STT
+|Off
+
+|Models
+|List of available Whisper models with download/delete actions per model. The first installed model is auto-selected.
+| --
+|===
+
+=== Services Tab
+
+[cols="1,2,1"]
+|===
+|Setting |Description |Default
+
+|Start / Stop Web Server
+|Toggle the embedded HTTPS server
+|Off
+
+|Auto-start on Launch
+|Start the web server when the app opens
+|Off
+
+|Public Network Rejection
+|Block connections from non-private IP addresses
+|On
+
+|Bind Address
+|Network interface to listen on (Wi-Fi, USB, Bluetooth)
+|Auto
+
+|Session Duration
+|How long an authenticated browser session lasts: 1h, 4h, 8h, 24h, 7d, 30d
+|24 hours
+
+|SSL/TLS Certificate
+|Install a custom certificate (by path or PEM text) or reset to self-signed
+|Self-signed
+
+|Export All Notes as HTML5
+|Button: batch export all notes to `~/Documents/Notes++ Exports/`
+| --
+|===
+
+==== About
+
+The Services tab also shows the app version at the bottom.
+
+=== Sailjail Permissions
+
+When first launched, Notes++ requests these system permissions:
+
+[cols="1,3"]
+|===
+|Permission |Why the app needs it
+
+|UserDirs
+|Read and write notes in app storage; export to `~/Documents/`
+
+|Internet
+|AI assistant API calls, web server, URL fetching, model downloads
+
+|RemovableMedia
+|Access SD card / USB storage for backups
+
+|Audio
+|Speech-to-text recording and live microphone level monitoring
+
+|Microphone
+|Speech-to-text recording via Whisper
+|===
+
+[NOTE]
+====
+The app works fully offline. Internet permission is only needed if you use the AI assistant, web server, or URL import features. Microphone permission is only needed for speech-to-text. If you don't use these features, the corresponding permissions have no effect.
+====

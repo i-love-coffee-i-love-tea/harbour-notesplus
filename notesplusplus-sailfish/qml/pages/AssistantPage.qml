@@ -401,12 +401,10 @@ Page {
                 }
                 onEditInstructionRequested: function(item) {
                     var inst = item.instruction || ""
-                    if (!inst && typeof app !== "undefined" && app.defaultCustomAiInstructions) {
-                        for (var k = 0; k < app.defaultCustomAiInstructions.length; k++) {
-                            if (app.defaultCustomAiInstructions[k].id === item.id) {
-                                inst = app.defaultCustomAiInstructions[k].instruction || ""
-                                break
-                            }
+                    if (!inst && typeof app !== "undefined" && app.getDefaultAiInstruction) {
+                        var def = app.getDefaultAiInstruction(item.id)
+                        if (def && def.instruction) {
+                            inst = def.instruction
                         }
                     }
                     pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"), {

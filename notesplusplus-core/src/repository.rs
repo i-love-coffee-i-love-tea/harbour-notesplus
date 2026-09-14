@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use crate::CoreError;
-use crate::group::{self, GroupInfo};
+use crate::group::{self, GroupInfo, NoteSortOrder};
 use crate::page::{self, PageInfo};
 use crate::search::{self, SearchResult};
 
@@ -46,6 +46,9 @@ pub trait NoteRepository: Send + Sync {
 
     /// List groups, optionally filtered.
     fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, CoreError>;
+
+    /// Set note sort order for a group.
+    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, CoreError>;
 
     /// Move a page to a new group.
     fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError>;
@@ -135,6 +138,11 @@ impl NoteRepository for FsSqliteNoteRepository {
         group::list_groups(&conn, parent_path, max_depth)
     }
 
+    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, CoreError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        group::set_group_note_sort(&conn, path, note_sort)
+    }
+
     fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::move_page(&conn, &self.notes_dir, source_name_or_path, target_group)
@@ -207,5 +215,13 @@ mod tests {
 
         let groups = repo.list_groups(None, None).unwrap();
         assert!(groups.iter().any(|g| g.path == "Archives"));
+
+        // Sort setting
+        let sort = repo.set_group_note_sort("Archives", NoteSortOrder::ByName).unwrap();
+        assert_eq!(sort, NoteSortOrder::ByName);
+
+        let groups_after = repo.list_groups(None, None).unwrap();
+        let archives = groups_after.iter().find(|g| g.path == "Archives").unwrap();
+        assert_eq!(archives.note_sort, NoteSortOrder::ByName);
     }
 }

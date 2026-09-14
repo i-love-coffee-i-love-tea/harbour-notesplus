@@ -99,6 +99,24 @@ mod tests {
     }
 
     #[test]
+    fn test_highlight_newlines_preserved() {
+        let tests = vec![
+            ("ruby", "def hello\n  puts \"world\"\nend"),
+            ("xml", "<root>\n  <child>text</child>\n</root>"),
+            ("java", "class Foo {\n  void bar() {}\n}"),
+            ("css", "body {\n  color: red;\n}"),
+            ("rust", "fn main() {\n  println!(\"hi\");\n}"),
+        ];
+        for (lang, code) in &tests {
+            let html = highlight_code(code, lang);
+            let newline_count = html.matches('\n').count();
+            assert_eq!(newline_count, 2, "{}: expected 2 newlines, got {}. HTML:\n{}", lang, newline_count, html);
+            // Verify leading spaces are preserved (inside or outside span tags)
+            assert!(html.contains("  "), "{}: expected leading spaces in output", lang);
+        }
+    }
+
+    #[test]
     fn test_normalize_language() {
         assert_eq!(normalize_language("rs"), "rust");
         assert_eq!(normalize_language("Rust"), "rust");

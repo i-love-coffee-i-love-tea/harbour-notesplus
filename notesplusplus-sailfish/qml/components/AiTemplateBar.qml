@@ -111,11 +111,16 @@ Rectangle {
                     enabled: templateBar.enabled && !templateBar.agentBusy
                     opacity: (templateBar.enabled && !templateBar.agentBusy) ? 1.0 : 0.4
 
+                    readonly property bool isVendored: (typeof app !== "undefined" && app.isDefaultAiInstruction) ?
+                                                           app.isDefaultAiInstruction(modelData.id) : false
+
                     Rectangle {
                         anchors.fill: parent
                         radius: Theme.paddingSmall / 2
-                        color: tplBtn.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.45) : Theme.rgba(Theme.primaryColor, 0.08)
-                        border.color: tplBtn.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.2)
+                        color: tplBtn.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.45) :
+                               (tplBtn.isVendored ? Theme.rgba(Theme.highlightBackgroundColor, 0.16) : Theme.rgba(Theme.primaryColor, 0.05))
+                        border.color: tplBtn.highlighted ? Theme.highlightColor :
+                                      (tplBtn.isVendored ? Theme.rgba(Theme.highlightColor, 0.35) : Theme.rgba(Theme.primaryColor, 0.2))
                         border.width: 1
 
                         Row {
@@ -131,7 +136,8 @@ Rectangle {
                                 source: modelData.icon ? (modelData.icon.indexOf("image://") === 0 ? modelData.icon : ("image://theme/" + modelData.icon)) : "image://theme/icon-m-note"
                                 width: Theme.iconSizeSmall
                                 height: Theme.iconSizeSmall
-                                color: tplBtn.highlighted ? Theme.highlightColor : Theme.primaryColor
+                                color: tplBtn.highlighted ? Theme.highlightColor :
+                                       (tplBtn.isVendored ? Theme.primaryColor : Theme.secondaryColor)
                                 anchors.verticalCenter: parent.verticalCenter
                             }
 
