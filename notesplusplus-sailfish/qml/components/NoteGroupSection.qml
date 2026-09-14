@@ -242,6 +242,7 @@ Column {
         onItemClicked: function(itemData, itemIndex) {
             var fullPath = itemData.full_path || (itemData.group_path ? itemData.group_path + "/" + itemData.filename : itemData.filename)
             pageStack.push(Qt.resolvedUrl("../pages/PageView.qml"), {
+                initialTargetPage: fullPath,
                 pageName: itemData.name || fullPath
             })
             bridge.load_page(fullPath)

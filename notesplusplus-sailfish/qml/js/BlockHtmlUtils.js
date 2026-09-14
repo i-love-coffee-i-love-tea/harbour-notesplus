@@ -7,6 +7,8 @@ function handleLink(link, xrefCallback, toggleCallback) {
             target = target.substring(0, target.length - 5);
         }
         if (xrefCallback) xrefCallback(target);
+    } else if (link.indexOf("#") === 0) {
+        if (xrefCallback) xrefCallback(link);
     } else if (link.indexOf("toggle:") === 0) {
         var togglePath = link.substring(7);
         if (toggleCallback) toggleCallback(togglePath);

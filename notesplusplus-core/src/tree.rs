@@ -143,6 +143,56 @@ pub fn build_group_tree(
     result
 }
 
+/// Natural alphanumeric comparator for human-friendly sorting (e.g. "ADR-002" < "ADR-010", "item 2" < "item 10").
+pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let mut a_chars = a.chars().peekable();
+    let mut b_chars = b.chars().peekable();
+
+    while let (Some(&ca), Some(&cb)) = (a_chars.peek(), b_chars.peek()) {
+        if ca.is_ascii_digit() && cb.is_ascii_digit() {
+            let mut num_a: u64 = 0;
+            while let Some(&d) = a_chars.peek() {
+                if d.is_ascii_digit() {
+                    num_a = num_a.saturating_mul(10).saturating_add(d.to_digit(10).unwrap() as u64);
+                    a_chars.next();
+                } else {
+                    break;
+                }
+            }
+            let mut num_b: u64 = 0;
+            while let Some(&d) = b_chars.peek() {
+                if d.is_ascii_digit() {
+                    num_b = num_b.saturating_mul(10).saturating_add(d.to_digit(10).unwrap() as u64);
+                    b_chars.next();
+                } else {
+                    break;
+                }
+            }
+            match num_a.cmp(&num_b) {
+                std::cmp::Ordering::Equal => continue,
+                other => return other,
+            }
+        } else {
+            let ca_lower = ca.to_ascii_lowercase();
+            let cb_lower = cb.to_ascii_lowercase();
+            match ca_lower.cmp(&cb_lower) {
+                std::cmp::Ordering::Equal => {
+                    a_chars.next();
+                    b_chars.next();
+                }
+                other => return other,
+            }
+        }
+    }
+
+    match (a_chars.next(), b_chars.next()) {
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (None, None) => a.cmp(b),
+        (Some(_), Some(_)) => unreachable!(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_node(
     group_path: &str,
@@ -170,9 +220,9 @@ fn build_node(
     match note_sort {
         crate::group::NoteSortOrder::ByName => {
             my_pages_sorted.sort_by(|a, b| {
-                let name_a = a.title.to_lowercase();
-                let name_b = b.title.to_lowercase();
-                name_a.cmp(&name_b).then_with(|| a.title.cmp(&b.title))
+                natural_cmp(&a.title, &b.title)
+                    .then_with(|| natural_cmp(&a.filename, &b.filename))
+                    .then_with(|| a.id.cmp(&b.id))
             });
         }
         crate::group::NoteSortOrder::NewestFirst => {
@@ -621,5 +671,26 @@ mod tests {
         assert_eq!(pages_by_name[1]["name"], "Banana");
         assert_eq!(pages_by_name[2]["name"], "Cherry");
         assert_eq!(parsed_by_name[0]["note_sort"], "name");
+    }
+
+    #[test]
+    fn test_group_note_natural_alphanumeric_sorting() {
+        let p1 = make_page(1, "010-future.adoc", "ADR", "ADR-010: Future");
+        let p2 = make_page(2, "002-second.adoc", "ADR", "ADR-002: Second");
+        let p3 = make_page(3, "004-fourth.adoc", "ADR", "ADR-004: Fourth");
+        let p4 = make_page(4, "006-sixth.adoc", "ADR", "ADR-006: Sixth");
+
+        let pages = vec![p1, p2, p3, p4];
+        let mut group = make_group("ADR", "ADR");
+        group.note_sort = crate::group::NoteSortOrder::ByName;
+
+        let tree_json = build_group_tree(&pages, &[group], 5, None, true, None, None);
+        let parsed: serde_json::Value = serde_json::from_str(&tree_json).unwrap();
+        let pages_sorted = parsed[0]["pages"].as_array().unwrap();
+        assert_eq!(pages_sorted.len(), 4);
+        assert_eq!(pages_sorted[0]["name"], "ADR-002: Second");
+        assert_eq!(pages_sorted[1]["name"], "ADR-004: Fourth");
+        assert_eq!(pages_sorted[2]["name"], "ADR-006: Sixth");
+        assert_eq!(pages_sorted[3]["name"], "ADR-010: Future");
     }
 }

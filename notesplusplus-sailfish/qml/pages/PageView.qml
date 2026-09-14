@@ -14,6 +14,11 @@ Page {
                                      ? bridge.current_page_group_path + "/" + pageName
                                      : pageName)
     property string pageFilePath: bridge.current_page_file_path || pageName
+    property string pageGroupPath: bridge.current_page_group_path
+    property bool isJournalPage: bridge.is_journal_page
+    property string initialTargetPage: ""
+    property string initialAnchor: ""
+    property string recordedPagePath: ""
     property string findInPageTerm: ""
     property bool showFindBar: false
     property var allFindMatches: []
@@ -31,66 +36,30 @@ Page {
 
     property var collapsedTocBlocks: ({})
 
-    function updateFindMatches() {
-        if (!findInPageTerm || findInPageTerm.trim().length === 0 || !parsedBlocks || parsedBlocks.length === 0) {
-            allFindMatches = []
-            currentFindMatchIndex = -1
-            return
-        }
-        var matches = BlockHtmlUtils.findAllMatches(parsedBlocks, findInPageTerm)
-        allFindMatches = matches
-        if (matches.length > 0) {
-            if (currentFindMatchIndex < 0 || currentFindMatchIndex >= matches.length) {
-                currentFindMatchIndex = 0
-            }
-            scrollToCurrentMatch()
-        } else {
-            currentFindMatchIndex = -1
-        }
-    }
-
-    function findNext() {
-        if (!allFindMatches || allFindMatches.length === 0) return
-        currentFindMatchIndex = (currentFindMatchIndex + 1) % allFindMatches.length
-        scrollToCurrentMatch()
-    }
-
-    function findPrevious() {
-        if (!allFindMatches || allFindMatches.length === 0) return
-        currentFindMatchIndex = (currentFindMatchIndex - 1 + allFindMatches.length) % allFindMatches.length
-        scrollToCurrentMatch()
-    }
-
-    function scrollToCurrentMatch() {
-        if (currentFindMatchIndex >= 0 && currentFindMatchIndex < allFindMatches.length) {
-            var match = allFindMatches[currentFindMatchIndex]
-            if (match && match.blockIndex >= 0 && match.blockIndex < (parsedBlocks ? parsedBlocks.length : 0)) {
-                listView.positionViewAtIndex(match.blockIndex, ListView.Center)
+    property var parsedBlocks: {
+        var raw = bridge.blocks_version >= 0 ? bridge.current_blocks : []
+        if (!raw) return []
+        var list = []
+        for (var i = 0; i < raw.length; i++) {
+            try {
+                list.push(JSON.parse(raw[i]))
+            } catch (e) {
+                list.push({})
             }
         }
+        return list
     }
 
-    function closeFindBar() {
-        showFindBar = false
-        findInPageTerm = ""
-        allFindMatches = []
-        currentFindMatchIndex = -1
-        if (findInPageBar) {
-            findInPageBar.clear()
+    onParsedBlocksChanged: {
+        if (findInPageTerm.length > 0) {
+            updateFindMatches()
         }
-    }
-
-    function openFindBar() {
-        showFindBar = true
-        if (findInPageBar) {
-            findInPageBar.focusSearchField()
-        }
-    }
-
-    onFindInPageTermChanged: {
-        updateFindMatches()
-        if (findInPageTerm.length > 0 && !showFindBar) {
-            showFindBar = true
+        if (initialAnchor && initialAnchor.length > 0 && parsedBlocks && parsedBlocks.length > 0) {
+            var anchor = initialAnchor
+            initialAnchor = ""
+            Qt.callLater(function() {
+                pageView.jumpToAnchor(anchor)
+            })
         }
     }
 
@@ -118,24 +87,98 @@ Page {
         collapsedTocBlocks = copy
     }
 
-    onParsedBlocksChanged: {
-        if (findInPageTerm.length > 0) {
-            updateFindMatches()
+    function jumpToAnchor(anchor) {
+        if (!anchor || anchor.length === 0 || !parsedBlocks || parsedBlocks.length === 0) return
+        var cleanAnchor = anchor.replace(/^#+/, '').trim().toLowerCase()
+        if (cleanAnchor.length === 0) return
+
+        for (var i = 0; i < parsedBlocks.length; i++) {
+            var b = parsedBlocks[i]
+            if (!b) continue
+            if (b.id && String(b.id).toLowerCase() === cleanAnchor) {
+                listView.positionViewAtIndex(i, ListView.Beginning)
+                return
+            }
+            var title = (b.title || "").trim().toLowerCase()
+            if (title.length > 0) {
+                if (title === cleanAnchor ||
+                    title.replace(/\s+/g, '-') === cleanAnchor ||
+                    title.replace(/[-_]/g, ' ') === cleanAnchor.replace(/[-_]/g, ' ')) {
+                    listView.positionViewAtIndex(i, ListView.Beginning)
+                    return
+                }
+            }
+            var raw = b.raw || b.raw_text || ""
+            if (raw.indexOf("[[" + cleanAnchor + "]]") >= 0 ||
+                raw.indexOf("[#" + cleanAnchor + "]") >= 0 ||
+                raw.toLowerCase().indexOf("[[" + cleanAnchor + "]]") >= 0 ||
+                raw.toLowerCase().indexOf("[#" + cleanAnchor + "]") >= 0) {
+                listView.positionViewAtIndex(i, ListView.Beginning)
+                return
+            }
         }
     }
 
-    property var parsedBlocks: {
-        var raw = bridge.blocks_version >= 0 ? bridge.current_blocks : []
-        if (!raw) return []
-        var list = []
-        for (var i = 0; i < raw.length; i++) {
-            try {
-                list.push(JSON.parse(raw[i]))
-            } catch (e) {
-                list.push({})
+    function handleXref(target) {
+        if (!target || target.length === 0) return
+        if (pageView.editingBlockIndex >= 0) {
+            pageView.saveCurrentEditingBlock()
+        }
+        if (pageView.isAddingNewBlock) {
+            pageView.saveNewBlock()
+        }
+
+        var hashIdx = target.indexOf("#")
+        var pagePart = (hashIdx >= 0) ? target.substring(0, hashIdx) : target
+        var anchor = (hashIdx >= 0) ? target.substring(hashIdx + 1) : ""
+
+        if (pagePart.indexOf(".adoc") === pagePart.length - 5 && pagePart.length >= 5) {
+            pagePart = pagePart.substring(0, pagePart.length - 5)
+        }
+
+        var myPath = pageView.recordedPagePath || pageView.pageFullPath || pageView.pageName
+
+        if (pagePart.length === 0 || pagePart === myPath || pagePart === pageView.pageName || pagePart === pageView.pageFullPath) {
+            if (anchor.length > 0) {
+                jumpToAnchor(anchor)
+            }
+            return
+        }
+
+        pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+            initialTargetPage: pagePart,
+            initialAnchor: anchor
+        })
+        bridge.load_page(pagePart)
+    }
+
+    Connections {
+        target: bridge
+        onCurrent_page_full_path_changed: {
+            if ((pageView.status === PageStatus.Active || pageView.status === PageStatus.Activating) && bridge.current_page_full_path.length > 0) {
+                pageView.recordedPagePath = bridge.current_page_full_path
             }
         }
-        return list
+    }
+
+    onStatusChanged: {
+        if (status === PageStatus.Activating || status === PageStatus.Active) {
+            var target = (recordedPagePath && recordedPagePath.length > 0) ? recordedPagePath : initialTargetPage
+            if (target && target.length > 0 && bridge.current_page_full_path !== target && bridge.current_page_name !== target) {
+                bridge.load_page(target)
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        if (initialTargetPage.length > 0) {
+            recordedPagePath = initialTargetPage
+            if (bridge.current_page_full_path !== initialTargetPage && bridge.current_page_name !== initialTargetPage) {
+                bridge.load_page(initialTargetPage)
+            }
+        } else if (bridge.current_page_full_path.length > 0) {
+            recordedPagePath = bridge.current_page_full_path
+        }
     }
 
     function toggleParsedBlockCheckbox(idx, itemPath) {
@@ -239,13 +282,13 @@ Page {
             }
             MenuItem {
                 text: qsTr("Move to Group...")
-                visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
+                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
                 onClicked: {
                     var fullPath = pageView.pageFullPath
                     var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
                         pageFullPath: fullPath,
                         pageTitle: pageName,
-                        currentGroup: bridge.current_page_group_path
+                        currentGroup: pageView.pageGroupPath
                     })
                     dialog.accepted.connect(function() {
                         var target = dialog.targetGroup
@@ -257,7 +300,7 @@ Page {
             }
             MenuItem {
                 text: qsTr("Delete Page")
-                visible: !bridge.is_journal_page && pageName !== "Journal" && pageName !== "journal"
+                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
                 onClicked: {
                     var fullPath = pageView.pageFullPath
                     remorsePopup.execute(qsTr("Deleting page"), function() {
@@ -281,8 +324,8 @@ Page {
                 anchors.right: parent.right
                 anchors.leftMargin: Theme.horizontalPageMargin
                 anchors.rightMargin: Theme.horizontalPageMargin
-                visible: bridge.current_page_group_path.length > 0 && !bridge.is_journal_page
-                text: bridge.current_page_group_path.split("/").join(" › ")
+                visible: pageView.pageGroupPath.length > 0 && !pageView.isJournalPage
+                text: pageView.pageGroupPath.split("/").join(" › ")
                 color: Theme.highlightColor
                 font.pixelSize: Theme.fontSizeExtraSmall
                 truncationMode: TruncationMode.Fade
@@ -365,7 +408,7 @@ Page {
                 listView.positionViewAtIndex(targetIndex, ListView.Beginning)
             }
             onXrefActivated: function(target) {
-                bridge.navigate_to_page(target)
+                pageView.handleXref(target)
             }
             onCheckboxToggled: function(idx, itemPath) {
                 pageView.toggleParsedBlockCheckbox(idx, itemPath)

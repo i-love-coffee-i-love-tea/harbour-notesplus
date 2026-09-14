@@ -422,6 +422,7 @@ Page {
                 visible: (typeof app !== "undefined" && app && app.journalEnabled !== undefined) ? app.journalEnabled : true
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                        initialTargetPage: "journal",
                         pageName: "Journal"
                     })
                     bridge.load_page("Journal")
@@ -511,6 +512,7 @@ Page {
                 onItemClicked: function(itemData, itemIndex) {
                     var target = itemData.full_path || itemData.name
                     pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                        initialTargetPage: target,
                         pageName: itemData.name,
                         findInPageTerm: searchField.text
                     })
@@ -591,10 +593,17 @@ Page {
                         }
 
                         onXrefActivated: function(target) {
+                            var hashIdx = target.indexOf("#")
+                            var pagePart = (hashIdx >= 0) ? target.substring(0, hashIdx) : target
+                            var anchor = (hashIdx >= 0) ? target.substring(hashIdx + 1) : ""
+                            if (pagePart.indexOf(".adoc") === pagePart.length - 5 && pagePart.length >= 5) {
+                                pagePart = pagePart.substring(0, pagePart.length - 5)
+                            }
                             pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                                pageName: target
+                                initialTargetPage: pagePart,
+                                initialAnchor: anchor
                             })
-                            bridge.load_page(target)
+                            bridge.load_page(pagePart)
                         }
                     }
                 }
@@ -666,6 +675,7 @@ Page {
                     visible: searchField.text.length === 0 && mainPage.editingJournalBlockIndex < 0 && !mainPage.isAddingJournalBlock
                     onClicked: {
                         pageStack.push(Qt.resolvedUrl("PageView.qml"), {
+                            initialTargetPage: "journal",
                             pageName: "Journal"
                         })
                         bridge.load_page("Journal")

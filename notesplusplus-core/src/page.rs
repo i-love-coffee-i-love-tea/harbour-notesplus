@@ -547,7 +547,8 @@ fn copy_dir_recursive(
                 if ext == "adoc" {
                     if !dest.exists() {
                         std::fs::copy(&path, &dest)?;
-                        let title = filename.trim_end_matches(".adoc").replace('_', " ");
+                        let content = std::fs::read_to_string(&dest).unwrap_or_default();
+                        let title = extract_doc_title(&content, &filename);
                         let now = chrono::Utc::now().to_rfc3339();
                         conn.execute(
                             "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
@@ -559,9 +560,7 @@ fn copy_dir_recursive(
                             rusqlite::params![current_group, filename],
                             |row| row.get::<_, i64>(0),
                         ) {
-                            if let Ok(content) = std::fs::read_to_string(&dest) {
-                                let _ = db::update_fts_content(conn, page_id, &content);
-                            }
+                            let _ = db::update_fts_content(conn, page_id, &content);
                         }
                     }
                 } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
