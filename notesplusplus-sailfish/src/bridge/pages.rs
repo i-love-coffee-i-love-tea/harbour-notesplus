@@ -629,11 +629,15 @@ impl NotesBridge {
         };
 
         if let Some(data) = data {
-            let mut list = QVariantList::default();
-            for json_str in data.recent_page_jsons {
-                list.push(QString::from(json_str).into());
+            // Only update recent_pages when the sender populated it
+            // (toggle rebuilds leave it empty to avoid clobbering the existing list)
+            if !data.recent_page_jsons.is_empty() {
+                let mut list = QVariantList::default();
+                for json_str in data.recent_page_jsons {
+                    list.push(QString::from(json_str).into());
+                }
+                self.recent_pages = list;
             }
-            self.recent_pages = list;
             self.grouped_tree_json = QString::from(data.grouped_tree_json);
             self.data_refreshed();
             return true;
@@ -990,7 +994,7 @@ impl NotesBridge {
         };
         match notesplusplus_core::group::toggle_group_collapsed(conn, &group_path) {
             Ok(collapsed) => {
-                // Rebuild main page data inline (fast, no background thread)
+                // Rebuild tree in background (DB toggle already persisted)
                 self.ensure_init();
                 if !self.poll_init() {
                     return collapsed;
@@ -1005,17 +1009,25 @@ impl NotesBridge {
                 let notes_path = self.notes_path.to_string_lossy().to_string();
                 let drop_comments = self.drop_comments;
                 let qt_theme = self.qt_theme.clone();
+                let display_depth = self.group_display_depth;
+                let pending = self.pending_main_page.clone();
                 let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
                     notes_dir: Some(notes_path),
                     allow_external_images: true,
                     ..Default::default()
                 };
-                let tree_json = notesplusplus_core::tree::build_group_tree(
-                    &all_pages, &all_groups, self.group_display_depth,
-                    Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
-                );
-                self.grouped_tree_json = QString::from(tree_json);
-                self.data_refreshed();
+                std::thread::spawn(move || {
+                    let tree_json = notesplusplus_core::tree::build_group_tree(
+                        &all_pages, &all_groups, display_depth,
+                        Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
+                    );
+                    if let Ok(mut slot) = pending.lock() {
+                        *slot = Some(MainPageData {
+                            recent_page_jsons: Vec::new(),
+                            grouped_tree_json: tree_json,
+                        });
+                    }
+                });
                 collapsed
             }
             Err(e) => {
@@ -1036,7 +1048,7 @@ impl NotesBridge {
         let sort_order = note_sort.parse::<notesplusplus_core::group::NoteSortOrder>().unwrap_or_default();
         match notesplusplus_core::group::set_group_note_sort(conn, &group_path, sort_order) {
             Ok(_) => {
-                // Rebuild main page data inline so tree is refreshed immediately
+                // Rebuild tree in background (sort order already persisted)
                 self.ensure_init();
                 if !self.poll_init() {
                     return true;
@@ -1051,17 +1063,25 @@ impl NotesBridge {
                 let notes_path = self.notes_path.to_string_lossy().to_string();
                 let drop_comments = self.drop_comments;
                 let qt_theme = self.qt_theme.clone();
+                let display_depth = self.group_display_depth;
+                let pending = self.pending_main_page.clone();
                 let qt_options = notesplusplus_core::html::qt_html::QtRenderOptions {
                     notes_dir: Some(notes_path),
                     allow_external_images: true,
                     ..Default::default()
                 };
-                let tree_json = notesplusplus_core::tree::build_group_tree(
-                    &all_pages, &all_groups, self.group_display_depth,
-                    Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
-                );
-                self.grouped_tree_json = QString::from(tree_json);
-                self.data_refreshed();
+                std::thread::spawn(move || {
+                    let tree_json = notesplusplus_core::tree::build_group_tree(
+                        &all_pages, &all_groups, display_depth,
+                        Some(&notes_dir), drop_comments, Some(&qt_theme), Some(&qt_options),
+                    );
+                    if let Ok(mut slot) = pending.lock() {
+                        *slot = Some(MainPageData {
+                            recent_page_jsons: Vec::new(),
+                            grouped_tree_json: tree_json,
+                        });
+                    }
+                });
                 true
             }
             Err(e) => {

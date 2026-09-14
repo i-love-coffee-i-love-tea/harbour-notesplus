@@ -174,14 +174,6 @@ Page {
         }
     }
 
-    AgentBridge {
-        id: agentBridge
-
-        Component.onCompleted: {
-            assistantPage.applyConfig()
-        }
-    }
-
     Connections {
         target: agentBridge
 

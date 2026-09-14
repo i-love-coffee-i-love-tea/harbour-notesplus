@@ -673,6 +673,10 @@ ApplicationWindow {
         }
     }
 
+    AgentBridge {
+        id: agentBridge
+    }
+
     Timer {
         id: speechPollTimer
         interval: 50
