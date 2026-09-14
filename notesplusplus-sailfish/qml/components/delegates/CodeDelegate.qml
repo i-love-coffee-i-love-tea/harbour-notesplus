@@ -160,8 +160,16 @@ Column {
                 id: codeLabel
                 anchors.left: parent.left
                 anchors.right: parent.right
-                textFormat: (searchTerm && searchTerm.length > 0) ? Text.RichText : Text.PlainText
+                property bool hasHighlightedHtml: Boolean(blockData && blockData.highlighted_html && blockData.highlighted_html.length > 0)
+                textFormat: (hasHighlightedHtml || (searchTerm && searchTerm.length > 0)) ? Text.RichText : Text.PlainText
                 text: {
+                    if (hasHighlightedHtml) {
+                        var html = blockData.highlighted_html
+                        if (searchTerm && searchTerm.length > 0) {
+                            return BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
+                        }
+                        return html
+                    }
                     var raw = (blockData.lines || []).join("\n")
                     if (searchTerm && searchTerm.length > 0) {
                         return BlockHtmlUtils.highlightPlainText(raw, searchTerm, activeMatchIndexInBlock)

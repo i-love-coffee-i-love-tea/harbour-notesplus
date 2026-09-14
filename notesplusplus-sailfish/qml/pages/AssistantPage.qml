@@ -9,9 +9,61 @@ Page {
 
     property string contextFilename: ""
     property string contextContent: ""
-    property int currentTab: 0
+    property string extraContext: ""
 
-    property bool hasContextOrInput: (contextContent.length > 0) || (promptBar && promptBar.text && promptBar.text.trim().length > 0)
+    readonly property bool hasContext: (contextFilename.length > 0) || (contextContent.length > 0) || (extraContext.length > 0)
+    property bool hasContextOrInput: hasContext || (promptBar && promptBar.text && promptBar.text.trim().length > 0)
+
+    function attachNote(filename, content) {
+        contextFilename = filename
+        contextContent = content
+        agentBridge.reset_session(contextFilename, contextContent, extraContext)
+        remorsePopup.execute(qsTr("Attached note: %1").arg(filename), function() {})
+    }
+
+    function detachNote() {
+        contextFilename = ""
+        contextContent = ""
+        agentBridge.reset_session("", "", extraContext)
+        remorsePopup.execute(qsTr("Detached note context"), function() {})
+    }
+
+    function attachClipboard() {
+        if (Clipboard.text && Clipboard.text.length > 0) {
+            extraContext = Clipboard.text
+            agentBridge.reset_session(contextFilename, contextContent, extraContext)
+            remorsePopup.execute(qsTr("Attached clipboard context"), function() {})
+        } else {
+            remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
+        }
+    }
+
+    function detachExtraContext() {
+        extraContext = ""
+        agentBridge.reset_session(contextFilename, contextContent, "")
+        remorsePopup.execute(qsTr("Detached clipboard context"), function() {})
+    }
+
+    function clearAllContext() {
+        contextFilename = ""
+        contextContent = ""
+        extraContext = ""
+        agentBridge.reset_session("", "", "")
+        remorsePopup.execute(qsTr("Cleared all context"), function() {})
+    }
+
+    function openAttachNoteDialog() {
+        var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+            mode: "select"
+        })
+        dialog.accepted.connect(function() {
+            var fn = dialog.targetPageFilename
+            if (fn && fn.length > 0) {
+                var content = bridge.get_page_source(fn)
+                assistantPage.attachNote(fn, content)
+            }
+        })
+    }
 
     // Speech capture state comes from SpeechBridge (native 16 kHz mono WAV recorder).
     property bool isSpeechRecording: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
@@ -102,18 +154,10 @@ Page {
         var trans = pendingTranscription
         if (trans && trans.trim().length > 0) {
             var clean = trans.trim()
-            if (currentTab === 0) {
-                if (promptBar.text.length > 0) {
-                    promptBar.text = promptBar.text + " " + clean
-                } else {
-                    promptBar.text = clean
-                }
+            if (promptBar.text.length > 0) {
+                promptBar.text = promptBar.text + " " + clean
             } else {
-                if (importTab.sourceText.length > 0) {
-                    importTab.sourceText = importTab.sourceText + " " + clean
-                } else {
-                    importTab.sourceText = clean
-                }
+                promptBar.text = clean
             }
             assistantPage.scrollToBottom()
         }
@@ -130,12 +174,20 @@ Page {
         }
     }
 
+    AgentBridge {
+        id: agentBridge
+
+        Component.onCompleted: {
+            assistantPage.applyConfig()
+        }
+    }
+
     Connections {
         target: agentBridge
 
         onSession_initialized: {
-            if (contextFilename.length > 0) {
-                agentBridge.reset_session(contextFilename, contextContent, "")
+            if (contextFilename.length > 0 || extraContext.length > 0) {
+                agentBridge.reset_session(contextFilename, contextContent, extraContext)
             }
         }
 
@@ -168,16 +220,6 @@ Page {
             assistantPage.scrollToBottom()
         }
 
-        onFetch_completed: {
-            importTab.sourceText = result
-            importTab.showUrlInput = false
-            importTab.showFileInput = false
-        }
-
-        onFetch_error: {
-            remorsePopup.execute(message, function() {})
-        }
-
         onUndo_completed: {
             bridge.load_main_page_data()
             remorsePopup.execute(message, function() {})
@@ -207,52 +249,24 @@ Page {
 
             MenuItem {
                 text: qsTr("Manage Speech Models")
-                visible: currentTab === 0
                 onClicked: pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
             }
 
-            // Chat-specific actions
             MenuItem {
-                text: qsTr("Paste Clipboard Context")
-                visible: currentTab === 0
-                onClicked: {
-                    if (Clipboard.text && Clipboard.text.length > 0) {
-                        agentBridge.reset_session(contextFilename, contextContent, Clipboard.text)
-                        promptBar.text = qsTr("Please analyze the clipboard content.")
-                    } else {
-                        remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
-                    }
-                }
-            }
-            MenuItem {
-                text: qsTr("Clear Conversation")
-                visible: currentTab === 0
-                onClicked: {
-                    agentBridge.reset_session(contextFilename, contextContent, "")
-                }
+                text: qsTr("Manage AI Instructions...")
+                onClicked: pageStack.push(Qt.resolvedUrl("CustomInstructionsPage.qml"))
             }
 
-            // Import-specific actions
             MenuItem {
-                text: qsTr("Paste from Clipboard")
-                visible: currentTab === 1
-                onClicked: {
-                    if (Clipboard.text && Clipboard.text.length > 0) {
-                        importTab.sourceText = Clipboard.text
-                    } else {
-                        remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
-                    }
-                }
+                text: qsTr("Detach All Context")
+                visible: assistantPage.hasContext
+                onClicked: assistantPage.clearAllContext()
             }
+
             MenuItem {
-                text: qsTr("Clear Import Fields")
-                visible: currentTab === 1
+                text: qsTr("Clear Conversation")
                 onClicked: {
-                    importTab.sourceText = ""
-                    importTab.noteTitle = ""
-                    importTab.urlText = ""
-                    importTab.filePathText = ""
-                    importTab.customPrompt = ""
+                    agentBridge.reset_session(contextFilename, contextContent, extraContext)
                 }
             }
         }
@@ -264,172 +278,160 @@ Page {
 
             PageHeader {
                 title: qsTr("AI Assistant")
-                description: currentTab === 0 ? (contextFilename.length > 0 ? (qsTr("Context: ") + contextFilename) : "") : qsTr("Convert external sources to AsciiDoc")
+                description: {
+                    if (assistantPage.hasContext) {
+                        if (contextFilename.length > 0 && extraContext.length > 0) {
+                            return qsTr("Context: %1 + Clipboard").arg(contextFilename)
+                        } else if (contextFilename.length > 0) {
+                            return qsTr("Context: %1").arg(contextFilename)
+                        } else {
+                            return qsTr("Context: Clipboard text")
+                        }
+                    } else {
+                        return qsTr("No context attached")
+                    }
+                }
             }
 
-            // Tab Bar: Chat vs Import
-            Row {
+            // Context Display Card (shows attached note/clipboard or explicit "No context" state with attach actions)
+            AiContextCard {
+                contextFilename: assistantPage.contextFilename
+                contextContent: assistantPage.contextContent
+                extraContext: assistantPage.extraContext
+                agentBusy: agentBridge.agent_busy
+                onAttachNoteRequested: assistantPage.openAttachNoteDialog()
+                onDetachNoteRequested: assistantPage.detachNote()
+                onAttachClipboardRequested: assistantPage.attachClipboard()
+                onDetachExtraContextRequested: assistantPage.detachExtraContext()
+                onClearAllContextRequested: assistantPage.clearAllContext()
+            }
+
+            // Quick Preset & Custom Action Instructions
+            AiTemplateBar {
+                enabled: !agentBridge.agent_busy
+                agentBusy: agentBridge.agent_busy
+                hasContextOrInput: assistantPage.hasContextOrInput
+                onInstructionSelected: function(item) {
+                    if (!assistantPage.hasContextOrInput) {
+                        assistantPage.openAttachNoteDialog()
+                        return
+                    }
+                    assistantPage.applyConfig()
+                    var ctx = contextContent
+                    if (extraContext.length > 0) {
+                        ctx = ctx.length > 0 ? (ctx + "\n\n" + extraContext) : extraContext
+                    }
+                    if (item.instruction && item.instruction.length > 0) {
+                        agentBridge.run_custom_instruction(item.instruction, promptBar.text, contextFilename, ctx)
+                    } else if (item.id) {
+                        agentBridge.run_template(item.id, promptBar.text, contextFilename, ctx)
+                    }
+                    promptBar.text = ""
+                    assistantPage.scrollToBottom()
+                }
+                onEditInstructionRequested: function(item) {
+                    var inst = item.instruction || ""
+                    if (!inst && typeof app !== "undefined" && app.defaultCustomAiInstructions) {
+                        for (var k = 0; k < app.defaultCustomAiInstructions.length; k++) {
+                            if (app.defaultCustomAiInstructions[k].id === item.id) {
+                                inst = app.defaultCustomAiInstructions[k].instruction || ""
+                                break
+                            }
+                        }
+                    }
+                    pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"), {
+                        "instructionId": item.id || "",
+                        "initialButtonText": item.buttonText || item.title || "",
+                        "initialIcon": item.icon || "icon-m-note",
+                        "initialInstruction": inst,
+                        "isEdit": true
+                    })
+                }
+            }
+
+            // Active Processing Banner (immediate feedback)
+            Rectangle {
                 width: parent.width - Theme.horizontalPageMargin * 2
                 anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.paddingSmall
+                height: Theme.itemSizeExtraSmall
+                radius: Theme.paddingSmall
+                color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
+                border.color: Theme.rgba(Theme.highlightColor, 0.4)
+                border.width: 1
+                visible: agentBridge.agent_busy
 
-                Button {
-                    text: qsTr("Chat")
-                    preferredWidth: (parent.width - Theme.paddingSmall) / 2
-                    color: currentTab === 0 ? Theme.highlightColor : Theme.primaryColor
-                    backgroundColor: currentTab === 0 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
-                    onClicked: currentTab = 0
-                }
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.paddingMedium
 
-                Button {
-                    text: qsTr("Import")
-                    preferredWidth: (parent.width - Theme.paddingSmall) / 2
-                    color: currentTab === 1 ? Theme.highlightColor : Theme.primaryColor
-                    backgroundColor: currentTab === 1 ? Theme.rgba(Theme.highlightBackgroundColor, 0.4) : "transparent"
-                    onClicked: currentTab = 1
+                    BusyIndicator {
+                        size: BusyIndicatorSize.ExtraSmall
+                        running: agentBridge.agent_busy
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Label {
+                        text: agentBridge.streaming_text.length > 0 ? qsTr("AI is generating response...") : qsTr("AI is analyzing & processing...")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.highlightColor
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
             }
 
-            // ==================== TAB 0: CHAT & TEMPLATES ====================
-            Column {
-                id: chatTabCol
-                width: parent.width
-                spacing: Theme.paddingMedium
-                visible: currentTab === 0
-
-                // Quick Preset Action Templates
-                AiTemplateBar {
-                    enabled: !agentBridge.agent_busy && assistantPage.hasContextOrInput
-                    onTemplateSelected: function(tpl) {
-                        assistantPage.applyConfig()
-                        agentBridge.run_template(tpl, promptBar.text, contextFilename, contextContent)
-                        promptBar.text = ""
-                        assistantPage.scrollToBottom()
-                    }
-                }
-
-                // Active Processing Banner (immediate feedback)
-                Rectangle {
-                    width: parent.width - Theme.horizontalPageMargin * 2
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    height: Theme.itemSizeExtraSmall
-                    radius: Theme.paddingSmall
-                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
-                    border.color: Theme.rgba(Theme.highlightColor, 0.4)
-                    border.width: 1
-                    visible: agentBridge.agent_busy && currentTab === 0
-
-                    Row {
-                        anchors.centerIn: parent
-                        spacing: Theme.paddingMedium
-
-                        BusyIndicator {
-                            size: BusyIndicatorSize.ExtraSmall
-                            running: agentBridge.agent_busy
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Label {
-                            text: agentBridge.streaming_text.length > 0 ? qsTr("AI is generating response...") : qsTr("AI is analyzing & processing...")
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.highlightColor
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                }
-
-                // Undo Banner
-                UndoBanner {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.margins: Theme.horizontalPageMargin
-                    visible: agentBridge.can_undo
-                    onUndoTriggered: {
-                        agentBridge.undo_last_action()
-                    }
-                }
-
-                // Pending Confirmation Card
-                ConfirmationCard {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.margins: Theme.horizontalPageMargin
-                    visible: agentBridge.has_pending_action
-                    actionData: {
-                        try {
-                            return agentBridge.pending_action_json.length > 0 ? JSON.parse(agentBridge.pending_action_json) : null
-                        } catch (e) {
-                            return null
-                        }
-                    }
-                    onConfirmed: function(approved) {
-                        agentBridge.confirm_action(approved)
-                    }
-                }
-
-                // Chat Messages & Streaming View
-                AiConversationView {
-                    messagesJson: agentBridge.messages_json
-                    agentBusy: agentBridge.agent_busy
-                    streamingText: currentTab === 0 ? agentBridge.streaming_text : ""
-                }
-
-                // Input Bar with Mic & Live Waveform
-                AiPromptBar {
-                    id: promptBar
-                    agentBusy: agentBridge.agent_busy
-                    isSpeechRecording: assistantPage.isSpeechRecording
-                    isSpeechTranscribing: assistantPage.isSpeechTranscribing
-                    liveAudioLevel: assistantPage.liveAudioLevel
-                    liveWaveform: assistantPage.liveWaveform
-                    sttEnabled: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
-                    onSubmitPrompt: function(txt) {
-                        assistantPage.applyConfig()
-                        agentBridge.send_prompt(txt)
-                        promptBar.text = ""
-                        assistantPage.scrollToBottom()
-                    }
-                    onToggleMic: assistantPage.handleMicClick()
-                    onCancelRecording: assistantPage.cancelActiveRecording()
+            // Undo Banner
+            UndoBanner {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.horizontalPageMargin
+                visible: agentBridge.can_undo
+                onUndoTriggered: {
+                    agentBridge.undo_last_action()
                 }
             }
 
-            // ==================== TAB 1: IMPORT ASSISTANT ====================
-            AiImportTab {
-                id: importTab
-                visible: currentTab === 1
-                agentBusy: agentBridge.agent_busy
-                isFetching: agentBridge.is_fetching
-                streamingText: currentTab === 1 ? agentBridge.streaming_text : ""
-                lastCreatedNote: agentBridge.last_created_note
+            // Pending Confirmation Card
+            ConfirmationCard {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.horizontalPageMargin
+                visible: agentBridge.has_pending_action
+                actionData: {
+                    try {
+                        return agentBridge.pending_action_json.length > 0 ? JSON.parse(agentBridge.pending_action_json) : null
+                    } catch (e) {
+                        return null
+                    }
+                }
+                onConfirmed: function(approved) {
+                    agentBridge.confirm_action(approved)
+                }
+            }
+
+            // Chat Messages & Streaming View
+            AiConversationView {
                 messagesJson: agentBridge.messages_json
+                agentBusy: agentBridge.agent_busy
+                streamingText: agentBridge.streaming_text
+            }
+
+            // Input Bar with Mic & Live Waveform
+            AiPromptBar {
+                id: promptBar
+                agentBusy: agentBridge.agent_busy
                 isSpeechRecording: assistantPage.isSpeechRecording
                 isSpeechTranscribing: assistantPage.isSpeechTranscribing
+                liveAudioLevel: assistantPage.liveAudioLevel
+                liveWaveform: assistantPage.liveWaveform
                 sttEnabled: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
-                onConvertRequested: function(src, title, mode, prompt) {
+                onSubmitPrompt: function(txt) {
                     assistantPage.applyConfig()
-                    agentBridge.import_text(src, title, mode, prompt)
-                }
-                onFetchUrlRequested: function(url) {
-                    agentBridge.fetch_url_content(url)
-                }
-                onReadFileRequested: function(path) {
-                    agentBridge.read_local_file(path)
+                    agentBridge.send_prompt(txt)
+                    promptBar.text = ""
+                    assistantPage.scrollToBottom()
                 }
                 onToggleMic: assistantPage.handleMicClick()
-                onOpenCreatedNote: function(noteTitle) {
-                    pageStack.push(Qt.resolvedUrl("PageView.qml"), {
-                        pageName: noteTitle
-                    })
-                    bridge.load_page(noteTitle)
-                }
-                onClipboardPasted: {
-                    if (Clipboard.text && Clipboard.text.length > 0) {
-                        importTab.sourceText = Clipboard.text
-                    } else {
-                        remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
-                    }
-                }
+                onCancelRecording: assistantPage.cancelActiveRecording()
             }
         }
     }

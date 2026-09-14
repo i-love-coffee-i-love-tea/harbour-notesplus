@@ -125,9 +125,96 @@ impl Default for AppPaths {
     }
 }
 
+/// Formats a path with a tilde prefix (`~`) if it resides within the given home directory.
+pub fn collapse_tilde_with_home(path: impl AsRef<Path>, home: Option<&str>) -> String {
+    let path = path.as_ref();
+    let path_str = path.to_string_lossy();
+    let path_trimmed = path_str.trim_end_matches('/');
+
+    if let Some(home_dir) = home {
+        let home_trimmed = home_dir.trim_end_matches('/');
+        if !home_trimmed.is_empty() {
+            if path_trimmed == home_trimmed {
+                return "~".to_string();
+            }
+            if let Some(rest) = path_str.strip_prefix(home_trimmed) {
+                if rest.starts_with('/') {
+                    let rest_trimmed = rest.trim_end_matches('/');
+                    if rest_trimmed.is_empty() {
+                        return "~".to_string();
+                    }
+                    return format!("~{}", rest);
+                }
+            }
+        }
+    } else {
+        // Fallback: if home is None, check standard Linux /home/<user>
+        if let Some(rest) = path_str.strip_prefix("/home/") {
+            if let Some(slash_idx) = rest.find('/') {
+                let suffix = &rest[slash_idx..];
+                let suffix_trimmed = suffix.trim_end_matches('/');
+                if suffix_trimmed.is_empty() {
+                    return "~".to_string();
+                }
+                return format!("~{}", suffix);
+            } else if !rest.is_empty() {
+                return "~".to_string();
+            }
+        }
+    }
+
+    path_str.to_string()
+}
+
+/// Formats a path with a tilde prefix (`~`) if it resides within the user's home directory (`$HOME`).
+pub fn collapse_tilde(path: impl AsRef<Path>) -> String {
+    let home = std::env::var("HOME").ok();
+    collapse_tilde_with_home(path, home.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_collapse_tilde() {
+        assert_eq!(
+            collapse_tilde_with_home("/home/defaultuser/.local/share/notes/1.adoc", Some("/home/defaultuser")),
+            "~/.local/share/notes/1.adoc"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/defaultuser/notes.adoc", Some("/home/defaultuser")),
+            "~/notes.adoc"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/defaultuser", Some("/home/defaultuser")),
+            "~"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/defaultuser/", Some("/home/defaultuser/")),
+            "~"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/defaultuser_other/1.adoc", Some("/home/defaultuser")),
+            "/home/defaultuser_other/1.adoc"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/tmp/notes/1.adoc", Some("/home/defaultuser")),
+            "/tmp/notes/1.adoc"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/nemo/notes/1.adoc", None),
+            "~/notes/1.adoc"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("/home/nemo", None),
+            "~"
+        );
+        assert_eq!(
+            collapse_tilde_with_home("", Some("/home/defaultuser")),
+            ""
+        );
+    }
 
     #[test]
     fn test_app_paths_from_data_dir() {

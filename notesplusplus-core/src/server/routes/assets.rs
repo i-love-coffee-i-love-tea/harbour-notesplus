@@ -5,7 +5,7 @@ use crate::constants::MIME_HTML;
 use crate::server::http::{send_response, ParsedHttpRequest};
 use crate::server::web_assets::{
     APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS,
-    COMPOSABLE_UTILS_JS, COMPOSABLE_USE_AUTH_JS, COMPOSABLE_USE_HEALTH_CHECK_JS,
+    COMPOSABLE_UTILS_JS, COMPOSABLE_USE_AUTH_JS, COMPOSABLE_USE_THEME_JS, COMPOSABLE_USE_HEALTH_CHECK_JS,
     COMPOSABLE_USE_PRESENTATION_JS, COMPOSABLE_USE_LINK_MODAL_JS,
     COMPOSABLE_USE_AI_ASSISTANT_JS, COMPOSABLE_USE_IMPORT_JS,
 };
@@ -52,6 +52,7 @@ pub fn handle_static_asset<W: Write>(
     let composable_content = match clean_path {
         "composables/utils.js" => Some(COMPOSABLE_UTILS_JS),
         "composables/useAuth.js" => Some(COMPOSABLE_USE_AUTH_JS),
+        "composables/useTheme.js" => Some(COMPOSABLE_USE_THEME_JS),
         "composables/useHealthCheck.js" => Some(COMPOSABLE_USE_HEALTH_CHECK_JS),
         "composables/usePresentation.js" => Some(COMPOSABLE_USE_PRESENTATION_JS),
         "composables/useLinkModal.js" => Some(COMPOSABLE_USE_LINK_MODAL_JS),

@@ -243,6 +243,10 @@
         <translation>AI Assistant</translation>
     </message>
     <message>
+        <source>AI Import</source>
+        <translation>AI Import</translation>
+    </message>
+    <message>
         <source>Full Journal →</source>
         <translation>Full Journal →</translation>
     </message>

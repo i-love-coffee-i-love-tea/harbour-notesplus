@@ -1,6 +1,7 @@
 import { createApp, ref, computed, watch, nextTick, onMounted } from 'vue';
 import { formatMarkdown, getRequestedNote, consumeSseStream } from '/composables/utils.js';
 import { useAuth } from '/composables/useAuth.js';
+import { useTheme } from '/composables/useTheme.js';
 import { useHealthCheck } from '/composables/useHealthCheck.js';
 import { usePresentation } from '/composables/usePresentation.js';
 import { useLinkModal } from '/composables/useLinkModal.js';
@@ -92,6 +93,8 @@ createApp({
       fetchNotesList: () => fetchNotesList(),
       loadNote: (fn) => loadNote(fn),
     });
+
+    const theme = useTheme();
 
     // ─── Core App Logic ────────────────────────────────────────────────
 
@@ -766,21 +769,6 @@ createApp({
       return formatMarkdown(content);
     }
 
-    // ─── Theme ─────────────────────────────────────────────────────────
-
-    async function fetchTheme() {
-      try {
-        const res = await fetch('/api/theme', { cache: 'no-store' });
-        if (!res.ok) return;
-        const colors = await res.json();
-        if (!colors || Object.keys(colors).length === 0) return;
-        const root = document.documentElement;
-        for (const [key, value] of Object.entries(colors)) {
-          root.style.setProperty('--' + key, value);
-        }
-      } catch (_) {}
-    }
-
     // ─── Lifecycle ─────────────────────────────────────────────────────
 
     let heartbeatTimer = null;
@@ -805,13 +793,18 @@ createApp({
       }
 
       heartbeatTimer = setInterval(() => checkConnection(true), 4000);
-      fetchTheme();
-      setInterval(fetchTheme, 10000);
+      theme.initTheme();
+      setInterval(() => theme.fetchTheme(), 10000);
     });
 
     // ─── Return All Template Bindings ──────────────────────────────────
 
     return {
+      // Theme
+      themePreference: theme.themePreference,
+      effectiveTheme: theme.effectiveTheme,
+      osTheme: theme.osTheme,
+      setThemePreference: theme.setThemePreference,
       // Auth
       isAuthenticated, authUser, authError, authStatus,
       authVerificationCode, authChallengeId, authCanRetry,

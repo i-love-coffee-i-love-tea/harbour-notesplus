@@ -164,7 +164,12 @@ Column {
 
                 IconButton {
                     anchors.verticalCenter: parent.verticalCenter
-                    icon.source: "image://theme/icon-s-add"
+                    icon.source: "image://theme/icon-m-add"
+                    icon.width: Theme.iconSizeSmall
+                    icon.height: Theme.iconSizeSmall
+                    icon.color: Theme.primaryColor
+                    width: Theme.itemSizeExtraSmall
+                    height: Theme.itemSizeExtraSmall
                     onClicked: {
                         var dialog = pageStack.push(Qt.resolvedUrl("../pages/NewPageDialog.qml"), {
                             targetGroup: groupPath
@@ -179,7 +184,12 @@ Column {
 
                 IconButton {
                     anchors.verticalCenter: parent.verticalCenter
-                    icon.source: isCollapsed ? "image://theme/icon-s-plus" : "image://theme/icon-s-minus"
+                    icon.source: isCollapsed ? "image://theme/icon-m-right" : "image://theme/icon-m-down"
+                    icon.width: Theme.iconSizeSmall
+                    icon.height: Theme.iconSizeSmall
+                    icon.color: Theme.primaryColor
+                    width: Theme.itemSizeExtraSmall
+                    height: Theme.itemSizeExtraSmall
                     onClicked: {
                         toggleCollapsed()
                     }

@@ -76,6 +76,7 @@ pub struct AgentBridge {
     reset_session: qt_method!(fn(&mut self, context_filename: String, context_content: String, extra_context: String)),
     send_prompt: qt_method!(fn(&mut self, text: String)),
     run_template: qt_method!(fn(&mut self, template_id: String, input_text: String, context_filename: String, context_content: String)),
+    run_custom_instruction: qt_method!(fn(&mut self, instruction: String, input_text: String, context_filename: String, context_content: String)),
     import_text: qt_method!(fn(&mut self, source_text: String, target_title: String, mode: String, custom_instruction: String)),
     fetch_url_content: qt_method!(fn(&mut self, url: String)),
     read_local_file: qt_method!(fn(&mut self, file_path: String)),
@@ -162,6 +163,7 @@ impl Default for AgentBridge {
             reset_session: Default::default(),
             send_prompt: Default::default(),
             run_template: Default::default(),
+            run_custom_instruction: Default::default(),
             import_text: Default::default(),
             fetch_url_content: Default::default(),
             read_local_file: Default::default(),
@@ -298,6 +300,35 @@ impl AgentBridge {
             None
         };
         let formatted_prompt = build_template_instruction(&template_id, &input_text, fname_opt, active_opt);
+        if let Ok(mut session) = self.session.lock() {
+            session.push_user_message(&formatted_prompt);
+            self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());
+        }
+        self.messages_changed();
+        self.spawn_worker(WorkerTask::SendPrompt(formatted_prompt));
+    }
+
+    pub fn run_custom_instruction(
+        &mut self,
+        instruction: String,
+        input_text: String,
+        context_filename: String,
+        context_content: String,
+    ) {
+        if self.agent_busy || instruction.trim().is_empty() {
+            return;
+        }
+        let fname_opt = if !context_filename.trim().is_empty() {
+            Some(context_filename.as_str())
+        } else {
+            None
+        };
+        let active_opt = if !context_content.trim().is_empty() {
+            Some(context_content.as_str())
+        } else {
+            None
+        };
+        let formatted_prompt = notesplusplus_core::agent::build_custom_instruction(&instruction, &input_text, fname_opt, active_opt);
         if let Ok(mut session) = self.session.lock() {
             session.push_user_message(&formatted_prompt);
             self.messages_json = serde_json::to_string(&session.messages()).unwrap_or_else(|_| "[]".to_string());

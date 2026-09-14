@@ -243,6 +243,10 @@
         <translation>Asistente IA</translation>
     </message>
     <message>
+        <source>AI Import</source>
+        <translation>Importación IA</translation>
+    </message>
+    <message>
         <source>Full Journal →</source>
         <translation>Diario completo →</translation>
     </message>

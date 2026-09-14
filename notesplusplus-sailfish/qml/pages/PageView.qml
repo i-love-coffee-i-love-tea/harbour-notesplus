@@ -13,6 +13,9 @@ Page {
                                   : (bridge.current_page_group_path.length > 0
                                      ? bridge.current_page_group_path + "/" + pageName
                                      : pageName)
+    property string pageFilePath: (typeof bridge !== "undefined" && bridge && bridge.current_page_file_path && bridge.current_page_file_path.length > 0)
+                                  ? bridge.current_page_file_path
+                                  : pageFullPath
     property string findInPageTerm: ""
     property bool showFindBar: false
     property var allFindMatches: []
@@ -271,7 +274,7 @@ Page {
             width: listView.width
 
             PageHeader {
-                title: pageName
+                title: pageView.pageFilePath
             }
 
             Label {
@@ -424,7 +427,7 @@ Page {
         anchors.right: parent.right
         anchors.rightMargin: Theme.paddingMedium
         anchors.verticalCenter: parent.verticalCenter
-        visible: pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock
+        visible: (pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock) && !pageView.showFindBar
         onAccepted: {
             if (pageView.isAddingNewBlock) {
                 pageView.saveNewBlock()

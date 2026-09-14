@@ -1560,7 +1560,7 @@ When first launched, Notes++ requests these system permissions:
 |Access SD card / USB storage for backups
 
 |Audio
-|Audio playback
+|Speech-to-text recording and live microphone level monitoring
 
 |Microphone
 |Speech-to-text recording via Whisper

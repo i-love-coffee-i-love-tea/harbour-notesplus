@@ -248,4 +248,38 @@ Column {
             }
         }
     }
+
+    SectionHeader {
+        text: qsTr("Custom AI Instructions")
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.paddingMedium
+        visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
+
+        Label {
+            width: parent.width - Theme.horizontalPageMargin * 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: qsTr("Create custom action buttons with customizable icons and instruction prompt templates.")
+            font.pixelSize: Theme.fontSizeExtraSmall
+            color: Theme.secondaryColor
+            wrapMode: Text.Wrap
+        }
+
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Theme.paddingMedium
+
+            Button {
+                text: qsTr("Manage Instructions (%1)").arg((typeof app !== "undefined" && app.customAiInstructions) ? app.customAiInstructions.length : 0)
+                onClicked: pageStack.push(Qt.resolvedUrl("../pages/CustomInstructionsPage.qml"))
+            }
+
+            Button {
+                text: qsTr("+ Add New")
+                onClicked: pageStack.push(Qt.resolvedUrl("../pages/CustomInstructionDialog.qml"))
+            }
+        }
+    }
 }

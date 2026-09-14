@@ -163,6 +163,12 @@ ApplicationWindow {
     }
 
     ConfigurationValue {
+        id: customAiInstructionsConf
+        key: "/apps/harbour-notesplusplus/custom_ai_instructions"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
         id: sttEnabledConf
         key: "/apps/harbour-notesplusplus/stt_enabled"
         defaultValue: true
@@ -216,6 +222,97 @@ ApplicationWindow {
     property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
     property bool aiAllowFetchUrl: aiAllowFetchUrlConf.value !== undefined ? aiAllowFetchUrlConf.value : true
     property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
+
+    readonly property var defaultCustomAiInstructions: [
+        {
+            "id": "beautify",
+            "buttonText": qsTr("Beautify"),
+            "icon": "icon-m-favorite",
+            "instruction": "Please beautify the active note by adding visual structure, helpful admonition blocks (NOTE, TIP, WARNING), clean tables, and suitable emoji accents where appropriate. Call the edit_note tool with the complete beautified AsciiDoc content and filename."
+        },
+        {
+            "id": "extract_todos",
+            "buttonText": qsTr("Extract To-Dos"),
+            "icon": "icon-m-select-all",
+            "instruction": "Please analyze the active note and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`."
+        },
+        {
+            "id": "fix_grammar",
+            "buttonText": qsTr("Fix Grammar"),
+            "icon": "icon-m-edit",
+            "instruction": "Please review and correct the spelling, grammar, punctuation, and formatting in the active note while strictly preserving and enforcing proper AsciiDoc syntax. Call the edit_note tool with the complete corrected AsciiDoc content and filename."
+        },
+        {
+            "id": "expand_draft",
+            "buttonText": qsTr("Expand & Draft"),
+            "icon": "icon-m-document",
+            "instruction": "Please expand and draft the ideas in the active note into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations. Call the edit_note tool with the complete expanded AsciiDoc content and filename."
+        },
+        {
+            "id": "analyze_external",
+            "buttonText": qsTr("External Text"),
+            "icon": "icon-m-website",
+            "instruction": "Please analyze the following external text or content, summarize key points, and extract relevant action items into structured AsciiDoc."
+        }
+    ]
+
+    property var customAiInstructions: {
+        var raw = customAiInstructionsConf.value
+        if (raw && typeof raw === "string" && raw.trim().length > 0) {
+            try {
+                var parsed = JSON.parse(raw)
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed
+                }
+            } catch (e) {
+                console.log("Error parsing custom AI instructions:", e)
+            }
+        }
+        return defaultCustomAiInstructions
+    }
+
+    function saveCustomAiInstruction(item) {
+        var list = []
+        var current = customAiInstructions
+        for (var i = 0; i < current.length; i++) {
+            list.push(current[i])
+        }
+        var foundIndex = -1
+        var targetId = item.id || ""
+        if (targetId.length > 0) {
+            for (var j = 0; j < list.length; j++) {
+                if (list[j].id === targetId) {
+                    foundIndex = j
+                    break
+                }
+            }
+        } else {
+            targetId = "custom_" + Date.now()
+            item.id = targetId
+        }
+
+        if (foundIndex >= 0) {
+            list[foundIndex] = item
+        } else {
+            list.push(item)
+        }
+        customAiInstructionsConf.value = JSON.stringify(list)
+    }
+
+    function deleteCustomAiInstruction(id) {
+        var current = customAiInstructions
+        var filtered = []
+        for (var i = 0; i < current.length; i++) {
+            if (current[i].id !== id) {
+                filtered.push(current[i])
+            }
+        }
+        customAiInstructionsConf.value = JSON.stringify(filtered)
+    }
+
+    function resetCustomAiInstructions() {
+        customAiInstructionsConf.value = JSON.stringify(defaultCustomAiInstructions)
+    }
 
     function setFontScale(scale) {
         fontSizeScaleConf.value = scale
@@ -303,12 +400,22 @@ ApplicationWindow {
 
     function syncTheme() {
         if (typeof bridge !== "undefined" && bridge && typeof bridge.set_theme === "function") {
+            var isDark = (Theme.colorScheme !== Theme.DarkOnLight)
+            var scheme = isDark ? "dark" : "light"
             var highlight = String(Theme.highlightColor)
+            var primary = String(Theme.primaryColor)
+            var secondary = String(Theme.secondaryColor)
+            var highlightBg = String(Theme.highlightBackgroundColor)
             var colors = {
+                "colorScheme": scheme,
+                "primaryColor": primary,
+                "secondaryColor": secondary,
+                "highlightColor": highlight,
+                "highlightBackgroundColor": highlightBg,
                 "primary": highlight,
                 "primary-hover": highlight,
                 "accent": highlight,
-                "accent-light": String(Theme.highlightBackgroundColor)
+                "accent-light": highlightBg
             }
             bridge.set_theme(JSON.stringify(colors))
         }
@@ -375,11 +482,16 @@ ApplicationWindow {
         }
     }
 
-    function openAssistant(contextFilename, contextContent) {
+    function openAssistant(contextFilename, contextContent, extraContext) {
         pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), {
             contextFilename: contextFilename || "",
-            contextContent: contextContent || ""
+            contextContent: contextContent || "",
+            extraContext: extraContext || ""
         })
+    }
+
+    function openAiImport() {
+        pageStack.push(Qt.resolvedUrl("pages/AiImportPage.qml"))
     }
 
     function openSearch() {

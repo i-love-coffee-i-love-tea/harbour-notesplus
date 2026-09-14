@@ -1,10 +1,12 @@
-:root {
+:root,
+[data-theme="light"] {
   --bg-main: #f8fafc;
   --bg-card: #ffffff;
   --bg-pane: #ffffff;
   --border-color: #e2e8f0;
   --text-main: #1e293b;
   --text-muted: #64748b;
+  --heading-color: #1e293b;
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --accent: #0284c7;
@@ -29,13 +31,14 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg-main: #0f172a;
     --bg-card: #1e293b;
     --bg-pane: #1e293b;
     --border-color: #334155;
     --text-main: #f1f5f9;
     --text-muted: #94a3b8;
+    --heading-color: var(--primary);
     --primary: #3b82f6;
     --primary-hover: #60a5fa;
     --accent: #2563eb;
@@ -50,6 +53,29 @@
     --tip-border: #f0ad4e;
     --warning-border: #d9534f;
   }
+}
+
+[data-theme="dark"] {
+  --bg-main: #0f172a;
+  --bg-card: #1e293b;
+  --bg-pane: #1e293b;
+  --border-color: #334155;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --heading-color: var(--primary);
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --accent: #2563eb;
+  --accent-light: #1e3a8a;
+  --success: #4ade80;
+  --success-bg: #064e3b;
+  --danger-bg: #7f1d1d;
+  --warning-bg: #7d3434;
+  --note-bg: #284e78;
+  --note-border: #38bdf8;
+  --tip-bg: #7d692d;
+  --tip-border: #f0ad4e;
+  --warning-border: #d9534f;
 }
 
 * { box-sizing: border-box; }
@@ -260,6 +286,11 @@ html, body {
   outline: none;
 }
 
+.view-mode-tabs button svg {
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
 .view-mode-tabs button:hover:not(.active) {
   color: var(--text-main);
   background-color: var(--bg-main);
@@ -267,12 +298,23 @@ html, body {
   outline: none;
 }
 
+.view-mode-tabs button:hover:not(.active) svg {
+  color: var(--text-main);
+}
+
 .view-mode-tabs button.active {
   background-color: var(--bg-main);
-  color: var(--primary);
-  font-weight: 600;
   border: none;
   outline: none;
+}
+
+.view-mode-tabs button.active svg {
+  color: var(--text-main);
+}
+
+.view-mode-tabs button.active .tab-label {
+  color: var(--primary);
+  font-weight: 600;
 }
 
 /* Right: Action Groups & Status */
@@ -311,6 +353,18 @@ html, body {
   background-color: var(--text-muted);
 }
 
+/* Nav Group & Top Action Icons in Primary Ambiance Color */
+.nav-group .btn-icon,
+.nav-group .btn-new svg,
+.nav-group .chevron-icon,
+.btn-account .user-icon {
+  color: var(--primary);
+}
+
+.btn-dropdown-logout .btn-icon {
+  color: inherit;
+}
+
 /* Save Button */
 .btn-save {
   gap: 6px;
@@ -328,10 +382,6 @@ html, body {
 .btn-account {
   gap: 6px;
   padding: 0 10px;
-}
-
-.btn-account .user-icon {
-  color: var(--text-muted);
 }
 
 .btn-account .account-name {
@@ -505,6 +555,27 @@ html, body {
 .account-info-row .info-icon {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.theme-select-row {
+  margin-top: 2px;
+}
+
+.theme-select {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  margin-left: auto;
+}
+
+.theme-select:focus {
+  border-color: var(--primary);
 }
 
 .text-success { color: var(--success) !important; }
@@ -2194,7 +2265,7 @@ li > p {
 }
 
 .notes-body h1, .notes-body h2, .notes-body h3, .notes-body h4, .notes-body h5, .notes-body h6 {
-  color: var(--primary);
+  color: var(--heading-color, var(--text-main));
 }
 
 .notes-body a {
@@ -2233,7 +2304,7 @@ li > p {
 
 .presentation-slide-body.notes-body h1 {
   font-size: 2.4rem;
-  color: var(--primary);
+  color: var(--heading-color, var(--text-main));
   text-align: center;
   margin-top: 0;
   margin-bottom: 0.8em;

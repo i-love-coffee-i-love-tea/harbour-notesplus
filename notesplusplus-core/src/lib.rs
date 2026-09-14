@@ -17,6 +17,7 @@ pub mod agent;
 pub mod stt;
 pub mod escape;
 pub mod diagram;
+pub mod highlight;
 
 pub use constants::*;
 pub use error::CoreError;

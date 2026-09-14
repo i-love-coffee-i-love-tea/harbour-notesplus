@@ -25,9 +25,20 @@ impl Default for QtThemeColors {
 impl QtThemeColors {
     pub fn from_map(map: &std::collections::HashMap<String, String>) -> Self {
         Self {
-            highlight_color: map.get("highlightColor").cloned().unwrap_or_else(|| "#0088cc".into()),
-            primary_color: map.get("primaryColor").cloned().unwrap_or_else(|| "#ffffff".into()),
-            highlight_background_color: map.get("highlightBackgroundColor").cloned()
+            highlight_color: map.get("highlightColor")
+                .or_else(|| map.get("highlight_color"))
+                .or_else(|| map.get("accent"))
+                .or_else(|| map.get("primary"))
+                .cloned()
+                .unwrap_or_else(|| "#0088cc".into()),
+            primary_color: map.get("primaryColor")
+                .or_else(|| map.get("primary_color"))
+                .cloned()
+                .unwrap_or_else(|| "#ffffff".into()),
+            highlight_background_color: map.get("highlightBackgroundColor")
+                .or_else(|| map.get("highlight_background_color"))
+                .or_else(|| map.get("accent-light"))
+                .cloned()
                 .unwrap_or_else(|| "rgba(0,136,204,0.25)".into()),
         }
     }
@@ -230,6 +241,13 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
             let svg = crate::diagram::render_svgbob(&source);
             let b64 = crate::html::base64_encode(svg.as_bytes());
             format!("<p><img src='data:image/svg+xml;base64,{}' /></p>", b64)
+        }
+        Block::CodeBlock { lines, language, .. } if language.is_some() => {
+            let lang = language.as_deref().unwrap();
+            let code = lines.join("\n");
+            let normalized = crate::highlight::normalize_language(lang);
+            let highlighted = crate::highlight::highlight_code(&code, &normalized);
+            format!("<pre style='background:#18181c;padding:6px;border-radius:0;font-family:monospace;margin:4px 0;word-break:break-all;white-space:pre-wrap;'>{}</pre>", highlighted)
         }
         Block::CodeBlock { lines, .. } | Block::LiteralBlock { lines, .. } => {
             let code_lines = lines.iter().map(|l| escape_html(l)).collect::<Vec<_>>().join("<br/>");

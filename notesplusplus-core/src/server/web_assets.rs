@@ -10,6 +10,7 @@ pub const ICON_PNG: &[u8] = include_bytes!("../../assets/web/icon.png");
 // Composable modules
 pub const COMPOSABLE_UTILS_JS: &str = include_str!("../../assets/web/composables/utils.js");
 pub const COMPOSABLE_USE_AUTH_JS: &str = include_str!("../../assets/web/composables/useAuth.js");
+pub const COMPOSABLE_USE_THEME_JS: &str = include_str!("../../assets/web/composables/useTheme.js");
 pub const COMPOSABLE_USE_HEALTH_CHECK_JS: &str = include_str!("../../assets/web/composables/useHealthCheck.js");
 pub const COMPOSABLE_USE_PRESENTATION_JS: &str = include_str!("../../assets/web/composables/usePresentation.js");
 pub const COMPOSABLE_USE_LINK_MODAL_JS: &str = include_str!("../../assets/web/composables/useLinkModal.js");

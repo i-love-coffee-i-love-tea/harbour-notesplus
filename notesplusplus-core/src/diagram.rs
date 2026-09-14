@@ -22,6 +22,14 @@ pub fn preprocess_svgbob(source: &str) -> String {
             continue;
         }
 
+        // 0. Box content lines (| ... |): text between pipe boundaries is literal in svgbob,
+        //    so skip token quoting to avoid breaking box alignment.
+        let trimmed = line.trim();
+        if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() > 2 {
+            result.push(line.to_string());
+            continue;
+        }
+
         // 1. Check if line is a tree branch line (e.g. `+-- meeting-notes.adoc` or `|   +-- mockup.png`)
         if let Some(caps) = tree_line_re.captures(line) {
             let prefix = &caps[1];
@@ -396,6 +404,23 @@ mod tests {
         assert!(svg.contains(r#"fill="none""#));
         assert!(svg.contains(r#"stroke="black""#));
         assert!(svg.contains(r#"font-family="monospace""#));
+    }
+
+    #[test]
+    fn test_box_content_not_quoted() {
+        let source = r#"    +----------+       +----------+
+    |  Notes++ |       |  Browser |
+    |  on phone|       |  on PC   |
+    +----+-----+       +----+-----+
+         |                  |
+         |    HTTPS / TLS   |
+         +-------> <--------+"#;
+        let preprocessed = preprocess_svgbob(source);
+        // Text inside box boundaries (| ... |) must not be quoted
+        assert!(!preprocessed.contains("\"Notes++\""), "Notes++ inside box should not be quoted");
+        assert!(!preprocessed.contains("\"HTTPS / TLS\""), "HTTPS / TLS inside box should not be quoted");
+        assert!(preprocessed.contains("|  Notes++ |"), "box content with Notes++ preserved");
+        assert!(preprocessed.contains("|    HTTPS / TLS   |"), "box content with HTTPS / TLS preserved");
     }
 
     #[test]

@@ -378,6 +378,13 @@ Page {
                 }
             }
             MenuItem {
+                text: qsTr("AI Import")
+                visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("AiImportPage.qml"))
+                }
+            }
+            MenuItem {
                 text: qsTr("AI Assistant")
                 visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
                 onClicked: {

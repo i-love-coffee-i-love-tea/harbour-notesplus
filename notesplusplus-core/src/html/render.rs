@@ -461,6 +461,20 @@ impl<'a> HtmlRenderContext<'a> {
         let lang_class = language
             .map(|l| format!(" language-{}", escape_html(l)))
             .unwrap_or_default();
+
+        // Use syntax highlighting when a language is specified
+        if let Some(lang) = language {
+            let code = lines.join("\n");
+            let normalized = crate::highlight::normalize_language(lang);
+            let highlighted = crate::highlight::highlight_code(&code, &normalized);
+            return format!(
+                r#"<div class="listingblock">{title}<pre class="highlight"><code class="code-block{lang}">{code}</code></pre></div>"#,
+                title = title_html,
+                lang = lang_class,
+                code = highlighted
+            );
+        }
+
         let code_content = lines
             .iter()
             .map(|l| escape_html(l))

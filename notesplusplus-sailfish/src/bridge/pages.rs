@@ -53,6 +53,20 @@ impl NotesBridge {
         }
     }
 
+    fn update_current_page_file_path(&mut self) {
+        let rel = self.current_page_relative_path();
+        let new_file_path = if rel.is_empty() {
+            String::new()
+        } else {
+            let full = page::safe_note_path(&self.notes_dir(), &rel);
+            notesplusplus_core::paths::collapse_tilde(&full)
+        };
+        if self.current_page_file_path != new_file_path {
+            self.current_page_file_path = new_file_path;
+            self.current_page_file_path_changed();
+        }
+    }
+
     pub fn notes_dir(&self) -> std::path::PathBuf {
         self.notes_path.clone()
     }
@@ -110,6 +124,7 @@ impl NotesBridge {
                 self.current_page_full_path = full_path.clone();
                 self.current_page_full_path_changed();
                 self.is_journal_page = info.is_journal;
+                self.update_current_page_file_path();
 
                 let notes_dir = self.notes_dir();
                 let pending = self.pending.clone();
@@ -412,6 +427,8 @@ impl NotesBridge {
                     self.current_page_full_path_changed();
                     self.current_blocks_data.clear();
                     self.current_blocks = QVariantList::default();
+                    self.is_journal_page = false;
+                    self.update_current_page_file_path();
                     self.page_changed();
                 }
                 self.load_main_page_data_impl();
@@ -447,6 +464,7 @@ impl NotesBridge {
                     self.current_page_group_path_changed();
                     self.current_page_full_path = info.full_path();
                     self.current_page_full_path_changed();
+                    self.update_current_page_file_path();
                     self.page_changed();
                 }
                 self.load_main_page_data_impl();
@@ -950,9 +968,12 @@ impl NotesBridge {
         match page::move_page(conn, &self.notes_dir(), &page_full_path, &target_group) {
             Ok(info) => {
                 self.load_main_page_data_impl();
-                if self.current_page_name == info.title {
+                if self.current_page_name == info.title || self.current_page_full_path == page_full_path {
                     self.current_page_group_path = info.group_path.clone();
                     self.current_page_group_path_changed();
+                    self.current_page_full_path = info.full_path();
+                    self.current_page_full_path_changed();
+                    self.update_current_page_file_path();
                 }
                 true
             }

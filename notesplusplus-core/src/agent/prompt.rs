@@ -199,6 +199,65 @@ pub fn build_template_instruction_ex(
     }
 }
 
+/// Builds a customized prompt from a user-defined custom instruction template,
+/// combining it with user input, active note filename, and active note content.
+pub fn build_custom_instruction(
+    instruction_template: &str,
+    user_input: &str,
+    active_filename: Option<&str>,
+    active_content: Option<&str>,
+) -> String {
+    let has_input = !user_input.trim().is_empty();
+    let has_content = active_content.map(|c| !c.trim().is_empty()).unwrap_or(false);
+    let base_content = if has_input && has_content {
+        format!("{}\n\nNote Content:\n{}", user_input.trim(), active_content.unwrap().trim())
+    } else if has_input {
+        user_input.trim().to_string()
+    } else if let Some(content) = active_content {
+        content.trim().to_string()
+    } else {
+        String::new()
+    };
+
+    let template = instruction_template.trim();
+    if template.is_empty() {
+        return base_content;
+    }
+
+    let mut result = template.to_string();
+    let mut replaced_placeholder = false;
+
+    if result.contains("{filename}") {
+        result = result.replace("{filename}", active_filename.unwrap_or("active note"));
+        replaced_placeholder = true;
+    }
+    if result.contains("{input}") {
+        result = result.replace("{input}", user_input.trim());
+        replaced_placeholder = true;
+    }
+    if result.contains("{content}") {
+        let cnt = active_content.unwrap_or("").trim();
+        result = result.replace("{content}", cnt);
+        replaced_placeholder = true;
+    }
+    if result.contains("{context}") {
+        result = result.replace("{context}", &base_content);
+        replaced_placeholder = true;
+    }
+
+    if !replaced_placeholder {
+        if let (Some(fname), false) = (active_filename, base_content.is_empty()) {
+            format!("{}\n\nActive Note: '{}'\nContent:\n{}", result, fname, base_content)
+        } else if !base_content.is_empty() {
+            format!("{}\n\nContent:\n{}", result, base_content)
+        } else {
+            result
+        }
+    } else {
+        result
+    }
+}
+
 /// Builds an import and conversion instruction for external text into an AsciiDoc note.
 pub fn build_import_instruction(
     source_text: &str,
@@ -317,5 +376,49 @@ mod tests {
         assert!(prompt.contains("Keep it under 10 bullets"));
         assert!(prompt.contains("Project planning meeting..."));
         assert!(prompt.contains("create_note"));
+    }
+
+    #[test]
+    fn test_build_custom_instruction_with_placeholders() {
+        let template = "Translate the following note ({filename}) into Spanish:\n{content}\nAdditional notes: {input}";
+        let prompt = build_custom_instruction(
+            template,
+            "Formal tone",
+            Some("my_note.adoc"),
+            Some("= Hello\nThis is a test note.")
+        );
+        assert!(prompt.contains("my_note.adoc"));
+        assert!(prompt.contains("= Hello\nThis is a test note."));
+        assert!(prompt.contains("Formal tone"));
+        assert!(prompt.contains("Translate the following note"));
+    }
+
+    #[test]
+    fn test_build_custom_instruction_without_placeholders() {
+        let template = "Summarize the key takeaways in 3 bullet points.";
+        let prompt = build_custom_instruction(
+            template,
+            "",
+            Some("notes.adoc"),
+            Some("= Discussion\nItem 1\nItem 2")
+        );
+        assert!(prompt.contains("Summarize the key takeaways in 3 bullet points."));
+        assert!(prompt.contains("Active Note: 'notes.adoc'"));
+        assert!(prompt.contains("= Discussion\nItem 1\nItem 2"));
+    }
+
+    #[test]
+    fn test_build_custom_instruction_with_user_input_and_content() {
+        let template = "Compare and highlight differences.";
+        let prompt = build_custom_instruction(
+            template,
+            "New proposal version",
+            Some("current.adoc"),
+            Some("Old version text")
+        );
+        assert!(prompt.contains("Compare and highlight differences."));
+        assert!(prompt.contains("Active Note: 'current.adoc'"));
+        assert!(prompt.contains("New proposal version"));
+        assert!(prompt.contains("Old version text"));
     }
 }

@@ -369,6 +369,11 @@ impl Block {
                         let b64 = crate::html::base64_encode(svg.as_bytes());
                         map.insert("svg".into(), serde_json::Value::String(svg));
                         map.insert("svg_data".into(), serde_json::Value::String(format!("data:image/svg+xml;base64,{}", b64)));
+                    } else {
+                        let code = lines.join("\n");
+                        let normalized = crate::highlight::normalize_language(lang);
+                        let highlighted = crate::highlight::highlight_code(&code, &normalized);
+                        map.insert("highlighted_html".into(), serde_json::Value::String(highlighted));
                     }
                 }
                 map.insert("lines".into(), lines_to_json_array(lines));

@@ -1115,9 +1115,9 @@ fn test_composable_js_files_served() {
     let port = server_handle.port();
 
     let composables = [
-        "composables/utils.js", "composables/useAuth.js", "composables/useHealthCheck.js",
-        "composables/usePresentation.js", "composables/useLinkModal.js",
-        "composables/useAiAssistant.js", "composables/useImport.js",
+        "composables/utils.js", "composables/useAuth.js", "composables/useTheme.js",
+        "composables/useHealthCheck.js", "composables/usePresentation.js",
+        "composables/useLinkModal.js", "composables/useAiAssistant.js", "composables/useImport.js",
     ];
 
     for path in &composables {
@@ -1231,6 +1231,107 @@ fn test_groups_api_and_multisegment_notes() {
         .unwrap();
     assert_eq!(get_note_res.status(), 200);
     assert!(get_note_res.into_string().unwrap().contains("Sprint Plan"));
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_theme_api_endpoint() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_theme.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&notes_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let config = ServerConfig {
+        notes_dir: notes_dir.clone(),
+        assets_dir,
+        db_path,
+        backup_dir,
+        ..Default::default()
+    };
+
+    let server_handle = start_server_with_config(config).expect("Server should start");
+    let port = server_handle.port();
+
+    // 1. Initial theme query returns empty JSON object
+    let res = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    assert_eq!(res.status(), 200);
+    let theme_json: serde_json::Value = res.into_json().unwrap();
+    assert!(theme_json.as_object().unwrap().is_empty());
+
+    // 2. Set theme colors via ServerContext
+    let mut colors = std::collections::HashMap::new();
+    colors.insert("colorScheme".to_string(), "dark".to_string());
+    colors.insert("primaryColor".to_string(), "#ffffff".to_string());
+    colors.insert("secondaryColor".to_string(), "#80ffffff".to_string());
+    colors.insert("highlightColor".to_string(), "#52b5ff".to_string());
+    colors.insert("highlightBackgroundColor".to_string(), "#3352b5ff".to_string());
+    colors.insert("primary".to_string(), "#52b5ff".to_string());
+
+    server_handle.context().set_theme_colors(colors.clone());
+
+    // 3. Query /api/theme again to verify updated theme colors
+    let res2 = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    assert_eq!(res2.status(), 200);
+    let theme_json2: serde_json::Value = res2.into_json().unwrap();
+    assert_eq!(theme_json2["colorScheme"], "dark");
+    assert_eq!(theme_json2["highlightColor"], "#52b5ff");
+    assert_eq!(theme_json2["primaryColor"], "#ffffff");
+    assert_eq!(theme_json2["secondaryColor"], "#80ffffff");
+    assert_eq!(theme_json2["highlightBackgroundColor"], "#3352b5ff");
+
+    // 4. Verify QtThemeColors::from_map compatibility
+    let qt_theme = notesplusplus_core::html::qt_html::QtThemeColors::from_map(&colors);
+    assert_eq!(qt_theme.highlight_color, "#52b5ff");
+    assert_eq!(qt_theme.primary_color, "#ffffff");
+    assert_eq!(qt_theme.highlight_background_color, "#3352b5ff");
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_theme_assets_and_contrast_rules() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_theme_assets.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&notes_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18998, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    // 1. Check style.css defines data-theme, heading-color, top icons and view-mode styling
+    let css_res = ureq::get(&format!("http://127.0.0.1:{}/style.css", port)).call().unwrap();
+    assert_eq!(css_res.status(), 200);
+    let css = css_res.into_string().unwrap();
+    assert!(css.contains("[data-theme=\"light\"]"));
+    assert!(css.contains("[data-theme=\"dark\"]"));
+    assert!(css.contains("--heading-color"));
+    assert!(css.contains(".notes-body h1, .notes-body h2"));
+    assert!(css.contains("var(--heading-color"));
+    assert!(css.contains(".nav-group .btn-icon"));
+    assert!(css.contains(".view-mode-tabs button.active svg"));
+    assert!(css.contains(".view-mode-tabs button.active .tab-label"));
+
+    // 2. Check index.html has theme selector
+    let html_res = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+    assert_eq!(html_res.status(), 200);
+    let html = html_res.into_string().unwrap();
+    assert!(html.contains("themePreference"));
+    assert!(html.contains("Auto (OS Ambiance)"));
+    assert!(html.contains("System (Browser)"));
+
+    // 3. Check useTheme composable is served
+    let theme_js_res = ureq::get(&format!("http://127.0.0.1:{}/composables/useTheme.js", port)).call().unwrap();
+    assert_eq!(theme_js_res.status(), 200);
+    let theme_js = theme_js_res.into_string().unwrap();
+    assert!(theme_js.contains("useTheme"));
+    assert!(theme_js.contains("notesplusplus_theme_preference"));
 
     server_handle.stop();
 }

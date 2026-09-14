@@ -243,6 +243,10 @@
         <translation>KI-Assistent</translation>
     </message>
     <message>
+        <source>AI Import</source>
+        <translation>KI-Import</translation>
+    </message>
+    <message>
         <source>Full Journal →</source>
         <translation>Ganzes Tagebuch →</translation>
     </message>
