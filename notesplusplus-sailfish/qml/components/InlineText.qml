@@ -7,6 +7,7 @@ Label {
     property var spans: undefined
     property string preRenderedHtml: ""
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
     property int blockIndex: -1
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
@@ -33,7 +34,7 @@ Label {
 
     function applySearchHighlight(html) {
         if (!searchTerm || searchTerm.length === 0) return html
-        return BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+        return BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
     }
 
     onLinkActivated: function(link) {

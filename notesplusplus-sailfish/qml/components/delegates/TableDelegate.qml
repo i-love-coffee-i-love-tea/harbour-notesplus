@@ -7,6 +7,7 @@ Column {
     id: tableDelegate
     property var blockData: ({})
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
     signal xrefActivated(string target)
 
     anchors.left: parent ? parent.left : undefined
@@ -34,7 +35,7 @@ Column {
         text: {
             var html = (blockData && blockData.html) ? blockData.html : ""
             html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
-            if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+            if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
             return html
         }
         font.family: app.resolvedFontFamily()

@@ -13,11 +13,13 @@ Page {
                                   : (bridge.current_page_group_path.length > 0
                                      ? bridge.current_page_group_path + "/" + pageName
                                      : pageName)
-    property string searchTerm: ""
     property string findInPageTerm: ""
     property bool showFindBar: false
-    property int targetBlockIndex: -1
-    property bool hasScrolledToSearchTerm: false
+    property var allFindMatches: []
+    property int currentFindMatchIndex: -1
+    readonly property var currentFindMatch: (currentFindMatchIndex >= 0 && currentFindMatchIndex < allFindMatches.length)
+                                            ? allFindMatches[currentFindMatchIndex]
+                                            : null
     property int editingBlockIndex: -1
     property int editingBlockCount: 1
     property string editingRawText: ""
@@ -27,6 +29,69 @@ Page {
     property var currentEditorTextArea: null
 
     property var collapsedTocBlocks: ({})
+
+    function updateFindMatches() {
+        if (!findInPageTerm || findInPageTerm.trim().length === 0 || !parsedBlocks || parsedBlocks.length === 0) {
+            allFindMatches = []
+            currentFindMatchIndex = -1
+            return
+        }
+        var matches = BlockHtmlUtils.findAllMatches(parsedBlocks, findInPageTerm)
+        allFindMatches = matches
+        if (matches.length > 0) {
+            if (currentFindMatchIndex < 0 || currentFindMatchIndex >= matches.length) {
+                currentFindMatchIndex = 0
+            }
+            scrollToCurrentMatch()
+        } else {
+            currentFindMatchIndex = -1
+        }
+    }
+
+    function findNext() {
+        if (!allFindMatches || allFindMatches.length === 0) return
+        currentFindMatchIndex = (currentFindMatchIndex + 1) % allFindMatches.length
+        scrollToCurrentMatch()
+    }
+
+    function findPrevious() {
+        if (!allFindMatches || allFindMatches.length === 0) return
+        currentFindMatchIndex = (currentFindMatchIndex - 1 + allFindMatches.length) % allFindMatches.length
+        scrollToCurrentMatch()
+    }
+
+    function scrollToCurrentMatch() {
+        if (currentFindMatchIndex >= 0 && currentFindMatchIndex < allFindMatches.length) {
+            var match = allFindMatches[currentFindMatchIndex]
+            if (match && match.blockIndex >= 0 && match.blockIndex < (parsedBlocks ? parsedBlocks.length : 0)) {
+                listView.positionViewAtIndex(match.blockIndex, ListView.Center)
+            }
+        }
+    }
+
+    function closeFindBar() {
+        showFindBar = false
+        findInPageTerm = ""
+        allFindMatches = []
+        currentFindMatchIndex = -1
+        if (findInPageBar) {
+            findInPageBar.clear()
+        }
+    }
+
+    function openFindBar() {
+        showFindBar = true
+        if (findInPageBar) {
+            findInPageBar.focusSearchField()
+        }
+    }
+
+    onFindInPageTermChanged: {
+        updateFindMatches()
+        if (findInPageTerm.length > 0 && !showFindBar) {
+            showFindBar = true
+        }
+    }
 
     function isTocCollapsed(idx, entryCount) {
         if (collapsedTocBlocks[idx] !== undefined) {
@@ -52,58 +117,9 @@ Page {
         collapsedTocBlocks = copy
     }
 
-    function findBlockIndexForSearch(query) {
-        if (!query || query.length === 0 || !parsedBlocks || parsedBlocks.length === 0) return -1
-        var q = query.toLowerCase().trim()
-        var terms = q.split(/\s+/).filter(function(t) { return t.length > 0 })
-        if (terms.length === 0) return -1
-
-        for (var i = 0; i < parsedBlocks.length; i++) {
-            var b = parsedBlocks[i]
-            var textToSearch = ""
-            if (b.raw_text) textToSearch += " " + b.raw_text
-            if (b.raw) textToSearch += " " + b.raw
-            if (b.lines) textToSearch += " " + b.lines.join(" ")
-            if (b.term) textToSearch += " " + b.term
-            if (b.title) textToSearch += " " + b.title
-            var lower = textToSearch.toLowerCase()
-
-            for (var t = 0; t < terms.length; t++) {
-                if (lower.indexOf(terms[t]) !== -1) {
-                    return i
-                }
-            }
-        }
-        return -1
-    }
-
-    function scrollToSearchTarget() {
-        if (hasScrolledToSearchTerm) return
-        var targetIdx = targetBlockIndex
-        if (targetIdx < 0 && searchTerm.length > 0) {
-            targetIdx = findBlockIndexForSearch(searchTerm)
-        }
-        if (targetIdx >= 0 && targetIdx < (parsedBlocks ? parsedBlocks.length : 0)) {
-            hasScrolledToSearchTerm = true
-            scrollTimer.targetIdx = targetIdx
-            scrollTimer.start()
-        }
-    }
-
-    Timer {
-        id: scrollTimer
-        interval: 100
-        property int targetIdx: -1
-        onTriggered: {
-            if (targetIdx >= 0) {
-                listView.positionViewAtIndex(targetIdx, ListView.Beginning)
-            }
-        }
-    }
-
     onParsedBlocksChanged: {
-        if (searchTerm.length > 0 && !hasScrolledToSearchTerm) {
-            scrollToSearchTarget()
+        if (findInPageTerm.length > 0) {
+            updateFindMatches()
         }
     }
 
@@ -140,6 +156,36 @@ Page {
         }
     }
 
+    FindInPageBar {
+        id: findInPageBar
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.paddingMedium
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Theme.horizontalPageMargin
+        anchors.rightMargin: Theme.horizontalPageMargin
+        z: 10
+        visible: pageView.showFindBar
+        searchTerm: pageView.findInPageTerm
+        currentMatchIndex: pageView.currentFindMatchIndex
+        totalMatches: pageView.allFindMatches.length
+
+        onTextChanged: function(text) {
+            if (pageView.findInPageTerm !== text) {
+                pageView.findInPageTerm = text
+            }
+        }
+        onNextClicked: {
+            pageView.findNext()
+        }
+        onPreviousClicked: {
+            pageView.findPrevious()
+        }
+        onCloseClicked: {
+            pageView.closeFindBar()
+        }
+    }
+
     SilicaListView {
         id: listView
         anchors.fill: parent
@@ -151,11 +197,10 @@ Page {
             MenuItem {
                 text: qsTr("Find in Page")
                 onClicked: {
-                    pageView.showFindBar = !pageView.showFindBar
                     if (pageView.showFindBar) {
-                        findField.forceActiveFocus()
+                        pageView.closeFindBar()
                     } else {
-                        pageView.findInPageTerm = ""
+                        pageView.openFindBar()
                     }
                 }
             }
@@ -182,27 +227,12 @@ Page {
                 }
             }
             MenuItem {
-                text: qsTr("Settings")
-                onClicked: {
-                    pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
-                }
-            }
-            MenuItem {
                 text: qsTr("Copy Page URL")
                 onClicked: {
                     var url = bridge.open_in_browser(pageView.pageFullPath)
                     if (url) {
                         Clipboard.text = url
                         remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
-                    }
-                }
-            }
-            MenuItem {
-                text: qsTr("Export to HTML5")
-                onClicked: {
-                    var path = bridge.export_html(pageView.pageFullPath)
-                    if (path) {
-                        remorsePopup.execute(qsTr("Exported to ") + path, function() {})
                     }
                 }
             }
@@ -255,50 +285,6 @@ Page {
                 color: Theme.highlightColor
                 font.pixelSize: Theme.fontSizeExtraSmall
                 truncationMode: TruncationMode.Fade
-            }
-
-            // Find-in-Page search bar
-            Row {
-                width: parent.width - Theme.horizontalPageMargin * 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: Theme.paddingSmall
-                visible: pageView.showFindBar
-
-                SearchField {
-                    id: findField
-                    width: parent.width - closeFindBtn.width - Theme.paddingSmall
-                    placeholderText: qsTr("Find in page...")
-                    onTextChanged: {
-                        pageView.findInPageTerm = text
-                        if (text.length > 0) {
-                            var idx = pageView.findBlockIndexForSearch(text)
-                            if (idx >= 0) {
-                                scrollTimer.targetIdx = idx
-                                scrollTimer.start()
-                            }
-                        }
-                    }
-                    EnterKey.onClicked: {
-                        // Jump to next match
-                        if (pageView.findInPageTerm.length > 0) {
-                            var idx = pageView.findBlockIndexForSearch(pageView.findInPageTerm)
-                            if (idx >= 0) {
-                                listView.positionViewAtIndex(idx, ListView.Beginning)
-                            }
-                        }
-                    }
-                }
-
-                IconButton {
-                    id: closeFindBtn
-                    icon.source: "image://theme/icon-m-close"
-                    anchors.verticalCenter: parent.verticalCenter
-                    onClicked: {
-                        pageView.showFindBar = false
-                        pageView.findInPageTerm = ""
-                        findField.text = ""
-                    }
-                }
             }
         }
 
@@ -363,7 +349,11 @@ Page {
             width: listView.width
             blockData: modelData || ({})
             blockIndex: index
-            searchTerm: pageView.findInPageTerm || pageView.searchTerm
+            searchTerm: pageView.findInPageTerm
+            isCurrentMatchBlock: Boolean(pageView.currentFindMatch && pageView.currentFindMatch.blockIndex === index)
+            activeMatchIndexInBlock: (pageView.currentFindMatch && pageView.currentFindMatch.blockIndex === index)
+                                     ? pageView.currentFindMatch.matchInBlock
+                                     : -1
             editingRawText: (pageView.editingBlockIndex === index) ? pageView.editingRawText : ""
             isEditing: pageView.editingBlockIndex === index
             isTocCollapsed: pageView.isTocCollapsed(index, (blockData && blockData.headings) ? blockData.headings.length : 0)

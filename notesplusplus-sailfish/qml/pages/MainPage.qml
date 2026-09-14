@@ -501,7 +501,7 @@ Page {
                     var target = itemData.full_path || itemData.name
                     pageStack.push(Qt.resolvedUrl("PageView.qml"), {
                         pageName: itemData.name,
-                        searchTerm: searchField.text
+                        findInPageTerm: searchField.text
                     })
                     bridge.load_page(target)
                 }

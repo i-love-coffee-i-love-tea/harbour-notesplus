@@ -8,6 +8,7 @@ Column {
     property var blockData: ({})
     property int blockIndex: -1
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
     property bool isVerse: blockData && blockData.type === "verse"
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
@@ -71,7 +72,7 @@ Column {
                     var html = (blockData && blockData.html) ? blockData.html : ""
                     html = html.replace(/<blockquote[^>]*>/, "").replace(/<\/blockquote>$/, "")
                     html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
-                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
                     return html || ("<i>" + ((blockData && (blockData.raw || "")) || "") + "</i>")
                 }
                 font.italic: true
@@ -94,7 +95,7 @@ Column {
                     var html = (blockData && blockData.html) ? blockData.html : ""
                     html = html.replace(/<blockquote[^>]*>/, "").replace(/<\/blockquote>$/, "")
                     html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
-                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
                     return html
                 }
                 font.italic: true

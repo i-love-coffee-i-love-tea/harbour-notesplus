@@ -1,10 +1,13 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../"
+import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Column {
     id: codeDelegate
     property var blockData: ({})
+    property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
 
     property bool isSvgbob: Boolean(blockData && (
         (blockData.language && blockData.language.toLowerCase() === "svgbob") ||
@@ -157,7 +160,14 @@ Column {
                 id: codeLabel
                 anchors.left: parent.left
                 anchors.right: parent.right
-                text: (blockData.lines || []).join("\n")
+                textFormat: (searchTerm && searchTerm.length > 0) ? Text.RichText : Text.PlainText
+                text: {
+                    var raw = (blockData.lines || []).join("\n")
+                    if (searchTerm && searchTerm.length > 0) {
+                        return BlockHtmlUtils.highlightPlainText(raw, searchTerm, activeMatchIndexInBlock)
+                    }
+                    return raw
+                }
                 font.family: "monospace"
                 font.pixelSize: Math.round(Theme.fontSizeSmall * (typeof app !== "undefined" && app && app.codeFontScale ? app.codeFontScale : 1.0))
                 color: "#f2f2f7"

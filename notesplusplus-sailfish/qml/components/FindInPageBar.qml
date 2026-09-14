@@ -24,10 +24,10 @@ Rectangle {
     }
 
     height: Theme.itemSizeMedium
-    color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
-    border.color: Theme.rgba(Theme.highlightColor, 0.3)
+    color: Theme.rgba(Theme.overlayBackgroundColor, 0.95)
+    border.color: Theme.rgba(Theme.highlightColor, 0.4)
     border.width: 1
-    radius: Theme.paddingSmall / 2
+    radius: Theme.paddingSmall
     clip: true
 
     Row {

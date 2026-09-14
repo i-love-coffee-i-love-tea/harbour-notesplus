@@ -10,6 +10,7 @@ Item {
     property int blockIndex: -1
     property int renderCounter: 0
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
 
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
@@ -26,7 +27,7 @@ Item {
             if (blockData && blockData.html) {
                 var html = blockData.html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
                 if (searchTerm && searchTerm.length > 0) {
-                    html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
                 }
                 return html
             }

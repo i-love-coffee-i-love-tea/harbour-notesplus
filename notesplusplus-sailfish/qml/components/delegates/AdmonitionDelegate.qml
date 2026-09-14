@@ -8,6 +8,7 @@ Item {
     property var blockData: ({})
     property int blockIndex: -1
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
     signal xrefActivated(string target)
     signal checkboxToggled(int blockIndex, string itemPath)
     property string kind: (blockData && blockData.kind) ? blockData.kind : "NOTE"
@@ -89,7 +90,7 @@ Item {
                     html = html.replace(/<div[^>]*>/, "").replace(/<\/div>$/, "")
                     html = html.replace(/<b[^>]*>[^<]*:<\/b>\s*/, "")
                     html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
-                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
                     return html
                 }
                 width: parent.width

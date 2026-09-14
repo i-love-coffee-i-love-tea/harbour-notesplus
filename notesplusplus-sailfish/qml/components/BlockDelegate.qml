@@ -13,6 +13,8 @@ Item {
     property bool interactive: true
     property int renderCounter: 0
     property string searchTerm: ""
+    property bool isCurrentMatchBlock: false
+    property int activeMatchIndexInBlock: -1
     property bool isEditing: false
     property string editingRawText: ""
 
@@ -81,11 +83,11 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
-        border.color: Theme.highlightColor
-        border.width: 1
+        color: delegate.isCurrentMatchBlock ? Theme.rgba(Theme.highlightBackgroundColor, 0.15) : "transparent"
+        border.color: "transparent"
+        border.width: 0
         radius: 4
-        visible: delegate.interactive && delegate.isMatchedBySearch
+        visible: delegate.interactive && delegate.isCurrentMatchBlock
         z: -1
     }
 
@@ -150,6 +152,7 @@ Item {
         HeadingDelegate {
             blockData: delegate.localBlockData
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -159,6 +162,7 @@ Item {
         ParagraphDelegate {
             blockData: delegate.localBlockData
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -171,6 +175,7 @@ Item {
             blockIndex: delegate.blockIndex
             renderCounter: delegate.renderCounter
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
             onToggleLocalCheckbox: function(path) { delegate.toggleLocalCheckbox(path) }
@@ -181,6 +186,8 @@ Item {
         id: codeComponent
         CodeDelegate {
             blockData: delegate.localBlockData
+            searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
         }
     }
 
@@ -190,6 +197,7 @@ Item {
             blockData: delegate.localBlockData
             blockIndex: delegate.blockIndex
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }
@@ -200,6 +208,7 @@ Item {
         TableDelegate {
             blockData: delegate.localBlockData
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
         }
     }
@@ -210,6 +219,7 @@ Item {
             blockData: delegate.localBlockData
             blockIndex: delegate.blockIndex
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }
@@ -221,6 +231,7 @@ Item {
             blockData: delegate.localBlockData
             blockIndex: delegate.blockIndex
             searchTerm: delegate.searchTerm
+            activeMatchIndexInBlock: delegate.activeMatchIndexInBlock
             onXrefActivated: function(target) { delegate.xrefActivated(target) }
             onCheckboxToggled: function(idx, path) { delegate.checkboxToggled(idx, path) }
         }

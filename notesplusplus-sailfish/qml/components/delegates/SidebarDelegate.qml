@@ -8,6 +8,7 @@ Item {
     property var blockData: ({})
     property int blockIndex: -1
     property string searchTerm: ""
+    property int activeMatchIndexInBlock: -1
     property string blockType: blockData && blockData.type ? blockData.type : "sidebar"
     property bool isSidebar: blockType === "sidebar"
     property bool isExample: blockType === "example"
@@ -99,7 +100,7 @@ Item {
                     html = html.replace(/<div[^>]*>/, "").replace(/<\/div>$/, "")
                     html = html.replace(/<b[^>]*>[^<]*<\/b><br\/>/, "")
                     html = html.replace(/__LINK_COLOR__/g, Theme.highlightColor)
-                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm)
+                    if (searchTerm && searchTerm.length > 0) html = BlockHtmlUtils.highlightSearchTerms(html, searchTerm, activeMatchIndexInBlock)
                     return html
                 }
                 font.family: app.resolvedFontFamily()
