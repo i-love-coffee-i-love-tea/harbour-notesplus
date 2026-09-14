@@ -17,6 +17,7 @@ Item {
     property int activeMatchIndexInBlock: -1
     property bool isEditing: false
     property string editingRawText: ""
+    readonly property bool hasCheckbox: blockData && blockData.checked !== undefined && blockData.checked !== null
 
     property bool isMatchedBySearch: (interactive && searchTerm && searchTerm.length > 0 && blockData) ? checkSearchMatch() : false
 
@@ -93,7 +94,7 @@ Item {
 
     MouseArea {
         anchors.fill: parent
-        enabled: delegate.interactive && !delegate.isEditing && blockData && (blockData.type !== "toc")
+        enabled: delegate.interactive && !delegate.isEditing && !delegate.hasCheckbox && blockData && (blockData.type !== "toc")
         visible: delegate.interactive && !delegate.isEditing
         onClicked: {
             if (delegate.interactive && !delegate.isEditing) {
