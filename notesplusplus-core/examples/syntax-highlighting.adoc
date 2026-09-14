@@ -1,0 +1,277 @@
+= Syntax Highlighting Demo
+:toc:
+
+Code blocks with a `[source,language]` annotation get automatic syntax coloring.
+The highlighter recognizes common language names and their short aliases.
+
+== Rust
+
+[source,rust]
+----
+fn fibonacci(n: u32) -> u32 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
+
+fn main() {
+    for i in 0..10 {
+        println!("fib({}) = {}", i, fibonacci(i));
+    }
+}
+----
+
+== Python
+
+Aliases: `py`, `python`
+
+[source,python]
+----
+import asyncio
+
+async def fetch_data(url: str) -> dict:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            return await resp.json()
+
+async def main():
+    data = await fetch_data("https://api.example.com/items")
+    for item in data["results"]:
+        print(f"{item['name']}: {item['value']:.2f}")
+
+asyncio.run(main())
+----
+
+== JavaScript / TypeScript
+
+Aliases: `js`, `javascript`, `ts`, `typescript`
+
+[source,javascript]
+----
+const debounce = (fn, delay) => {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+};
+
+const search = debounce(async (query) => {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+  const { results } = await res.json();
+  renderResults(results);
+}, 300);
+----
+
+== Shell / Bash
+
+Aliases: `sh`, `bash`, `shell`
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/$(date +%F)"
+mkdir -p "$BACKUP_DIR"
+
+for db in $(psql -At -c "SELECT datname FROM pg_database WHERE datistemplate = false"); do
+    echo "Backing up $db ..."
+    pg_dump -Fc "$db" > "$BACKUP_DIR/${db}.dump"
+done
+
+echo "Done — $(ls "$BACKUP_DIR" | wc -l) databases backed up to $BACKUP_DIR"
+----
+
+== HTML
+
+[source,html]
+----
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Notes++</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <main id="app" data-theme="dark">
+        <h1 class="title">Welcome</h1>
+        <p>Start typing or <a href="/new">create a new note</a>.</p>
+    </main>
+</body>
+</html>
+----
+
+== CSS
+
+[source,css]
+----
+:root {
+    --accent: #0088cc;
+    --bg: #1a1a2e;
+    --surface: #16213e;
+}
+
+.card {
+    background: var(--surface);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+----
+
+== JSON
+
+[source,json]
+----
+{
+    "name": "notesplusplus",
+    "version": "1.0.0",
+    "features": {
+        "syntaxHighlighting": true,
+        "aiAssistant": true,
+        "webEditor": true
+    },
+    "supportedLanguages": [
+        "rust", "python", "javascript", "typescript",
+        "html", "css", "json", "sql", "bash"
+    ]
+}
+----
+
+== SQL
+
+[source,sql]
+----
+SELECT
+    n.title,
+    n.created_at,
+    GROUP_CONCAT(t.name, ', ') AS tags,
+    snippet(notes_fts, 0, '<mark>', '</mark>', '...', 32) AS match_preview
+FROM notes_fts
+JOIN notes n ON n.id = notes_fts.rowid
+LEFT JOIN note_tags t ON t.note_id = n.id
+WHERE notes_fts MATCH 'syntax NEAR highlighting'
+GROUP BY n.id
+ORDER BY rank
+LIMIT 20;
+----
+
+== Go
+
+[source,go]
+----
+package main
+
+import (
+    "fmt"
+    "net/http"
+    "sync"
+)
+
+var (
+    mu    sync.RWMutex
+    cache = make(map[string]string)
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    mu.RLock()
+    val, ok := cache[r.URL.Path]
+    mu.RUnlock()
+
+    if !ok {
+        http.Error(w, "not found", http.StatusNotFound)
+        return
+    }
+    fmt.Fprint(w, val)
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    fmt.Println("Listening on :8080")
+    http.ListenAndServe(":8080", nil)
+}
+----
+
+== YAML
+
+[source,yaml]
+----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+data:
+  config.toml: |
+    [server]
+    host = "0.0.0.0"
+    port = 8080
+    tls = true
+
+    [database]
+    url = "sqlite:///data/notes.db"
+    pool_size = 5
+----
+
+== C
+
+[source,c]
+----
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct Node {
+    char *key;
+    char *value;
+    struct Node *next;
+} Node;
+
+Node *node_create(const char *key, const char *value) {
+    Node *n = malloc(sizeof(Node));
+    n->key = strdup(key);
+    n->value = strdup(value);
+    n->next = NULL;
+    return n;
+}
+----
+
+== Without Language
+
+Code blocks without a language annotation render as plain monospace text:
+
+----
+This is a plain code block.
+No syntax coloring is applied.
+Useful for output logs or pseudo-code.
+----
+
+== Language Aliases
+
+The highlighter accepts both full names and short aliases:
+
+[cols="1,1"]
+|===
+| Alias | Resolves to
+
+| `rs`       | Rust
+| `py`       | Python
+| `js`       | JavaScript
+| `ts`       | TypeScript
+| `sh`       | Bash
+| `rb`       | Ruby
+| `yml`      | YAML
+| `md`       | Markdown
+| `cpp`      | C++
+| `kt`       | Kotlin
+| `toml`     | TOML
+|===

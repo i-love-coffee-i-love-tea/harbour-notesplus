@@ -16,7 +16,7 @@ Rectangle {
     readonly property bool hasContext: (contextFilename.length > 0) || (contextContent.length > 0) || (extraContext.length > 0)
 
     color: hasContext ? Theme.rgba(Theme.highlightBackgroundColor, 0.15) : Theme.rgba(Theme.primaryColor, 0.05)
-    border.color: hasContext ? Theme.rgba(Theme.highlightColor, 0.4) : Theme.rgba(Theme.primaryColor, 0.18)
+    border.color: hasContext ? Theme.rgba(Theme.primaryColor, 0.25) : Theme.rgba(Theme.primaryColor, 0.18)
     border.width: 1
 
     signal attachNoteRequested()
@@ -44,7 +44,7 @@ Rectangle {
                 source: contextCard.hasContext ? "image://theme/icon-m-attach" : "image://theme/icon-m-about"
                 width: Theme.iconSizeSmall
                 height: Theme.iconSizeSmall
-                color: contextCard.hasContext ? Theme.highlightColor : Theme.secondaryColor
+                color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
                 anchors.verticalCenter: parent.verticalCenter
             }
 
@@ -52,7 +52,7 @@ Rectangle {
                 text: contextCard.hasContext ? qsTr("Attached Context") : qsTr("No Context Attached")
                 font.bold: true
                 font.pixelSize: Theme.fontSizeSmall
-                color: contextCard.hasContext ? Theme.highlightColor : Theme.secondaryHighlightColor
+                color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - (contextCard.hasContext ? (clearAllBtn.width + Theme.iconSizeSmall + Theme.paddingMedium * 2) : (Theme.iconSizeSmall + Theme.paddingSmall))
                 truncationMode: TruncationMode.Fade
@@ -81,9 +81,9 @@ Rectangle {
                 width: parent.width
                 height: noteRow.height + Theme.paddingSmall * 2
                 visible: contextCard.contextFilename.length > 0 || contextCard.contextContent.length > 0
-                color: Theme.rgba(Theme.highlightColor, 0.08)
+                color: Theme.rgba(Theme.primaryColor, 0.06)
                 radius: Theme.paddingSmall / 2
-                border.color: Theme.rgba(Theme.highlightColor, 0.25)
+                border.color: Theme.rgba(Theme.primaryColor, 0.2)
                 border.width: 1
 
                 Row {
@@ -100,7 +100,7 @@ Rectangle {
                         source: "image://theme/icon-m-document"
                         width: Theme.iconSizeSmall
                         height: Theme.iconSizeSmall
-                        color: Theme.highlightColor
+                        color: Theme.primaryColor
                         anchors.verticalCenter: parent.verticalCenter
                     }
 
@@ -147,9 +147,9 @@ Rectangle {
                 width: parent.width
                 height: extraRow.height + Theme.paddingSmall * 2
                 visible: contextCard.extraContext.length > 0
-                color: Theme.rgba(Theme.highlightColor, 0.08)
+                color: Theme.rgba(Theme.primaryColor, 0.06)
                 radius: Theme.paddingSmall / 2
-                border.color: Theme.rgba(Theme.highlightColor, 0.25)
+                border.color: Theme.rgba(Theme.primaryColor, 0.2)
                 border.width: 1
 
                 Row {
@@ -166,7 +166,7 @@ Rectangle {
                         source: "image://theme/icon-m-clipboard"
                         width: Theme.iconSizeSmall
                         height: Theme.iconSizeSmall
-                        color: Theme.highlightColor
+                        color: Theme.primaryColor
                         anchors.verticalCenter: parent.verticalCenter
                     }
 

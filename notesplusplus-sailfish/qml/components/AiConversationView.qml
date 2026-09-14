@@ -144,7 +144,7 @@ Column {
                             }
                             font.pixelSize: Theme.fontSizeExtraSmall
                             font.bold: true
-                            color: msgItem.isToolMessage ? Theme.secondaryHighlightColor : Theme.highlightColor
+                            color: msgItem.isToolMessage ? Theme.secondaryColor : Theme.primaryColor
                             truncationMode: TruncationMode.Fade
                             width: parent.width
                         }
@@ -173,8 +173,8 @@ Column {
                                 width: parent.width
                                 height: toolCallInnerCol.height + Theme.paddingSmall * 2
                                 radius: Theme.paddingSmall / 2
-                                color: Theme.rgba(Theme.highlightColor, 0.1)
-                                border.color: Theme.rgba(Theme.highlightColor, 0.3)
+                                color: Theme.rgba(Theme.primaryColor, 0.06)
+                                border.color: Theme.rgba(Theme.primaryColor, 0.2)
                                 border.width: 1
 
                                 Column {
@@ -198,7 +198,7 @@ Column {
                                             }
                                             font.pixelSize: Theme.fontSizeExtraSmall
                                             font.bold: true
-                                            color: Theme.highlightColor
+                                            color: Theme.primaryColor
                                             width: parent.width - badgeLabel.width - Theme.paddingSmall
                                             truncationMode: TruncationMode.Fade
                                         }
@@ -207,7 +207,7 @@ Column {
                                             id: badgeLabel
                                             text: qsTr("Tool Action")
                                             font.pixelSize: Theme.fontSizeTiny
-                                            color: Theme.secondaryHighlightColor
+                                            color: Theme.secondaryColor
                                         }
                                     }
 
@@ -267,14 +267,14 @@ Column {
                                     source: msgItem.isExpanded ? "image://theme/icon-m-up" : "image://theme/icon-m-down"
                                     width: Theme.iconSizeSmall
                                     height: Theme.iconSizeSmall
-                                    color: Theme.highlightColor
+                                    color: Theme.secondaryColor
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
 
                                 Label {
                                     text: msgItem.isExpanded ? qsTr("Hide details") : qsTr("Show full output (%1 lines)").arg(parent.parent.lines.length)
                                     font.pixelSize: Theme.fontSizeExtraSmall
-                                    color: Theme.highlightColor
+                                    color: Theme.secondaryColor
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
@@ -314,7 +314,7 @@ Column {
                         text: "🤖 " + qsTr("Assistant")
                         font.pixelSize: Theme.fontSizeExtraSmall
                         font.bold: true
-                        color: Theme.highlightColor
+                        color: Theme.primaryColor
                     }
                     BusyIndicator {
                         size: BusyIndicatorSize.ExtraSmall

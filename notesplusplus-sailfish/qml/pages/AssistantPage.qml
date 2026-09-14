@@ -306,11 +306,81 @@ Page {
                 onClearAllContextRequested: assistantPage.clearAllContext()
             }
 
+            // Chat Messages & Streaming View
+            AiConversationView {
+                messagesJson: agentBridge.messages_json
+                agentBusy: agentBridge.agent_busy
+                streamingText: agentBridge.streaming_text
+            }
+
+            // Active Processing Banner (immediate feedback)
+            Rectangle {
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: Theme.itemSizeExtraSmall
+                radius: Theme.paddingSmall
+                color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
+                border.color: Theme.rgba(Theme.primaryColor, 0.3)
+                border.width: 1
+                visible: agentBridge.agent_busy
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.paddingMedium
+
+                    BusyIndicator {
+                        size: BusyIndicatorSize.ExtraSmall
+                        running: agentBridge.agent_busy
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Label {
+                        text: agentBridge.streaming_text.length > 0 ? qsTr("AI is generating response...") : qsTr("AI is analyzing & processing...")
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.primaryColor
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+            }
+
+            // Undo Banner
+            UndoBanner {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.horizontalPageMargin
+                visible: agentBridge.can_undo
+                onUndoTriggered: {
+                    agentBridge.undo_last_action()
+                }
+            }
+
+            // Pending Confirmation Card
+            ConfirmationCard {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Theme.horizontalPageMargin
+                visible: agentBridge.has_pending_action
+                actionData: {
+                    try {
+                        return agentBridge.pending_action_json.length > 0 ? JSON.parse(agentBridge.pending_action_json) : null
+                    } catch (e) {
+                        return null
+                    }
+                }
+                onConfirmed: function(approved) {
+                    agentBridge.confirm_action(approved)
+                }
+            }
+
             // Quick Preset & Custom Action Instructions
             AiTemplateBar {
+                id: templateBar
                 enabled: !agentBridge.agent_busy
                 agentBusy: agentBridge.agent_busy
                 hasContextOrInput: assistantPage.hasContextOrInput
+                onExpandedChanged: {
+                    assistantPage.scrollToBottom()
+                }
                 onInstructionSelected: function(item) {
                     if (!assistantPage.hasContextOrInput) {
                         assistantPage.openAttachNoteDialog()
@@ -347,72 +417,6 @@ Page {
                         "isEdit": true
                     })
                 }
-            }
-
-            // Active Processing Banner (immediate feedback)
-            Rectangle {
-                width: parent.width - Theme.horizontalPageMargin * 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                height: Theme.itemSizeExtraSmall
-                radius: Theme.paddingSmall
-                color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
-                border.color: Theme.rgba(Theme.highlightColor, 0.4)
-                border.width: 1
-                visible: agentBridge.agent_busy
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.paddingMedium
-
-                    BusyIndicator {
-                        size: BusyIndicatorSize.ExtraSmall
-                        running: agentBridge.agent_busy
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Label {
-                        text: agentBridge.streaming_text.length > 0 ? qsTr("AI is generating response...") : qsTr("AI is analyzing & processing...")
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.highlightColor
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-            }
-
-            // Undo Banner
-            UndoBanner {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Theme.horizontalPageMargin
-                visible: agentBridge.can_undo
-                onUndoTriggered: {
-                    agentBridge.undo_last_action()
-                }
-            }
-
-            // Pending Confirmation Card
-            ConfirmationCard {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Theme.horizontalPageMargin
-                visible: agentBridge.has_pending_action
-                actionData: {
-                    try {
-                        return agentBridge.pending_action_json.length > 0 ? JSON.parse(agentBridge.pending_action_json) : null
-                    } catch (e) {
-                        return null
-                    }
-                }
-                onConfirmed: function(approved) {
-                    agentBridge.confirm_action(approved)
-                }
-            }
-
-            // Chat Messages & Streaming View
-            AiConversationView {
-                messagesJson: agentBridge.messages_json
-                agentBusy: agentBridge.agent_busy
-                streamingText: agentBridge.streaming_text
             }
 
             // Input Bar with Mic & Live Waveform

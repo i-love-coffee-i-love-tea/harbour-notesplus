@@ -26,7 +26,7 @@ Column {
         color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
         radius: Theme.paddingSmall
         border.color: (voiceInputBar.isSpeechRecording && voiceInputBar.liveAudioLevel > 0.06) ?
-                      Theme.rgba(Theme.highlightColor, 0.6) : Theme.rgba(Theme.highlightColor, 0.3)
+                      Theme.rgba(Theme.highlightColor, 0.6) : Theme.rgba(Theme.primaryColor, 0.2)
         border.width: 1
         visible: voiceInputBar.isSpeechRecording || voiceInputBar.isSpeechTranscribing
         clip: true
@@ -77,15 +77,14 @@ Column {
                     }
                     return qsTr("Listening... Speak into microphone")
                 }
-                color: (voiceInputBar.isSpeechRecording && voiceInputBar.liveAudioLevel > 0.06) ?
-                       Theme.primaryColor : Theme.highlightColor
+                color: Theme.primaryColor
                 font.pixelSize: Theme.fontSizeSmall
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Label {
                 text: qsTr("Cancel")
-                color: Theme.secondaryHighlightColor
+                color: Theme.secondaryColor
                 font.pixelSize: Theme.fontSizeExtraSmall
                 visible: voiceInputBar.isSpeechRecording
                 anchors.verticalCenter: parent.verticalCenter

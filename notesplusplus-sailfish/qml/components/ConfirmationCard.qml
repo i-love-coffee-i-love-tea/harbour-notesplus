@@ -6,7 +6,7 @@ Rectangle {
     width: parent.width
     height: cardContent.height + Theme.paddingLarge * 2
     color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
-    border.color: Theme.highlightColor
+    border.color: Theme.rgba(Theme.primaryColor, 0.3)
     border.width: 1
     radius: Theme.paddingMedium
     clip: true
@@ -35,7 +35,7 @@ Rectangle {
                 text: actionData ? (qsTr("Proposed Edit: ") + (actionData.filename || "")) : qsTr("Action Confirmation")
                 font.bold: true
                 font.pixelSize: Theme.fontSizeMedium
-                color: Theme.highlightColor
+                color: Theme.primaryColor
                 anchors.verticalCenter: parent.verticalCenter
                 truncationMode: TruncationMode.Fade
                 width: parent.width - Theme.itemSizeExtraSmall
@@ -71,7 +71,6 @@ Rectangle {
 
             Button {
                 text: qsTr("Approve & Apply")
-                color: Theme.highlightColor
                 preferredWidth: Theme.buttonWidthSmall
                 onClicked: {
                     confirmationCardRoot.confirmed(true)

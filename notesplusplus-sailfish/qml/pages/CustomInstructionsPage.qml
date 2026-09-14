@@ -117,7 +117,7 @@ Page {
                     height: Theme.itemSizeExtraSmall
                     radius: Theme.paddingSmall / 2
                     color: Theme.rgba(Theme.highlightBackgroundColor, 0.2)
-                    border.color: Theme.rgba(Theme.highlightColor, 0.4)
+                    border.color: Theme.rgba(Theme.primaryColor, 0.2)
                     border.width: 1
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -126,7 +126,7 @@ Page {
                         source: modelData.icon ? (modelData.icon.indexOf("image://") === 0 ? modelData.icon : ("image://theme/" + modelData.icon)) : "image://theme/icon-m-note"
                         width: Theme.iconSizeMedium
                         height: Theme.iconSizeMedium
-                        color: Theme.highlightColor
+                        color: instructionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
                     }
                 }
 

@@ -36,7 +36,7 @@ Column {
             x: Theme.horizontalPageMargin
             width: parent.width - Theme.horizontalPageMargin * 2
             text: qsTr("What can the AI do with my notes?")
-            color: parent.highlighted ? Theme.highlightColor : Theme.highlightColor
+            color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
             font.pixelSize: Theme.fontSizeSmall
             font.underline: true
             wrapMode: Text.Wrap

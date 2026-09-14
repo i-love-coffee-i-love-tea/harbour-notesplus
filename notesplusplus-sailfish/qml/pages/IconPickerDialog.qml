@@ -511,7 +511,7 @@ Dialog {
                         width: Theme.itemSizeExtraSmall
                         height: Theme.itemSizeExtraSmall
                         radius: Theme.paddingSmall / 2
-                        color: Theme.rgba(Theme.highlightColor, 0.2)
+                        color: Theme.rgba(Theme.primaryColor, 0.08)
                         anchors.verticalCenter: parent.verticalCenter
 
                         Icon {
@@ -519,7 +519,7 @@ Dialog {
                             source: iconPickerDialog.selectedIcon.length > 0 ? "image://theme/" + iconPickerDialog.selectedIcon : ""
                             width: Theme.iconSizeMedium
                             height: Theme.iconSizeMedium
-                            color: Theme.highlightColor
+                            color: Theme.primaryColor
                         }
                     }
 
@@ -537,7 +537,7 @@ Dialog {
                             text: iconPickerDialog.selectedIcon
                             font.pixelSize: Theme.fontSizeSmall
                             font.bold: true
-                            color: Theme.highlightColor
+                            color: Theme.primaryColor
                             truncationMode: TruncationMode.Fade
                             width: parent.width
                         }

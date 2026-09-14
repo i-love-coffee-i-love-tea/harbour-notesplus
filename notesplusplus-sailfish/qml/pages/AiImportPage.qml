@@ -474,7 +474,7 @@ Page {
 
                     Label {
                         text: qsTr("Import Completed")
-                        color: Theme.highlightColor
+                        color: Theme.primaryColor
                         font.pixelSize: Theme.fontSizeMedium
                         font.bold: true
                         anchors.verticalCenter: parent.verticalCenter
@@ -529,7 +529,7 @@ Page {
                         height: msgCol.height + Theme.paddingMedium * 2
                         color: modelData.role === "assistant" ? Theme.rgba(Theme.highlightBackgroundColor, 0.08) : Theme.rgba(Theme.primaryColor, 0.04)
                         radius: Theme.paddingSmall
-                        border.color: modelData.role === "assistant" ? Theme.rgba(Theme.highlightColor, 0.2) : "transparent"
+                        border.color: modelData.role === "assistant" ? Theme.rgba(Theme.primaryColor, 0.2) : "transparent"
                         border.width: 1
 
                         Column {
@@ -542,7 +542,7 @@ Page {
 
                             Label {
                                 text: modelData.role === "assistant" ? "🤖 Assistant Summary" : "👤 Import Request"
-                                color: Theme.highlightColor
+                                color: Theme.primaryColor
                                 font.pixelSize: Theme.fontSizeExtraSmall
                                 font.bold: true
                             }

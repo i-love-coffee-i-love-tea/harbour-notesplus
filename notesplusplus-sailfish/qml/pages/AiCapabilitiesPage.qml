@@ -100,7 +100,7 @@ Page {
                 Label {
                     width: parent.width
                     text: qsTr("Before any edit is applied, you will always see exactly what changed — line by line — and can approve or reject it. This confirmation step cannot be turned off.")
-                    color: Theme.highlightColor
+                    color: Theme.primaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
                     font.bold: true
                     wrapMode: Text.Wrap

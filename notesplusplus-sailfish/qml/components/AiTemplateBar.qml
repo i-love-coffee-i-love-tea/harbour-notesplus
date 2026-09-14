@@ -11,13 +11,13 @@ Rectangle {
     property bool enabled: true
     property bool agentBusy: false
     property bool hasContextOrInput: true
-    property bool expanded: true
+    property bool expanded: false
 
     readonly property var instructionsList: (typeof app !== "undefined" && app.customAiInstructions) ? app.customAiInstructions : []
     readonly property int totalCount: instructionsList.length
 
     color: Theme.rgba(Theme.highlightBackgroundColor, 0.08)
-    border.color: Theme.rgba(Theme.highlightColor, 0.25)
+    border.color: Theme.rgba(Theme.primaryColor, 0.2)
     border.width: 1
 
     signal instructionSelected(var instructionItem)
@@ -52,7 +52,7 @@ Rectangle {
                     source: "image://theme/icon-m-developer-mode"
                     width: Theme.iconSizeSmall
                     height: Theme.iconSizeSmall
-                    color: Theme.highlightColor
+                    color: headerItem.highlighted ? Theme.highlightColor : Theme.primaryColor
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -60,7 +60,7 @@ Rectangle {
                     text: qsTr("Quick Instructions")
                     font.bold: true
                     font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.highlightColor
+                    color: headerItem.highlighted ? Theme.highlightColor : Theme.primaryColor
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -80,7 +80,7 @@ Rectangle {
                 icon.source: templateBar.expanded ? "image://theme/icon-m-up" : "image://theme/icon-m-down"
                 icon.width: Theme.iconSizeSmall
                 icon.height: Theme.iconSizeSmall
-                icon.color: Theme.highlightColor
+                icon.color: headerItem.highlighted ? Theme.highlightColor : Theme.primaryColor
                 width: Theme.itemSizeExtraSmall
                 height: Theme.itemSizeExtraSmall
                 onClicked: templateBar.expanded = !templateBar.expanded
@@ -115,7 +115,7 @@ Rectangle {
                         anchors.fill: parent
                         radius: Theme.paddingSmall / 2
                         color: tplBtn.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.45) : Theme.rgba(Theme.primaryColor, 0.08)
-                        border.color: tplBtn.highlighted ? Theme.highlightColor : Theme.rgba(Theme.highlightColor, 0.25)
+                        border.color: tplBtn.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.2)
                         border.width: 1
 
                         Row {
@@ -131,7 +131,7 @@ Rectangle {
                                 source: modelData.icon ? (modelData.icon.indexOf("image://") === 0 ? modelData.icon : ("image://theme/" + modelData.icon)) : "image://theme/icon-m-note"
                                 width: Theme.iconSizeSmall
                                 height: Theme.iconSizeSmall
-                                color: tplBtn.highlighted ? Theme.highlightColor : Theme.highlightColor
+                                color: tplBtn.highlighted ? Theme.highlightColor : Theme.primaryColor
                                 anchors.verticalCenter: parent.verticalCenter
                             }
 

@@ -120,7 +120,7 @@ Dialog {
                 anchors.horizontalCenter: parent.horizontalCenter
                 radius: Theme.paddingSmall
                 color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
-                border.color: Theme.rgba(Theme.highlightColor, 0.3)
+                border.color: Theme.rgba(Theme.primaryColor, 0.2)
                 border.width: 1
 
                 Row {
@@ -137,7 +137,7 @@ Dialog {
                         width: Theme.itemSizeExtraSmall
                         height: Theme.itemSizeExtraSmall
                         radius: Theme.paddingSmall / 2
-                        color: Theme.rgba(Theme.highlightColor, 0.2)
+                        color: Theme.rgba(Theme.primaryColor, 0.08)
                         anchors.verticalCenter: parent.verticalCenter
 
                         Icon {
@@ -145,7 +145,7 @@ Dialog {
                             source: customInstructionDialog.selectedIcon.length > 0 ? "image://theme/" + customInstructionDialog.selectedIcon : "image://theme/icon-m-note"
                             width: Theme.iconSizeMedium
                             height: Theme.iconSizeMedium
-                            color: Theme.highlightColor
+                            color: Theme.primaryColor
                         }
                     }
 
@@ -283,7 +283,7 @@ Dialog {
                         text: qsTr("Optional Placeholders:")
                         font.pixelSize: Theme.fontSizeExtraSmall
                         font.bold: true
-                        color: Theme.highlightColor
+                        color: Theme.primaryColor
                     }
 
                     Label {
