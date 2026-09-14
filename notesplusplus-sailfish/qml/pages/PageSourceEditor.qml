@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../components"
+import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Dialog {
     id: pageSourceEditor
@@ -48,6 +49,9 @@ Dialog {
                 font.pixelSize: Math.round(Theme.fontSizeSmall * (typeof app !== "undefined" && app && app.codeFontScale ? app.codeFontScale : 1.0))
                 color: Theme.primaryColor
                 placeholderText: qsTr("Enter AsciiDoc document source...")
+                Keys.onPressed: function(event) {
+                    BlockHtmlUtils.handleEditorKeyPress(event, textArea)
+                }
             }
         }
     }

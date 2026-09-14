@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Rectangle {
     id: editorToolbar
@@ -109,6 +110,60 @@ Rectangle {
                 prefix: ""
                 suffix: ""
                 defaultText: ""
+                delta: 0
+                direction: 0
+            }
+            ListElement {
+                itemId: "outdent"
+                icon: ""
+                label: "⇤"
+                actionType: "list_level"
+                snippet: ""
+                cursorOffset: 0
+                prefix: ""
+                suffix: ""
+                defaultText: ""
+                delta: -1
+                direction: 0
+            }
+            ListElement {
+                itemId: "indent"
+                icon: ""
+                label: "⇥"
+                actionType: "list_level"
+                snippet: ""
+                cursorOffset: 0
+                prefix: ""
+                suffix: ""
+                defaultText: ""
+                delta: 1
+                direction: 0
+            }
+            ListElement {
+                itemId: "move_up"
+                icon: "image://theme/icon-m-up"
+                label: ""
+                actionType: "move_lines"
+                snippet: ""
+                cursorOffset: 0
+                prefix: ""
+                suffix: ""
+                defaultText: ""
+                delta: 0
+                direction: -1
+            }
+            ListElement {
+                itemId: "move_down"
+                icon: "image://theme/icon-m-down"
+                label: ""
+                actionType: "move_lines"
+                snippet: ""
+                cursorOffset: 0
+                prefix: ""
+                suffix: ""
+                defaultText: ""
+                delta: 0
+                direction: 1
             }
             ListElement {
                 itemId: "link"
@@ -241,8 +296,8 @@ Rectangle {
                 visible: !itemIcon.visible
                 text: model.label || ""
                 color: buttonItem.highlighted ? Theme.highlightColor : Theme.primaryColor
-                font.pixelSize: (model.label === "•" || model.label === "☐") ? Theme.fontSizeLarge : Theme.fontSizeMedium
-                font.bold: model.itemId === "bold" || model.itemId === "h2" || model.itemId === "h3" || model.itemId === "numbered"
+                font.pixelSize: (model.label === "•" || model.label === "☐" || model.label === "⇤" || model.label === "⇥") ? Theme.fontSizeLarge : Theme.fontSizeMedium
+                font.bold: model.itemId === "bold" || model.itemId === "h2" || model.itemId === "h3" || model.itemId === "numbered" || model.itemId === "outdent" || model.itemId === "indent"
                 font.italic: model.itemId === "italic"
                 font.family: (model.itemId === "mono" || model.itemId === "source") ? "monospace" : Theme.fontFamily
             }
@@ -267,7 +322,45 @@ Rectangle {
         } else if (item.actionType === "date") {
             var dateStr = Qt.formatDate(new Date(), "yyyy-MM-dd")
             insertInlineSnippet(dateStr)
+        } else if (item.actionType === "list_level") {
+            applyListLevelChange(item.delta)
+        } else if (item.actionType === "move_lines") {
+            applyMoveLines(item.direction)
         }
+    }
+
+    function applyListLevelChange(delta) {
+        if (!targetTextArea) return
+        var res = BlockHtmlUtils.changeListLevel(
+            targetTextArea.text,
+            targetTextArea.selectionStart,
+            targetTextArea.selectionEnd,
+            targetTextArea.cursorPosition,
+            delta
+        )
+        targetTextArea.text = res.text
+        targetTextArea.cursorPosition = res.cursorPosition
+        if (res.selectionStart !== res.selectionEnd && typeof targetTextArea.select === "function") {
+            targetTextArea.select(res.selectionStart, res.selectionEnd)
+        }
+        targetTextArea.forceActiveFocus()
+    }
+
+    function applyMoveLines(direction) {
+        if (!targetTextArea) return
+        var res = BlockHtmlUtils.moveLines(
+            targetTextArea.text,
+            targetTextArea.selectionStart,
+            targetTextArea.selectionEnd,
+            targetTextArea.cursorPosition,
+            direction
+        )
+        targetTextArea.text = res.text
+        targetTextArea.cursorPosition = res.cursorPosition
+        if (res.selectionStart !== res.selectionEnd && typeof targetTextArea.select === "function") {
+            targetTextArea.select(res.selectionStart, res.selectionEnd)
+        }
+        targetTextArea.forceActiveFocus()
     }
 
     function wrapSelectionOrInsert(prefix, suffix, defaultText) {

@@ -362,6 +362,62 @@ Page {
         })
     }
 
+    function changeActiveEditorListLevel(delta) {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var res = BlockHtmlUtils.changeListLevel(
+                target.text,
+                target.selectionStart,
+                target.selectionEnd,
+                target.cursorPosition,
+                delta
+            )
+            target.text = res.text
+            target.cursorPosition = res.cursorPosition
+            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
+                target.select(res.selectionStart, res.selectionEnd)
+            }
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.newJournalBlockText = target.text
+            } else if (mainPage.editingJournalBlockIndex >= 0) {
+                mainPage.editingCurrentText = target.text
+                mainPage.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        }
+    }
+
+    function moveActiveEditorLines(direction) {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var res = BlockHtmlUtils.moveLines(
+                target.text,
+                target.selectionStart,
+                target.selectionEnd,
+                target.cursorPosition,
+                direction
+            )
+            target.text = res.text
+            target.cursorPosition = res.cursorPosition
+            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
+                target.select(res.selectionStart, res.selectionEnd)
+            }
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.newJournalBlockText = target.text
+            } else if (mainPage.editingJournalBlockIndex >= 0) {
+                mainPage.editingCurrentText = target.text
+                mainPage.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        }
+    }
+
     function applyJournalBlockPrefix(prefix, multiLineList) {
         applyPrefixToActiveEditor(prefix, multiLineList)
     }
@@ -729,6 +785,9 @@ Page {
                         font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                         color: Theme.primaryColor
                         background: null
+                        Keys.onPressed: function(event) {
+                            BlockHtmlUtils.handleEditorKeyPress(event, journalInlineNewTextArea)
+                        }
                         onTextChanged: {
                             if (mainPage.isAddingJournalBlock) {
                                 mainPage.newJournalBlockText = text
@@ -860,6 +919,18 @@ Page {
         }
         onElementPickerRequested: {
             mainPage.openElementPicker()
+        }
+        onIndentRequested: {
+            mainPage.changeActiveEditorListLevel(1)
+        }
+        onOutdentRequested: {
+            mainPage.changeActiveEditorListLevel(-1)
+        }
+        onMoveUpRequested: {
+            mainPage.moveActiveEditorLines(-1)
+        }
+        onMoveDownRequested: {
+            mainPage.moveActiveEditorLines(1)
         }
     }
 

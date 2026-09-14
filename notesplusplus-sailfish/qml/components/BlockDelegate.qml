@@ -377,6 +377,9 @@ Item {
                     font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                     color: Theme.primaryColor
                     background: null
+                    Keys.onPressed: function(event) {
+                        BlockHtmlUtils.handleEditorKeyPress(event, inlineTextArea)
+                    }
                     onTextChanged: {
                         if (delegate.isEditing) {
                             delegate.textModified(delegate.blockIndex, text)

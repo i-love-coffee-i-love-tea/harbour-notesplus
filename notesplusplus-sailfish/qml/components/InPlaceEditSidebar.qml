@@ -8,6 +8,7 @@ Item {
     z: 30
 
     property bool specialPasteMode: false
+    property bool flyoutOpen: false
 
     signal accepted()
     signal canceled()
@@ -17,8 +18,31 @@ Item {
     signal pasteSpecialRequested(string prefix, bool multiLine)
     signal refocusRequested()
     signal elementPickerRequested()
+    signal indentRequested()
+    signal outdentRequested()
+    signal moveUpRequested()
+    signal moveDownRequested()
+
+    function openFlyout() {
+        flyoutOpen = true
+        flyoutTimer.restart()
+    }
+
+    function closeFlyout() {
+        flyoutOpen = false
+        flyoutTimer.stop()
+    }
+
+    function toggleFlyout() {
+        if (flyoutOpen) {
+            closeFlyout()
+        } else {
+            openFlyout()
+        }
+    }
 
     function enterSpecialPasteMode() {
+        closeFlyout()
         specialPasteMode = true
         flashAnimation.restart()
         autoResetTimer.restart()
@@ -48,6 +72,7 @@ Item {
     onVisibleChanged: {
         if (!visible) {
             exitSpecialPasteMode()
+            closeFlyout()
         }
     }
 
@@ -57,6 +82,15 @@ Item {
         repeat: false
         onTriggered: {
             inPlaceSidebar.exitSpecialPasteMode()
+        }
+    }
+
+    Timer {
+        id: flyoutTimer
+        interval: 8000
+        repeat: false
+        onTriggered: {
+            inPlaceSidebar.closeFlyout()
         }
     }
 
@@ -234,81 +268,111 @@ Item {
         }
 
         // --- Lists Group (Task Checkbox, Bullet, Numbered) ---
-        BackgroundItem {
-            id: checkboxItem
+        Column {
+            id: listGroupContainer
             width: parent.width
-            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
-            anchors.horizontalCenter: parent.horizontalCenter
-            highlighted: down || inPlaceSidebar.specialPasteMode
-            onClicked: inPlaceSidebar.handlePrefixClick("* [ ] ", true)
+            spacing: 2
 
-            Rectangle {
-                anchors.centerIn: parent
-                width: Math.round(Theme.iconSizeSmall * 0.6) + 4
-                height: Math.round(Theme.iconSizeSmall * 0.6) + 4
-                color: "transparent"
-                border.width: 2
-                border.color: (checkboxItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
-                radius: 3
+            Timer {
+                id: listHoldTimer
+                interval: 400
+                repeat: false
+                onTriggered: {
+                    inPlaceSidebar.openFlyout()
+                }
             }
-        }
 
-        BackgroundItem {
-            id: bulletListItem
-            width: parent.width
-            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
-            anchors.horizontalCenter: parent.horizontalCenter
-            highlighted: down || inPlaceSidebar.specialPasteMode
-            onClicked: inPlaceSidebar.handlePrefixClick("* ", true)
+            BackgroundItem {
+                id: checkboxItem
+                width: parent.width
+                height: Math.round(Theme.itemSizeExtraSmall * 0.8)
+                anchors.horizontalCenter: parent.horizontalCenter
+                highlighted: down || inPlaceSidebar.specialPasteMode
+                onDownChanged: {
+                    if (down) listHoldTimer.restart(); else listHoldTimer.stop();
+                }
+                onClicked: inPlaceSidebar.handlePrefixClick("* [ ] ", true)
 
-            Item {
-                id: listIconContainer
-                anchors.centerIn: parent
-                width: Math.round(Theme.iconSizeSmall * 0.8) + 4
-                height: Math.round(Theme.iconSizeSmall * 0.8) + 4
-
-                Column {
+                Rectangle {
                     anchors.centerIn: parent
-                    spacing: 3
+                    width: Math.round(Theme.iconSizeSmall * 0.6) + 4
+                    height: Math.round(Theme.iconSizeSmall * 0.6) + 4
+                    color: "transparent"
+                    border.width: 2
+                    border.color: (checkboxItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
+                    radius: 3
+                }
+            }
 
-                    Repeater {
-                        model: 3
-                        Row {
-                            spacing: 3
-                            Rectangle {
-                                width: 3
-                                height: 3
-                                radius: 1.5
-                                color: (bulletListItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-                            Rectangle {
-                                width: listIconContainer.width - 3 - 3 - 4
-                                height: 2
-                                radius: 1
-                                color: (bulletListItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
-                                anchors.verticalCenter: parent.verticalCenter
+            BackgroundItem {
+                id: bulletListItem
+                width: parent.width
+                height: Math.round(Theme.itemSizeExtraSmall * 0.8)
+                anchors.horizontalCenter: parent.horizontalCenter
+                highlighted: down || inPlaceSidebar.specialPasteMode || inPlaceSidebar.flyoutOpen
+                onDownChanged: {
+                    if (down) listHoldTimer.restart(); else listHoldTimer.stop();
+                }
+                onClicked: {
+                    if (inPlaceSidebar.flyoutOpen) {
+                        inPlaceSidebar.toggleFlyout()
+                    } else {
+                        inPlaceSidebar.handlePrefixClick("* ", true)
+                    }
+                }
+
+                Item {
+                    id: listIconContainer
+                    anchors.centerIn: parent
+                    width: Math.round(Theme.iconSizeSmall * 0.8) + 4
+                    height: Math.round(Theme.iconSizeSmall * 0.8) + 4
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 3
+
+                        Repeater {
+                            model: 3
+                            Row {
+                                spacing: 3
+                                Rectangle {
+                                    width: 3
+                                    height: 3
+                                    radius: 1.5
+                                    color: (bulletListItem.down || inPlaceSidebar.specialPasteMode || inPlaceSidebar.flyoutOpen) ? Theme.highlightColor : Theme.primaryColor
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                Rectangle {
+                                    width: listIconContainer.width - 3 - 3 - 4
+                                    height: 2
+                                    radius: 1
+                                    color: (bulletListItem.down || inPlaceSidebar.specialPasteMode || inPlaceSidebar.flyoutOpen) ? Theme.highlightColor : Theme.primaryColor
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        BackgroundItem {
-            id: numberedListItem
-            width: parent.width
-            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
-            anchors.horizontalCenter: parent.horizontalCenter
-            highlighted: down || inPlaceSidebar.specialPasteMode
-            onClicked: inPlaceSidebar.handlePrefixClick(". ", true)
+            BackgroundItem {
+                id: numberedListItem
+                width: parent.width
+                height: Math.round(Theme.itemSizeExtraSmall * 0.8)
+                anchors.horizontalCenter: parent.horizontalCenter
+                highlighted: down || inPlaceSidebar.specialPasteMode
+                onDownChanged: {
+                    if (down) listHoldTimer.restart(); else listHoldTimer.stop();
+                }
+                onClicked: inPlaceSidebar.handlePrefixClick(". ", true)
 
-            Label {
-                anchors.centerIn: parent
-                text: "1."
-                font.pixelSize: Theme.fontSizeExtraSmall + 2
-                font.bold: true
-                color: (numberedListItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
+                Label {
+                    anchors.centerIn: parent
+                    text: "1."
+                    font.pixelSize: Theme.fontSizeExtraSmall + 2
+                    font.bold: true
+                    color: (numberedListItem.down || inPlaceSidebar.specialPasteMode) ? Theme.highlightColor : Theme.primaryColor
+                }
             }
         }
 
@@ -429,6 +493,109 @@ Item {
                 text: "\u2026"
                 font.pixelSize: Theme.fontSizeMedium
                 color: elementPickerBtn.down ? Theme.highlightColor : Theme.primaryColor
+            }
+        }
+    }
+
+    // --- Contextual Flyout Palette for List Operations ---
+    Rectangle {
+        id: flyoutPalette
+        anchors.right: parent.left
+        anchors.rightMargin: Theme.paddingSmall
+        anchors.verticalCenter: listGroupContainer.verticalCenter
+        width: flyoutRow.width + Theme.paddingSmall * 2
+        height: Theme.itemSizeExtraSmall
+        radius: Theme.paddingMedium
+        color: Theme.rgba(Theme.overlayBackgroundColor, 0.92)
+        border.color: Theme.rgba(Theme.highlightColor, 0.4)
+        border.width: 1
+        opacity: inPlaceSidebar.flyoutOpen ? 1.0 : 0.0
+        visible: opacity > 0.001
+        z: 40
+
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        Row {
+            id: flyoutRow
+            anchors.centerIn: parent
+            spacing: 2
+
+            BackgroundItem {
+                id: flyoutOutdentBtn
+                width: Theme.itemSizeExtraSmall
+                height: Theme.itemSizeExtraSmall
+                highlighted: down
+                onClicked: {
+                    inPlaceSidebar.openFlyout()
+                    inPlaceSidebar.outdentRequested()
+                    inPlaceSidebar.refocusRequested()
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "⇤"
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.bold: true
+                    color: flyoutOutdentBtn.down ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                id: flyoutIndentBtn
+                width: Theme.itemSizeExtraSmall
+                height: Theme.itemSizeExtraSmall
+                highlighted: down
+                onClicked: {
+                    inPlaceSidebar.openFlyout()
+                    inPlaceSidebar.indentRequested()
+                    inPlaceSidebar.refocusRequested()
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "⇥"
+                    font.pixelSize: Theme.fontSizeMedium
+                    font.bold: true
+                    color: flyoutIndentBtn.down ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                id: flyoutMoveUpBtn
+                width: Theme.itemSizeExtraSmall
+                height: Theme.itemSizeExtraSmall
+                highlighted: down
+                onClicked: {
+                    inPlaceSidebar.openFlyout()
+                    inPlaceSidebar.moveUpRequested()
+                    inPlaceSidebar.refocusRequested()
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "▲"
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: flyoutMoveUpBtn.down ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                id: flyoutMoveDownBtn
+                width: Theme.itemSizeExtraSmall
+                height: Theme.itemSizeExtraSmall
+                highlighted: down
+                onClicked: {
+                    inPlaceSidebar.openFlyout()
+                    inPlaceSidebar.moveDownRequested()
+                    inPlaceSidebar.refocusRequested()
+                }
+
+                Label {
+                    anchors.centerIn: parent
+                    text: "▼"
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: flyoutMoveDownBtn.down ? Theme.highlightColor : Theme.primaryColor
+                }
             }
         }
     }

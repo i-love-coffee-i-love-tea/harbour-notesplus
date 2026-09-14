@@ -240,6 +240,35 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Delete Page")
+                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
+                onClicked: {
+                    var fullPath = pageView.pageFullPath
+                    remorsePopup.execute(qsTr("Deleting page"), function() {
+                        bridge.delete_page(fullPath)
+                        pageStack.pop()
+                    })
+                }
+            }
+            MenuItem {
+                text: qsTr("Move to Group...")
+                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
+                onClicked: {
+                    var fullPath = pageView.pageFullPath
+                    var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
+                        pageFullPath: fullPath,
+                        pageTitle: pageName,
+                        currentGroup: pageView.pageGroupPath
+                    })
+                    dialog.accepted.connect(function() {
+                        var target = dialog.targetGroup
+                        remorsePopup.execute(qsTr("Moving to %1").arg(target.length > 0 ? target : qsTr("Root")), function() {
+                            bridge.move_page_to_group(fullPath, target)
+                        })
+                    })
+                }
+            }
+            MenuItem {
                 text: qsTr("Find in Page")
                 onClicked: {
                     if (pageView.showFindBar) {
@@ -279,35 +308,6 @@ Page {
                         Clipboard.text = url
                         remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
                     }
-                }
-            }
-            MenuItem {
-                text: qsTr("Move to Group...")
-                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
-                onClicked: {
-                    var fullPath = pageView.pageFullPath
-                    var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
-                        pageFullPath: fullPath,
-                        pageTitle: pageName,
-                        currentGroup: pageView.pageGroupPath
-                    })
-                    dialog.accepted.connect(function() {
-                        var target = dialog.targetGroup
-                        remorsePopup.execute(qsTr("Moving to %1").arg(target.length > 0 ? target : qsTr("Root")), function() {
-                            bridge.move_page_to_group(fullPath, target)
-                        })
-                    })
-                }
-            }
-            MenuItem {
-                text: qsTr("Delete Page")
-                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
-                onClicked: {
-                    var fullPath = pageView.pageFullPath
-                    remorsePopup.execute(qsTr("Deleting page"), function() {
-                        bridge.delete_page(fullPath)
-                        pageStack.pop()
-                    })
                 }
             }
         }
@@ -381,6 +381,9 @@ Page {
                     font.pixelSize: app.scaledFontSize(Theme.fontSizeMedium)
                     color: Theme.primaryColor
                     background: null
+                    Keys.onPressed: function(event) {
+                        BlockHtmlUtils.handleEditorKeyPress(event, inlineNewTextArea)
+                    }
                     onTextChanged: {
                         if (pageView.isAddingNewBlock) {
                             pageView.newBlockText = text
@@ -509,6 +512,18 @@ Page {
         }
         onElementPickerRequested: {
             pageView.openElementPicker()
+        }
+        onIndentRequested: {
+            pageView.changeActiveEditorListLevel(1)
+        }
+        onOutdentRequested: {
+            pageView.changeActiveEditorListLevel(-1)
+        }
+        onMoveUpRequested: {
+            pageView.moveActiveEditorLines(-1)
+        }
+        onMoveDownRequested: {
+            pageView.moveActiveEditorLines(1)
         }
     }
 
@@ -837,6 +852,62 @@ Page {
                 }
             }
         })
+    }
+
+    function changeActiveEditorListLevel(delta) {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var res = BlockHtmlUtils.changeListLevel(
+                target.text,
+                target.selectionStart,
+                target.selectionEnd,
+                target.cursorPosition,
+                delta
+            )
+            target.text = res.text
+            target.cursorPosition = res.cursorPosition
+            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
+                target.select(res.selectionStart, res.selectionEnd)
+            }
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = target.text
+            } else if (pageView.editingBlockIndex >= 0) {
+                pageView.editingCurrentText = target.text
+                pageView.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        }
+    }
+
+    function moveActiveEditorLines(direction) {
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var res = BlockHtmlUtils.moveLines(
+                target.text,
+                target.selectionStart,
+                target.selectionEnd,
+                target.cursorPosition,
+                direction
+            )
+            target.text = res.text
+            target.cursorPosition = res.cursorPosition
+            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
+                target.select(res.selectionStart, res.selectionEnd)
+            }
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = target.text
+            } else if (pageView.editingBlockIndex >= 0) {
+                pageView.editingCurrentText = target.text
+                pageView.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        }
     }
 
     function isEditingDirty() {
