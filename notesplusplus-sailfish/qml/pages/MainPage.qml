@@ -102,6 +102,7 @@ Page {
     property bool isAddingJournalBlock: false
     property string newJournalBlockText: ""
     property var currentEditorTextArea: null
+    property bool showJournalDiscardConfirmation: false
 
     function getActiveEditorTextArea() {
         if (mainPage.isAddingJournalBlock) return journalInlineNewTextArea
@@ -311,7 +312,31 @@ Page {
         applyPrefixToActiveEditor(prefix, multiLineList)
     }
 
+    function isJournalEditingDirty() {
+        if (mainPage.isAddingJournalBlock) {
+            return (mainPage.newJournalBlockText || "").trim().length > 0
+        }
+        if (mainPage.editingJournalBlockIndex >= 0) {
+            return mainPage.editingCurrentText !== mainPage.editingRawText
+        }
+        return false
+    }
+
+    function requestCancelJournalEditing() {
+        if (mainPage.isJournalEditingDirty()) {
+            mainPage.showJournalDiscardConfirmation = true
+        } else {
+            mainPage.showJournalDiscardConfirmation = false
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.cancelNewJournalBlock()
+            } else {
+                mainPage.cancelCurrentJournalEditing()
+            }
+        }
+    }
+
     function saveCurrentEditingJournalBlock() {
+        mainPage.showJournalDiscardConfirmation = false
         if (editingJournalBlockIndex >= 0) {
             bridge.save_journal_block(editingJournalBlockIndex, editingCurrentText)
             editingJournalBlockIndex = -1
@@ -322,6 +347,7 @@ Page {
     }
 
     function cancelCurrentJournalEditing() {
+        mainPage.showJournalDiscardConfirmation = false
         editingJournalBlockIndex = -1
         editingRawText = ""
         editingCurrentText = ""
@@ -329,6 +355,7 @@ Page {
     }
 
     function startAddingJournalBlock() {
+        mainPage.showJournalDiscardConfirmation = false
         if (editingJournalBlockIndex >= 0) {
             saveCurrentEditingJournalBlock()
         }
@@ -341,6 +368,7 @@ Page {
     }
 
     function saveNewJournalBlock() {
+        mainPage.showJournalDiscardConfirmation = false
         if (isAddingJournalBlock) {
             var trimmed = (newJournalBlockText || "").trim()
             if (trimmed.length > 0) {
@@ -353,6 +381,7 @@ Page {
     }
 
     function cancelNewJournalBlock() {
+        mainPage.showJournalDiscardConfirmation = false
         isAddingJournalBlock = false
         newJournalBlockText = ""
         currentEditorTextArea = null
@@ -556,6 +585,7 @@ Page {
                         editingRawText: (mainPage.editingJournalBlockIndex === index) ? mainPage.editingRawText : ""
 
                         onEditRequested: function(idx, raw) {
+                            mainPage.showJournalDiscardConfirmation = false
                             if (mainPage.isAddingJournalBlock) {
                                 mainPage.saveNewJournalBlock()
                             }
@@ -573,10 +603,14 @@ Page {
                         onTextModified: function(idx, newText) {
                             if (mainPage.editingJournalBlockIndex === idx) {
                                 mainPage.editingCurrentText = newText
+                                if (mainPage.showJournalDiscardConfirmation) {
+                                    mainPage.showJournalDiscardConfirmation = false
+                                }
                             }
                         }
 
                         onSaveRequested: function(idx, newRaw) {
+                            mainPage.showJournalDiscardConfirmation = false
                             bridge.save_journal_block(idx, newRaw)
                             mainPage.editingJournalBlockIndex = -1
                             mainPage.editingRawText = ""
@@ -585,11 +619,12 @@ Page {
                         }
 
                         onCancelEditRequested: function() {
-                            mainPage.cancelCurrentJournalEditing()
+                            mainPage.requestCancelJournalEditing()
                         }
 
                         onCheckboxToggled: function(idx, itemPath) {
-                            bridge.toggle_journal_checkbox(idx, itemPath)
+                            var relativePath = (itemPath.length > String(idx).length + 1) ? itemPath.substring(String(idx).length + 1) : ""
+                            bridge.toggle_journal_checkbox(idx, relativePath)
                         }
 
                         onXrefActivated: function(target) {
@@ -643,6 +678,9 @@ Page {
                         onTextChanged: {
                             if (mainPage.isAddingJournalBlock) {
                                 mainPage.newJournalBlockText = text
+                                if (mainPage.showJournalDiscardConfirmation) {
+                                    mainPage.showJournalDiscardConfirmation = false
+                                }
                             }
                         }
                     }
@@ -741,6 +779,7 @@ Page {
         anchors.verticalCenter: parent.verticalCenter
         visible: (typeof app !== "undefined" && app && app.journalEnabled !== undefined ? app.journalEnabled : true) && (mainPage.editingJournalBlockIndex >= 0 || mainPage.isAddingJournalBlock)
         onAccepted: {
+            mainPage.showJournalDiscardConfirmation = false
             if (mainPage.isAddingJournalBlock) {
                 mainPage.saveNewJournalBlock()
             } else {
@@ -748,11 +787,7 @@ Page {
             }
         }
         onCanceled: {
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.cancelNewJournalBlock()
-            } else {
-                mainPage.cancelCurrentJournalEditing()
-            }
+            mainPage.requestCancelJournalEditing()
         }
         onPrefixRequested: function(prefix, multiLine) {
             mainPage.applyPrefixToActiveEditor(prefix, multiLine)
@@ -767,6 +802,25 @@ Page {
             mainPage.pasteSpecialIntoActiveEditor(prefix, multiLine)
         }
         onRefocusRequested: {
+            mainPage.refocusActiveEditor()
+        }
+    }
+
+    DiscardConfirmationBanner {
+        id: journalDiscardBanner
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: (Qt.inputMethod.visible ? Math.min(Qt.inputMethod.keyboardRectangle.height, Screen.height * 0.5) : 0) + Theme.paddingLarge
+        open: mainPage.showJournalDiscardConfirmation
+        onDiscardConfirmed: {
+            mainPage.showJournalDiscardConfirmation = false
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.cancelNewJournalBlock()
+            } else {
+                mainPage.cancelCurrentJournalEditing()
+            }
+        }
+        onKeepEditing: {
+            mainPage.showJournalDiscardConfirmation = false
             mainPage.refocusActiveEditor()
         }
     }

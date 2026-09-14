@@ -33,6 +33,7 @@ Page {
     property bool isAddingNewBlock: false
     property string newBlockText: ""
     property var currentEditorTextArea: null
+    property bool showDiscardConfirmation: false
 
     property var collapsedTocBlocks: ({})
 
@@ -383,6 +384,9 @@ Page {
                     onTextChanged: {
                         if (pageView.isAddingNewBlock) {
                             pageView.newBlockText = text
+                            if (pageView.showDiscardConfirmation) {
+                                pageView.showDiscardConfirmation = false
+                            }
                         }
                     }
                 }
@@ -411,10 +415,14 @@ Page {
                 pageView.handleXref(target)
             }
             onCheckboxToggled: function(idx, itemPath) {
-                pageView.toggleParsedBlockCheckbox(idx, itemPath)
-                bridge.toggle_checkbox(idx, itemPath)
+                // HTML toggle path is "blockIdx" or "blockIdx.child.grandchild"
+                // Rust expects block index + relative child path (without the block index prefix)
+                var relativePath = (itemPath.length > String(idx).length + 1) ? itemPath.substring(String(idx).length + 1) : ""
+                pageView.toggleParsedBlockCheckbox(idx, relativePath)
+                bridge.toggle_checkbox(idx, relativePath)
             }
             onEditRequested: function(idx, raw) {
+                pageView.showDiscardConfirmation = false
                 if (pageView.isAddingNewBlock) {
                     pageView.saveNewBlock()
                 }
@@ -445,9 +453,13 @@ Page {
             onTextModified: function(idx, newText) {
                 if (pageView.editingBlockIndex === idx) {
                     pageView.editingCurrentText = newText
+                    if (pageView.showDiscardConfirmation) {
+                        pageView.showDiscardConfirmation = false
+                    }
                 }
             }
             onSaveRequested: function(idx, newRaw) {
+                pageView.showDiscardConfirmation = false
                 bridge.save_block(idx, newRaw)
                 pageView.editingBlockIndex = -1
                 pageView.editingRawText = ""
@@ -455,7 +467,7 @@ Page {
                 pageView.currentEditorTextArea = null
             }
             onCancelEditRequested: function() {
-                pageView.cancelCurrentEditing()
+                pageView.requestCancelEditing()
             }
         }
 
@@ -470,6 +482,7 @@ Page {
         anchors.verticalCenter: parent.verticalCenter
         visible: (pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock) && !pageView.showFindBar
         onAccepted: {
+            pageView.showDiscardConfirmation = false
             if (pageView.isAddingNewBlock) {
                 pageView.saveNewBlock()
             } else {
@@ -477,11 +490,7 @@ Page {
             }
         }
         onCanceled: {
-            if (pageView.isAddingNewBlock) {
-                pageView.cancelNewBlock()
-            } else {
-                pageView.cancelCurrentEditing()
-            }
+            pageView.requestCancelEditing()
         }
         onPrefixRequested: function(prefix, multiLine) {
             pageView.applyPrefixToActiveEditor(prefix, multiLine)
@@ -496,6 +505,25 @@ Page {
             pageView.pasteSpecialIntoActiveEditor(prefix, multiLine)
         }
         onRefocusRequested: {
+            pageView.refocusActiveEditor()
+        }
+    }
+
+    DiscardConfirmationBanner {
+        id: discardConfirmationBanner
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: (Qt.inputMethod.visible ? Math.min(Qt.inputMethod.keyboardRectangle.height, Screen.height * 0.5) : 0) + Theme.paddingLarge
+        open: pageView.showDiscardConfirmation
+        onDiscardConfirmed: {
+            pageView.showDiscardConfirmation = false
+            if (pageView.isAddingNewBlock) {
+                pageView.cancelNewBlock()
+            } else {
+                pageView.cancelCurrentEditing()
+            }
+        }
+        onKeepEditing: {
+            pageView.showDiscardConfirmation = false
             pageView.refocusActiveEditor()
         }
     }
@@ -753,7 +781,31 @@ Page {
         })
     }
 
+    function isEditingDirty() {
+        if (pageView.isAddingNewBlock) {
+            return (pageView.newBlockText || "").trim().length > 0
+        }
+        if (pageView.editingBlockIndex >= 0) {
+            return pageView.editingCurrentText !== pageView.editingRawText
+        }
+        return false
+    }
+
+    function requestCancelEditing() {
+        if (pageView.isEditingDirty()) {
+            pageView.showDiscardConfirmation = true
+        } else {
+            pageView.showDiscardConfirmation = false
+            if (pageView.isAddingNewBlock) {
+                pageView.cancelNewBlock()
+            } else {
+                pageView.cancelCurrentEditing()
+            }
+        }
+    }
+
     function startAddingNewBlock() {
+        pageView.showDiscardConfirmation = false
         if (editingBlockIndex >= 0) {
             saveCurrentEditingBlock()
         }
@@ -767,6 +819,7 @@ Page {
     }
 
     function saveNewBlock() {
+        pageView.showDiscardConfirmation = false
         if (isAddingNewBlock) {
             var trimmed = (newBlockText || "").trim()
             if (trimmed.length > 0) {
@@ -779,6 +832,7 @@ Page {
     }
 
     function cancelNewBlock() {
+        pageView.showDiscardConfirmation = false
         isAddingNewBlock = false
         newBlockText = ""
         currentEditorTextArea = null
@@ -793,6 +847,7 @@ Page {
     }
 
     function saveCurrentEditingBlock() {
+        pageView.showDiscardConfirmation = false
         if (editingBlockIndex >= 0) {
             if (editingBlockCount > 1) {
                 bridge.save_block_range(editingBlockIndex, editingBlockCount, editingCurrentText)
@@ -808,6 +863,7 @@ Page {
     }
 
     function cancelCurrentEditing() {
+        pageView.showDiscardConfirmation = false
         editingBlockIndex = -1
         editingBlockCount = 1
         editingRawText = ""
