@@ -120,6 +120,60 @@ Page {
         }
     }
 
+    function openElementPicker() {
+        var dialog = pageStack.push(Qt.resolvedUrl("AsciiDocElementPickerDialog.qml"))
+        dialog.insertSnippet.connect(function(snippet) {
+            insertSnippetIntoActiveEditor(snippet)
+        })
+        dialog.statusChanged.connect(function() {
+            if (dialog.status === PageStatus.Inactive)
+                Qt.callLater(mainPage.refocusActiveEditor)
+        })
+    }
+
+    function insertSnippetIntoActiveEditor(snippet) {
+        if (!snippet || snippet.length === 0) return
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var txt = target.text || ""
+            var pos = target.cursorPosition
+            if (pos < 0 || pos > txt.length) pos = txt.length
+
+            var needsPrefix = false
+            if (snippet.indexOf('\n') >= 0 && pos > 0 && txt.charAt(pos - 1) !== '\n') {
+                needsPrefix = true
+            }
+            var prefix = needsPrefix ? "\n\n" : ""
+            var toInsert = prefix + snippet
+
+            var before = txt.substring(0, pos)
+            var after = txt.substring(pos)
+            target.text = before + toInsert + after
+            target.cursorPosition = pos + toInsert.length
+
+            if (mainPage.isAddingJournalBlock) {
+                mainPage.newJournalBlockText = target.text
+            } else if (mainPage.editingJournalBlockIndex >= 0) {
+                mainPage.editingJournalCurrentText = target.text
+                mainPage.editingJournalRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        } else {
+            if (mainPage.isAddingJournalBlock) {
+                var cur = mainPage.newJournalBlockText || ""
+                mainPage.newJournalBlockText = (cur.length > 0 ? cur + "\n" : "") + snippet
+            } else if (mainPage.editingJournalBlockIndex >= 0) {
+                var cur2 = mainPage.editingJournalCurrentText || ""
+                var updated = (cur2.length > 0 ? cur2 + "\n" : "") + snippet
+                mainPage.editingJournalRawText = updated
+                mainPage.editingJournalCurrentText = updated
+            }
+        }
+    }
+
     function pasteTextIntoActiveEditor(clipText) {
         if (!clipText || clipText.length === 0) {
             remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
@@ -223,29 +277,29 @@ Page {
         if (target) {
             var curPos = target.cursorPosition
             var txt = target.text || ""
-            var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
-            target.text = newText
-            var diff = newText.length - txt.length
-            var newPos = Math.max(0, Math.min(newText.length, curPos + diff))
-            target.cursorPosition = newPos
+            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
+                txt, target.selectionStart, target.selectionEnd, curPos, prefix)
+            target.text = result.text
+            target.cursorPosition = result.cursorPos
             if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = newText
+                mainPage.newJournalBlockText = result.text
             } else {
-                mainPage.editingRawText = newText
-                mainPage.editingCurrentText = newText
+                mainPage.editingRawText = result.text
+                mainPage.editingCurrentText = result.text
             }
             target.forceActiveFocus()
             Qt.callLater(function() {
                 if (target) target.forceActiveFocus()
             })
         } else {
+            var curText = mainPage.isAddingJournalBlock ? (mainPage.newJournalBlockText || "") : (mainPage.editingCurrentText || "")
+            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
+                curText, curText.length, curText.length, curText.length, prefix)
             if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = BlockHtmlUtils.stripAndApplyPrefix(mainPage.newJournalBlockText || "", prefix)
+                mainPage.newJournalBlockText = result.text
             } else {
-                var txt = mainPage.editingCurrentText || ""
-                var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
-                mainPage.editingRawText = newText
-                mainPage.editingCurrentText = newText
+                mainPage.editingRawText = result.text
+                mainPage.editingCurrentText = result.text
             }
         }
     }
@@ -803,6 +857,9 @@ Page {
         }
         onRefocusRequested: {
             mainPage.refocusActiveEditor()
+        }
+        onElementPickerRequested: {
+            mainPage.openElementPicker()
         }
     }
 

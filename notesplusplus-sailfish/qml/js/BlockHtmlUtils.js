@@ -31,6 +31,78 @@ function stripAndApplyPrefix(text, prefix) {
     }).join('\n');
 }
 
+function stripAndApplyPrefixToLine(line, prefix) {
+    var regex = /^(=+\s+|#+\s+|\*\s+\[[\sxX]\]\s+|\[[\sxX]\]\s+|\*\s+|\-\s+\[[\sxX]\]\s+|\-\s+|\+\s+|\.\s+|\d+[\.\)]\s+|•\s+)/;
+    var trimmed = line.trim();
+    if (trimmed.length === 0) return "";
+    var stripped = regex.test(trimmed) ? trimmed.replace(regex, '') : trimmed;
+    return prefix + stripped;
+}
+
+function applyPrefixToSelectionOrCursor(text, selectionStart, selectionEnd, cursorPos, prefix) {
+    if (!text || text.length === 0) return { text: text, cursorPos: cursorPos };
+
+    var hasSelection = (selectionStart !== selectionEnd);
+    var selStart = Math.min(selectionStart, selectionEnd);
+    var selEnd = Math.max(selectionStart, selectionEnd);
+
+    var lines = text.split('\n');
+
+    var lineStarts = [];
+    var pos = 0;
+    for (var i = 0; i < lines.length; i++) {
+        lineStarts.push(pos);
+        pos += lines[i].length + 1;
+    }
+
+    var modify = [];
+    for (var i = 0; i < lines.length; i++) { modify[i] = false; }
+
+    if (hasSelection) {
+        for (var i = 0; i < lines.length; i++) {
+            var lineStart = lineStarts[i];
+            var lineEnd = lineStart + lines[i].length;
+            if (lineStart < selEnd && lineEnd > selStart) {
+                modify[i] = true;
+            }
+        }
+    } else {
+        for (var i = 0; i < lines.length; i++) {
+            if (lineStarts[i] + lines[i].length >= cursorPos) {
+                modify[i] = true;
+                break;
+            }
+        }
+    }
+
+    var diffs = [];
+    for (var i = 0; i < lines.length; i++) { diffs[i] = 0; }
+    for (var i = 0; i < lines.length; i++) {
+        if (modify[i]) {
+            var oldLine = lines[i];
+            var newLine = stripAndApplyPrefixToLine(oldLine, prefix);
+            lines[i] = newLine;
+            diffs[i] = newLine.length - oldLine.length;
+        }
+    }
+
+    var cursorLine = 0;
+    for (var i = 0; i < lines.length; i++) {
+        if (lineStarts[i] + lines[i].length >= cursorPos) {
+            cursorLine = i;
+            break;
+        }
+    }
+    var cumulativeDiff = 0;
+    for (var i = 0; i <= cursorLine; i++) {
+        cumulativeDiff += diffs[i];
+    }
+
+    var newText = lines.join('\n');
+    var newCursorPos = Math.max(0, Math.min(newText.length, cursorPos + cumulativeDiff));
+    return { text: newText, cursorPos: newCursorPos };
+}
+
 function formatPasteWithPrefix(text, prefix) {
     if (!text || text.length === 0) return "";
     return stripAndApplyPrefix(text, prefix);

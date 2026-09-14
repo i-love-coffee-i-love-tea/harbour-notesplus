@@ -507,6 +507,9 @@ Page {
         onRefocusRequested: {
             pageView.refocusActiveEditor()
         }
+        onElementPickerRequested: {
+            pageView.openElementPicker()
+        }
     }
 
     DiscardConfirmationBanner {
@@ -590,6 +593,61 @@ Page {
             Qt.callLater(function() {
                 if (target) target.forceActiveFocus()
             })
+        }
+    }
+
+    function openElementPicker() {
+        var dialog = pageStack.push(Qt.resolvedUrl("AsciiDocElementPickerDialog.qml"))
+        dialog.insertSnippet.connect(function(snippet) {
+            insertSnippetIntoActiveEditor(snippet)
+        })
+        dialog.statusChanged.connect(function() {
+            if (dialog.status === PageStatus.Inactive)
+                Qt.callLater(pageView.refocusActiveEditor)
+        })
+    }
+
+    function insertSnippetIntoActiveEditor(snippet) {
+        if (!snippet || snippet.length === 0) return
+        var target = getActiveEditorTextArea()
+        if (target) {
+            var txt = target.text || ""
+            var pos = target.cursorPosition
+            if (pos < 0 || pos > txt.length) pos = txt.length
+
+            // For block-level snippets (containing newlines), ensure proper separation
+            var needsPrefix = false
+            if (snippet.indexOf('\n') >= 0 && pos > 0 && txt.charAt(pos - 1) !== '\n') {
+                needsPrefix = true
+            }
+            var prefix = needsPrefix ? "\n\n" : ""
+            var toInsert = prefix + snippet
+
+            var before = txt.substring(0, pos)
+            var after = txt.substring(pos)
+            target.text = before + toInsert + after
+            target.cursorPosition = pos + toInsert.length
+
+            if (pageView.isAddingNewBlock) {
+                pageView.newBlockText = target.text
+            } else if (pageView.editingBlockIndex >= 0) {
+                pageView.editingCurrentText = target.text
+                pageView.editingRawText = target.text
+            }
+            target.forceActiveFocus()
+            Qt.callLater(function() {
+                if (target) target.forceActiveFocus()
+            })
+        } else {
+            if (pageView.isAddingNewBlock) {
+                var cur = pageView.newBlockText || ""
+                pageView.newBlockText = (cur.length > 0 ? cur + "\n" : "") + snippet
+            } else if (pageView.editingBlockIndex >= 0) {
+                var cur2 = pageView.editingCurrentText || ""
+                var updated = (cur2.length > 0 ? cur2 + "\n" : "") + snippet
+                pageView.editingRawText = updated
+                pageView.editingCurrentText = updated
+            }
         }
     }
 
@@ -696,29 +754,29 @@ Page {
         if (target) {
             var curPos = target.cursorPosition
             var txt = target.text || ""
-            var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
-            target.text = newText
-            var diff = newText.length - txt.length
-            var newPos = Math.max(0, Math.min(newText.length, curPos + diff))
-            target.cursorPosition = newPos
+            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
+                txt, target.selectionStart, target.selectionEnd, curPos, prefix)
+            target.text = result.text
+            target.cursorPosition = result.cursorPos
             if (pageView.isAddingNewBlock) {
-                pageView.newBlockText = newText
+                pageView.newBlockText = result.text
             } else {
-                pageView.editingRawText = newText
-                pageView.editingCurrentText = newText
+                pageView.editingRawText = result.text
+                pageView.editingCurrentText = result.text
             }
             target.forceActiveFocus()
             Qt.callLater(function() {
                 if (target) target.forceActiveFocus()
             })
         } else {
+            var curText = pageView.isAddingNewBlock ? (pageView.newBlockText || "") : (pageView.editingCurrentText || "")
+            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
+                curText, curText.length, curText.length, curText.length, prefix)
             if (pageView.isAddingNewBlock) {
-                pageView.newBlockText = BlockHtmlUtils.stripAndApplyPrefix(pageView.newBlockText || "", prefix)
+                pageView.newBlockText = result.text
             } else {
-                var txt = pageView.editingCurrentText || ""
-                var newText = BlockHtmlUtils.stripAndApplyPrefix(txt, prefix)
-                pageView.editingRawText = newText
-                pageView.editingCurrentText = newText
+                pageView.editingRawText = result.text
+                pageView.editingCurrentText = result.text
             }
         }
     }

@@ -16,6 +16,7 @@ Item {
     signal pasteRequested()
     signal pasteSpecialRequested(string prefix, bool multiLine)
     signal refocusRequested()
+    signal elementPickerRequested()
 
     function enterSpecialPasteMode() {
         specialPasteMode = true
@@ -177,7 +178,7 @@ Item {
             }
         }
 
-        // --- Headings Group (H1, H2, H3, H4) ---
+        // --- Headings Group (H1, H2, H3) ---
         BackgroundItem {
             width: parent.width
             height: Math.round(Theme.itemSizeExtraSmall * 0.8)
@@ -220,22 +221,6 @@ Item {
             Label {
                 anchors.centerIn: parent
                 text: "H3"
-                font.pixelSize: Theme.fontSizeExtraSmall + 2
-                font.bold: true
-                color: parent.down ? Theme.highlightColor : Theme.primaryColor
-            }
-        }
-
-        BackgroundItem {
-            width: parent.width
-            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
-            anchors.horizontalCenter: parent.horizontalCenter
-            highlighted: down
-            onClicked: inPlaceSidebar.handlePrefixClick("==== ", false)
-
-            Label {
-                anchors.centerIn: parent
-                text: "H4"
                 font.pixelSize: Theme.fontSizeExtraSmall + 2
                 font.bold: true
                 color: parent.down ? Theme.highlightColor : Theme.primaryColor
@@ -414,9 +399,36 @@ Item {
 
             Label {
                 anchors.centerIn: parent
-                text: "📋"
+                text: "\ud83d\udccb"
                 font.pixelSize: Theme.fontSizeSmall
                 color: pasteBtn.down ? Theme.highlightColor : Theme.primaryColor
+            }
+        }
+
+        // --- Spacing before Element Picker ---
+        Item {
+            width: parent.width
+            height: 2
+        }
+
+        BackgroundItem {
+            id: elementPickerBtn
+            width: parent.width
+            height: Math.round(Theme.itemSizeExtraSmall * 0.8)
+            anchors.horizontalCenter: parent.horizontalCenter
+            highlighted: down
+            onClicked: {
+                if (inPlaceSidebar.specialPasteMode) {
+                    inPlaceSidebar.exitSpecialPasteMode()
+                }
+                inPlaceSidebar.elementPickerRequested()
+            }
+
+            Label {
+                anchors.centerIn: parent
+                text: "\u2026"
+                font.pixelSize: Theme.fontSizeMedium
+                color: elementPickerBtn.down ? Theme.highlightColor : Theme.primaryColor
             }
         }
     }
