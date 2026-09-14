@@ -59,6 +59,12 @@ Item {
         }
     }
 
+    // Absorb all touches so they don't leak through to the SilicaListView beneath
+    MouseArea {
+        anchors.fill: parent
+        preventStealing: true
+    }
+
     Rectangle {
         id: bgRect
         anchors.fill: parent
