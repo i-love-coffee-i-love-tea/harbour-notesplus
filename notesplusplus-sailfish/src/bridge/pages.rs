@@ -354,6 +354,8 @@ impl NotesBridge {
                 search_terms: Vec::new(),
             };
             self.current_blocks = Self::blocks_to_qvariantlist_with_html(&self.current_blocks_data, &self.qt_theme, &options);
+            self.blocks_version += 1;
+            self.page_changed();
         }
 
         let content = match std::fs::read_to_string(&path) {
