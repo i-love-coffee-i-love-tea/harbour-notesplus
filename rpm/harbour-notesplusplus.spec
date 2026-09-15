@@ -6,22 +6,27 @@ Group:      Utilities
 License:    MIT
 URL:        https://github.com/gobuki/harbour-notesplusplus
 Source0:    %{name}-%{version}.tar.bz2
-Requires:   sailfishsilica-qt5 >= 1.0.0
+Requires:   sailfishsilica-qt5
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
 BuildRequires:  pkgconfig(Qt5Core)
 BuildRequires:  pkgconfig(Qt5Qml)
 BuildRequires:  pkgconfig(Qt5Quick)
+BuildRequires:  pkgconfig(Qt5Network)
+BuildRequires:  pkgconfig(Qt5Multimedia)
 BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  rust-std-static
 BuildRequires:  gcc-c++
-BuildRequires:  meego-rpm-config
 BuildRequires:  qt5-qttools-linguist
 
 %description
 Notes++ is an AsciiDoc notes app for Sailfish OS.
 Journal with auto-managed daily named pages, page linking,
 full-text search, HTML5 export, and embedded documentation web server.
+
+# >> macros
+%define __provides_exclude_from ^%{_bindir}/.*$
+# << macros
 
 %prep
 %setup -q -n %{name}-%{version}
@@ -56,7 +61,25 @@ cargo --version
 export CARGO_BUILD_JOBS=1
 export RUSTFLAGS="-C link-arg=-Wl,--as-needed"
 
-cargo build --release --locked -p harbour-notesplusplus -j 1
+# Step 1: Build the Rust core as a static library (.a)
+cargo build --release --locked -p notesplusplus-core -j 1
+
+# Locate the static library (cross-compilation puts it in target/<triple>/release/)
+RUST_TARGET_DIR="target/${SB2_RUST_TARGET_TRIPLE}/release"
+if [ ! -f "$RUST_TARGET_DIR/libnotesplusplus_core.a" ]; then
+    RUST_TARGET_DIR="target/release"
+fi
+ls -la "$RUST_TARGET_DIR/libnotesplusplus_core.a" || {
+  echo "ERROR: libnotesplusplus_core.a not found after cargo build"
+  exit 1
+}
+
+# Step 2: Build the C++ bridge using qmake (links the Rust static lib)
+cd notesplusplus-sailfish
+qmake harbour-notesplusplus.pro \
+    "RUST_CORE_LIB=$PWD/../$RUST_TARGET_DIR/libnotesplusplus_core.a"
+make -j$(nproc)
+cd ..
 
 # Compile translations
 cd notesplusplus-sailfish/translations
@@ -67,11 +90,20 @@ cd ../..
 rm -rf %{buildroot}
 mkdir -p %{buildroot}%{_bindir}
 
-# Find the binary
-BINARY=$(find target -name harbour-notesplusplus -type f -path "*/release/harbour-notesplusplus" | head -1)
+# Find the binary (built by qmake in notesplusplus-sailfish/)
+BINARY=""
+for candidate in \
+    notesplusplus-sailfish/harbour-notesplusplus \
+    notesplusplus-sailfish/release/harbour-notesplusplus \
+    target/release/harbour-notesplusplus; do
+  if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+    BINARY="$candidate"
+    break
+  fi
+done
 if [ -z "$BINARY" ]; then
-  echo "ERROR: harbour-notesplusplus binary not found in target/"
-  find target -name harbour-notesplusplus -type f
+  echo "ERROR: harbour-notesplusplus binary not found"
+  find . -name harbour-notesplusplus -type f -executable
   exit 1
 fi
 install -m 755 "$BINARY" %{buildroot}%{_bindir}/%{name}
@@ -85,9 +117,6 @@ cp rpm/%{name}.png %{buildroot}%{_datadir}/%{name}/examples/icon.png 2>/dev/null
 
 mkdir -p %{buildroot}%{_datadir}/applications
 install -m 644 rpm/%{name}.desktop %{buildroot}%{_datadir}/applications/
-
-mkdir -p %{buildroot}%{_sysconfdir}/sailjail/permissions
-install -m 644 %{_sourcedir}/%{name}.profile %{buildroot}%{_sysconfdir}/sailjail/permissions/
 
 for SIZE in 86 108 128 172; do
   mkdir -p %{buildroot}%{_datadir}/icons/hicolor/${SIZE}x${SIZE}/apps
@@ -114,4 +143,3 @@ install -m 644 rpm/%{name}.appdata.xml %{buildroot}%{_datadir}/metainfo/%{name}.
 %{_datadir}/icons/hicolor/128x128/apps/%{name}.png
 %{_datadir}/icons/hicolor/172x172/apps/%{name}.png
 %{_datadir}/metainfo/%{name}.metainfo.xml
-%config %{_sysconfdir}/sailjail/permissions/%{name}.profile

@@ -2,6 +2,7 @@ pub mod block;
 pub mod constants;
 pub mod db;
 pub mod error;
+pub mod ffi;
 pub mod inline;
 pub mod journal;
 pub mod page;

@@ -4,6 +4,9 @@ version.workspace = true
 edition = "2021"
 build = "build.rs"
 
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
 [features]
 default = ["whisper"]
 # Real offline Whisper STT inference backend (vendored whisper.cpp compiled via `cc`).
