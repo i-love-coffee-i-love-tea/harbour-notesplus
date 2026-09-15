@@ -9,6 +9,11 @@ pub const DEFAULT_SERVER_PORT: u16 = 8080;
 pub const DEFAULT_AI_ENDPOINT: &str = "http://localhost:11434";
 pub const DEFAULT_AI_MODEL: &str = "llama3.2";
 pub const DEFAULT_AI_TIMEOUT_SECS: u64 = 90;
+pub const FETCH_URL_TIMEOUT_SECS: u64 = 20;
+pub const LLM_CONNECT_TIMEOUT_SECS: u64 = 10;
+pub const LLM_WRITE_TIMEOUT_SECS: u64 = 30;
+pub const MAX_CONCURRENT_CONNECTIONS: usize = 16;
+pub const PORT_SCAN_RANGE: u16 = 20;
 
 // Session & Cookie constants
 pub const SESSION_COOKIE_NAME: &str = "notesplusplus_session";

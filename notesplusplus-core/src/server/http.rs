@@ -503,67 +503,7 @@ pub fn get_network_interfaces() -> Vec<(String, String)> {
 }
 
 /// Checks if an IP address belongs to a private, loopback, or local link network.
-pub fn is_private_or_local_ip(ip: &std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(ipv4) => {
-            let octets = ipv4.octets();
-            // Loopback 127.0.0.0/8
-            if octets[0] == 127 {
-                return true;
-            }
-            // RFC 1918 10.0.0.0/8
-            if octets[0] == 10 {
-                return true;
-            }
-            // RFC 1918 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
-            if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-                return true;
-            }
-            // RFC 1918 192.168.0.0/16 (192.168.0.0 - 192.168.255.255)
-            if octets[0] == 192 && octets[1] == 168 {
-                return true;
-            }
-            // RFC 3927 Link-local 169.254.0.0/16
-            if octets[0] == 169 && octets[1] == 254 {
-                return true;
-            }
-            // RFC 6598 Shared Address Space / CGNAT 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
-            if octets[0] == 100 && (64..=127).contains(&octets[1]) {
-                return true;
-            }
-            // Unspecified or Broadcast
-            if ipv4.is_unspecified() || ipv4.is_broadcast() {
-                return true;
-            }
-            false
-        }
-        std::net::IpAddr::V6(ipv6) => {
-            if ipv6.is_loopback() || ipv6.is_unspecified() {
-                return true;
-            }
-            let octets = ipv6.octets();
-            // IPv4-mapped IPv6 (::ffff:a.b.c.d)
-            if octets[0..10] == [0; 10] && octets[10] == 0xff && octets[11] == 0xff {
-                let v4 = std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]);
-                return is_private_or_local_ip(&std::net::IpAddr::V4(v4));
-            }
-            // Unique Local Addresses (fc00::/7 -> fc00::/8 and fd00::/8)
-            if (octets[0] & 0xfe) == 0xfc {
-                return true;
-            }
-            // Link-Local (fe80::/10)
-            if octets[0] == 0xfe && (octets[1] & 0xc0) == 0x80 {
-                return true;
-            }
-            false
-        }
-    }
-}
-
-/// Checks if an IP address is a public routable Internet address.
-pub fn is_public_ip(ip: &std::net::IpAddr) -> bool {
-    !is_private_or_local_ip(ip)
-}
+pub use crate::net::{is_private_or_local_ip, is_public_ip};
 
 pub fn url_decode(s: &str) -> String {
     let mut result = Vec::with_capacity(s.len());

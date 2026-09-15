@@ -68,6 +68,19 @@ impl NotesBridge {
         }
     }
 
+    pub(crate) fn configure_from_config(
+        &mut self,
+        llm_config: notesplusplus_core::agent::LlmConfig,
+        perm_config: notesplusplus_core::agent::PermissionConfig,
+    ) {
+        self.llm_config = llm_config;
+        self.permission_config = perm_config;
+
+        if let Some(ref handle) = self.server_handle {
+            handle.context().update_llm_config(self.llm_config.clone(), Some(self.permission_config.clone()));
+        }
+    }
+
     pub(crate) fn configure_ai_impl(
         &mut self,
         provider: String,
@@ -82,36 +95,33 @@ impl NotesBridge {
         allow_fetch: bool,
     ) {
         let p: notesplusplus_core::agent::LlmProvider = provider.parse().unwrap_or_default();
-        self.llm_config.provider = p;
-        self.llm_config.endpoint_url = if url.trim().is_empty() {
-            match p {
-                notesplusplus_core::agent::LlmProvider::Ollama => DEFAULT_OLLAMA_ENDPOINT.to_string(),
-                notesplusplus_core::agent::LlmProvider::OpenAiCompatible => "https://api.mimocode.com".to_string(),
-            }
-        } else {
-            url.trim().to_string()
+        let llm_config = notesplusplus_core::agent::LlmConfig {
+            provider: p,
+            endpoint_url: if url.trim().is_empty() {
+                match p {
+                    notesplusplus_core::agent::LlmProvider::Ollama => DEFAULT_OLLAMA_ENDPOINT.to_string(),
+                    notesplusplus_core::agent::LlmProvider::OpenAiCompatible => "https://api.mimocode.com".to_string(),
+                }
+            } else {
+                url.trim().to_string()
+            },
+            model: if model.trim().is_empty() {
+                notesplusplus_core::constants::DEFAULT_AI_MODEL.to_string()
+            } else {
+                model.trim().to_string()
+            },
+            api_key: if key.trim().is_empty() { None } else { Some(key.trim().to_string()) },
+            timeout_secs: if timeout > 0 { timeout as u64 } else { 90 },
+            allow_self_signed,
+            system_prompt: self.llm_config.system_prompt.clone(),
         };
-        self.llm_config.model = if model.trim().is_empty() {
-            notesplusplus_core::constants::DEFAULT_AI_MODEL.to_string()
-        } else {
-            model.trim().to_string()
+        let perm_config = notesplusplus_core::agent::PermissionConfig {
+            auto_allow_read: auto_read,
+            auto_allow_create: auto_create,
+            require_confirm_edit: require_edit,
+            allow_fetch_url: allow_fetch,
         };
-        self.llm_config.api_key = if key.trim().is_empty() {
-            None
-        } else {
-            Some(key.trim().to_string())
-        };
-        self.llm_config.timeout_secs = if timeout > 0 { timeout as u64 } else { 90 };
-        self.llm_config.allow_self_signed = allow_self_signed;
-
-        self.permission_config.auto_allow_read = auto_read;
-        self.permission_config.auto_allow_create = auto_create;
-        self.permission_config.require_confirm_edit = require_edit;
-        self.permission_config.allow_fetch_url = allow_fetch;
-
-        if let Some(ref handle) = self.server_handle {
-            handle.context().update_llm_config(self.llm_config.clone(), Some(self.permission_config.clone()));
-        }
+        self.configure_from_config(llm_config, perm_config);
     }
 
     pub(crate) fn install_tls_certificate_impl(&mut self, cert_pem_or_path: String, key_pem_or_path: String) -> String {

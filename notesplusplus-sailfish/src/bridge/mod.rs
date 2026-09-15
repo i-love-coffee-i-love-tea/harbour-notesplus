@@ -5,7 +5,6 @@ use std::sync::mpsc;
 
 use notesplusplus_core::block::Block;
 use notesplusplus_core::db;
-use notesplusplus_core::inline::InlineSpan;
 use notesplusplus_core::page;
 
 mod pages;
@@ -473,9 +472,7 @@ impl NotesBridge {
         }
 
         // Collect footnotes from all blocks and append a synthetic footnotes block
-        let mut footnotes: Vec<(Option<String>, String)> = Vec::new();
-        let mut seen_ids: Vec<String> = Vec::new();
-        collect_footnotes(blocks, &mut footnotes, &mut seen_ids);
+        let footnotes = notesplusplus_core::block::collect_footnotes(blocks);
         if !footnotes.is_empty() {
             let mut fn_html = String::from("<hr/><p style='margin:4px 8px;font-weight:bold;color:__LINK_COLOR__;'>Footnotes</p>");
             for (i, (id, text)) in footnotes.iter().enumerate() {
@@ -564,53 +561,4 @@ impl NotesBridge {
     }
 }
 
-fn collect_footnotes(blocks: &[Block], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
-    for block in blocks {
-        match block {
-            Block::Heading { spans, .. } | Block::Paragraph { spans, .. } => {
-                collect_footnotes_from_spans(spans, footnotes, seen_ids);
-            }
-            Block::OrderedListItem { children, .. } | Block::UnorderedListItem { children, .. } |
-            Block::DescriptionListItem { children, .. } | Block::CalloutListItem { children, .. } |
-            Block::Blockquote { children, .. } | Block::Admonition { children, .. } |
-            Block::Sidebar { children, .. } | Block::Example { children, .. } |
-            Block::Open { children, .. } => {
-                collect_footnotes(children, footnotes, seen_ids);
-            }
-            Block::Verse { spans, .. } => {
-                for line_spans in spans {
-                    collect_footnotes_from_spans(line_spans, footnotes, seen_ids);
-                }
-            }
-            Block::Table { rows, .. } => {
-                for row in rows {
-                    for cell in row {
-                        collect_footnotes(&cell.blocks, footnotes, seen_ids);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
 
-fn collect_footnotes_from_spans(spans: &[InlineSpan], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
-    for span in spans {
-        match span {
-            InlineSpan::Footnote { id, text } => {
-                let key = id.clone().unwrap_or_default();
-                if key.is_empty() || !seen_ids.contains(&key) {
-                    if !key.is_empty() {
-                        seen_ids.push(key);
-                    }
-                    footnotes.push((id.clone(), text.clone()));
-                }
-            }
-            InlineSpan::Bold(inner) | InlineSpan::Italic(inner) | InlineSpan::Monospace(inner) |
-            InlineSpan::Superscript(inner) | InlineSpan::Subscript(inner) | InlineSpan::Mark(inner) => {
-                collect_footnotes_from_spans(inner, footnotes, seen_ids);
-            }
-            _ => {}
-        }
-    }
-}

@@ -22,7 +22,7 @@ impl std::str::FromStr for LlmProvider {
         match s.to_lowercase().as_str() {
             "openai" | "mimocode" | "compatible" => Ok(LlmProvider::OpenAiCompatible),
             "ollama" => Ok(LlmProvider::Ollama),
-            _ => Ok(LlmProvider::Ollama),
+            _ => Err(()),
         }
     }
 }
@@ -35,6 +35,7 @@ pub const DEFAULT_OLLAMA_ENDPOINT: &str = DEFAULT_AI_ENDPOINT;
 pub const DEFAULT_MODEL: &str = DEFAULT_AI_MODEL;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LlmConfig {
     pub provider: LlmProvider,
     pub endpoint_url: String,
@@ -234,11 +235,14 @@ impl LlmClient {
     /// Builds a configured ureq Agent honoring timeouts and self-signed certificate settings.
     pub fn build_agent(&self) -> ureq::Agent {
         let timeout = Duration::from_secs(self.config.timeout_secs);
-        let connect_timeout = Duration::from_secs(self.config.timeout_secs.clamp(10, 30));
+        let connect_timeout = Duration::from_secs(self.config.timeout_secs.clamp(
+            crate::constants::LLM_CONNECT_TIMEOUT_SECS,
+            crate::constants::LLM_WRITE_TIMEOUT_SECS,
+        ));
         let mut builder = ureq::AgentBuilder::new()
             .timeout_connect(connect_timeout)
             .timeout_read(timeout)
-            .timeout_write(Duration::from_secs(30))
+            .timeout_write(Duration::from_secs(crate::constants::LLM_WRITE_TIMEOUT_SECS))
             .timeout(timeout);
 
         if self.config.allow_self_signed {
@@ -566,7 +570,10 @@ impl LlmClient {
                     let raw_args = func_obj.get("arguments").cloned().unwrap_or(Value::Null);
                     let arguments = match raw_args {
                         Value::String(s) => {
-                            serde_json::from_str(&s).unwrap_or_else(|_| json!({ "raw": s }))
+                            serde_json::from_str(&s).unwrap_or_else(|e| {
+                                log::warn!("Failed to parse tool call arguments as JSON: {}", e);
+                                json!({ "raw": s })
+                            })
                         }
                         Value::Object(_) => raw_args,
                         _ => json!({}),
@@ -597,8 +604,17 @@ impl LlmClient {
         messages: &[ChatMessage],
         on_token: F,
     ) -> Result<AssistantResponse, LlmError> {
-        let tools = get_available_tools();
-        let body = self.build_request_body_with_stream(messages, &tools, true);
+        self.send_chat_streaming_with_tools(messages, &get_available_tools(), on_token)
+    }
+
+    /// Sends a chat completion request with explicit tool definitions and token-by-token streaming.
+    pub fn send_chat_streaming_with_tools<F: FnMut(&str)>(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[ToolDefinition],
+        on_token: F,
+    ) -> Result<AssistantResponse, LlmError> {
+        let body = self.build_request_body_with_stream(messages, tools, true);
         let url = self.resolve_chat_url();
 
         let agent = self.build_agent();

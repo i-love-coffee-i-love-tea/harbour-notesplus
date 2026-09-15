@@ -1,19 +1,16 @@
 //! Agent chat session and multi-turn tool execution loop.
 
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use rusqlite::Connection;
 use serde_json::json;
 use crate::agent::backup::BackupManager;
 use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
 use crate::agent::prompt::build_system_prompt_with_custom;
-use crate::agent::tools::ToolCall;
-use crate::db;
+use crate::agent::tools::{ToolCall, TOOL_READ_NOTE, TOOL_LIST_NOTES, TOOL_SEARCH_NOTES, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_FETCH_URL};
 use crate::page;
-use crate::search;
+use crate::repository::NoteRepository;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentStepResult {
@@ -34,8 +31,7 @@ pub struct SessionState {
 }
 
 pub struct AgentSession {
-    notes_dir: PathBuf,
-    db_path: PathBuf,
+    repository: Arc<dyn NoteRepository>,
     backup_mgr: Arc<Mutex<BackupManager>>,
     permission_mgr: Arc<Mutex<PermissionManager>>,
     client: Arc<Mutex<LlmClient>>,
@@ -46,15 +42,14 @@ pub struct AgentSession {
 
 impl AgentSession {
     pub fn new(
-        notes_dir: impl AsRef<Path>,
-        db_path: impl AsRef<Path>,
+        _notes_dir: impl AsRef<Path>,
+        repository: Arc<dyn NoteRepository>,
         backup_dir: impl AsRef<Path>,
         permission_mgr: PermissionManager,
         client: LlmClient,
     ) -> Self {
         Self {
-            notes_dir: notes_dir.as_ref().to_path_buf(),
-            db_path: db_path.as_ref().to_path_buf(),
+            repository,
             backup_mgr: Arc::new(Mutex::new(BackupManager::new(backup_dir))),
             permission_mgr: Arc::new(Mutex::new(permission_mgr)),
             client: Arc::new(Mutex::new(client)),
@@ -68,24 +63,29 @@ impl AgentSession {
         self.is_busy.load(Ordering::SeqCst)
     }
 
+    /// Returns a snapshot of the current session state in a single lock acquisition.
+    pub fn session_state_snapshot(&self) -> SessionState {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn messages(&self) -> Vec<ChatMessage> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.clone()
+        self.session_state_snapshot().messages
     }
 
     pub fn pending_action(&self) -> Option<PendingConfirmation> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).pending_action.clone()
+        self.session_state_snapshot().pending_action
     }
 
     pub fn last_snapshot_id(&self) -> Option<String> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.clone()
+        self.session_state_snapshot().last_snapshot_id
     }
 
     pub fn last_created_note(&self) -> Option<String> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note.clone()
+        self.session_state_snapshot().last_created_note
     }
 
     pub fn can_undo(&self) -> bool {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.is_some()
+        self.session_state_snapshot().last_snapshot_id.is_some()
     }
 
     /// Dynamically updates LLM client and permission manager without resetting active chat state.
@@ -198,11 +198,10 @@ impl AgentSession {
 
                 // Execute tool calls in order, pausing for confirmation if needed
                 for tool_call in &response.tool_calls {
-                    let file_content = if tool_call.function.name == "edit_note" {
+                    let file_content = if tool_call.function.name == TOOL_EDIT_NOTE {
                         let filename = tool_call.function.arguments.get("filename")
                             .and_then(|v| v.as_str()).unwrap_or("");
-                        let file_path = page::safe_note_path(&self.notes_dir, filename);
-                        fs::read_to_string(&file_path).ok()
+                        self.repository.read_note_content(filename).ok()
                     } else {
                         None
                     };
@@ -265,61 +264,54 @@ impl AgentSession {
         let args = &tool_call.function.arguments;
 
         match name {
-            "read_note" => {
+            TOOL_READ_NOTE => {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let path = page::safe_note_path(&self.notes_dir, filename);
-                match fs::read_to_string(&path) {
+                match self.repository.read_note_content(filename) {
                     Ok(content) => content,
                     Err(e) => format!("Error reading note '{}': {}", filename, e),
                 }
             }
-            "search_notes" => {
+            TOOL_SEARCH_NOTES => {
                 let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                match self.open_db() {
-                    Ok(conn) => match search::search_pages(&conn, query) {
-                        Ok(results) => {
-                            if results.is_empty() {
-                                format!("No notes found matching query '{}'", query)
-                            } else {
-                                let hits: Vec<serde_json::Value> = results.iter().map(|hit| {
-                                    json!({
-                                        "filename": hit.page.filename,
-                                        "group_path": hit.page.group_path,
-                                        "full_path": hit.page.full_path(),
-                                        "title": hit.page.title,
-                                        "snippet": hit.snippet,
-                                    })
-                                }).collect();
-                                serde_json::to_string_pretty(&hits).unwrap_or_else(|_| "[]".to_string())
-                            }
-                        }
-                        Err(e) => format!("Search error: {}", e),
-                    },
-                    Err(e) => format!("Database error: {}", e),
-                }
-            }
-            "list_notes" => {
-                match self.open_db() {
-                    Ok(conn) => match page::list_pages(&conn) {
-                        Ok(pages) => {
-                            let page_list: Vec<serde_json::Value> = pages.iter().map(|p| {
+                match self.repository.search_pages(query) {
+                    Ok(results) => {
+                        if results.is_empty() {
+                            format!("No notes found matching query '{}'", query)
+                        } else {
+                            let hits: Vec<serde_json::Value> = results.iter().map(|hit| {
                                 json!({
-                                    "filename": p.filename,
-                                    "group_path": p.group_path,
-                                    "full_path": p.full_path(),
-                                    "title": p.title,
-                                    "is_journal": p.is_journal,
-                                    "updated_at": p.updated_at,
+                                    "filename": hit.page.filename,
+                                    "group_path": hit.page.group_path,
+                                    "full_path": hit.page.full_path(),
+                                    "title": hit.page.title,
+                                    "snippet": hit.snippet,
                                 })
                             }).collect();
-                            serde_json::to_string_pretty(&page_list).unwrap_or_else(|_| "[]".to_string())
+                            serde_json::to_string_pretty(&hits).unwrap_or_else(|_| "[]".to_string())
                         }
-                        Err(e) => format!("List error: {}", e),
-                    },
-                    Err(e) => format!("Database error: {}", e),
+                    }
+                    Err(e) => format!("Search error: {}", e),
                 }
             }
-            "create_note" => {
+            TOOL_LIST_NOTES => {
+                match self.repository.list_pages() {
+                    Ok(pages) => {
+                        let page_list: Vec<serde_json::Value> = pages.iter().map(|p| {
+                            json!({
+                                "filename": p.filename,
+                                "group_path": p.group_path,
+                                "full_path": p.full_path(),
+                                "title": p.title,
+                                "is_journal": p.is_journal,
+                                "updated_at": p.updated_at,
+                            })
+                        }).collect();
+                        serde_json::to_string_pretty(&page_list).unwrap_or_else(|_| "[]".to_string())
+                    }
+                    Err(e) => format!("List error: {}", e),
+                }
+            }
+            TOOL_CREATE_NOTE => {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
                 let group = args.get("group").and_then(|v| v.as_str()).unwrap_or("");
                 let initial_content = args.get("content").or_else(|| args.get("initial_content")).and_then(|v| v.as_str());
@@ -330,27 +322,26 @@ impl AgentSession {
                     format!("{}/{}", group.trim_matches('/'), title)
                 };
 
-                match self.open_db() {
-                    Ok(conn) => match page::create_page(&conn, &self.notes_dir, &note_path, false) {
-                        Ok(created) => {
-                            if let Some(content) = initial_content {
-                                let _ = page::save_and_index_page(&conn, &self.notes_dir, &created.full_path(), content);
+                match self.repository.create_page(&note_path, false) {
+                    Ok(created) => {
+                        if let Some(content) = initial_content {
+                            if let Err(e) = self.repository.save_note(&created.full_path(), content) {
+                                return format!("Created note '{}' but failed to write content: {}", created.title, e);
                             }
-                            self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note = Some(created.title.clone());
-                            format!("Successfully created note '{}' ({})", created.title, created.full_path())
                         }
-                        Err(e) => format!("Error creating note: {}", e),
-                    },
-                    Err(e) => format!("Database error: {}", e),
+                        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note = Some(created.title.clone());
+                        format!("Successfully created note '{}' ({})", created.title, created.full_path())
+                    }
+                    Err(e) => format!("Error creating note: {}", e),
                 }
             }
-            "edit_note" => {
+            TOOL_EDIT_NOTE => {
                 let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note");
                 self.apply_note_edit(filename, content, reason)
             }
-            "fetch_url" => {
+            TOOL_FETCH_URL => {
                 let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
                 match crate::agent::tools::fetch_url(url) {
                     Ok(text) => text,
@@ -365,8 +356,13 @@ impl AgentSession {
     pub fn apply_note_edit(&self, filename: &str, new_content: &str, reason: &str) -> String {
         let (group_path, safe_stem) = page::sanitize_note_path(filename);
         let full_path = if group_path.is_empty() { safe_stem.clone() } else { format!("{}/{}", group_path, safe_stem) };
-        let file_path = page::safe_note_path(&self.notes_dir, filename);
-        let current_content = fs::read_to_string(&file_path).unwrap_or_default();
+        let current_content = match self.repository.read_note_content(filename) {
+            Ok(c) => c,
+            Err(_) => {
+                // File may not exist yet (new note) — empty is correct for backup
+                String::new()
+            }
+        };
 
         // 1. Create pre-edit snapshot
         let snapshot = {
@@ -383,13 +379,9 @@ impl AgentSession {
             }
         };
 
-        // 2. Save note and update DB atomically
-        if let Ok(conn) = self.open_db() {
-            if let Err(e) = page::save_and_index_page(&conn, &self.notes_dir, filename, new_content) {
-                return format!("Failed to save note '{}': {}", full_path, e);
-            }
-        } else if let Err(e) = page::atomic_write(&file_path, new_content) {
-            return format!("Failed to write to file '{}': {}", full_path, e);
+        // 2. Save note and update DB atomically via repository
+        if let Err(e) = self.repository.save_note(filename, new_content) {
+            return format!("Failed to save note '{}': {}", full_path, e);
         }
 
         let snap_msg = snapshot
@@ -417,14 +409,8 @@ impl AgentSession {
             snap
         };
 
-        if let Ok(conn) = self.open_db() {
-            page::save_and_index_page(&conn, &self.notes_dir, &snapshot.filename, &snapshot.content)
-                .map_err(|e| format!("Failed to restore note: {}", e))?;
-        } else {
-            let file_path = page::safe_note_path(&self.notes_dir, &snapshot.filename);
-            page::atomic_write(&file_path, &snapshot.content)
-                .map_err(|e| format!("Failed to restore file: {}", e))?;
-        }
+        self.repository.save_note(&snapshot.filename, &snapshot.content)
+            .map_err(|e| format!("Failed to restore note: {}", e))?;
 
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.last_snapshot_id.as_deref() == Some(snapshot_id) {
@@ -433,37 +419,41 @@ impl AgentSession {
 
         Ok(format!("Successfully rolled back '{}' to pre-edit state ({})", snapshot.filename, snapshot_id))
     }
-
-    fn open_db(&self) -> Result<Connection, rusqlite::Error> {
-        db::open_db(&self.db_path)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
     use crate::agent::client::LlmConfig;
     use crate::agent::permissions::PermissionConfig;
+    use crate::repository::FsSqliteNoteRepository;
+
+    fn make_session(notes_dir: &Path, backup_dir: &Path) -> AgentSession {
+        let db_path = notes_dir.parent().unwrap().join("test.db");
+        let conn = crate::db::open_db(&db_path).unwrap();
+        let repo: Arc<dyn NoteRepository> = Arc::new(FsSqliteNoteRepository::new(notes_dir, Arc::new(Mutex::new(conn))));
+        AgentSession::new(
+            notes_dir,
+            repo,
+            backup_dir,
+            PermissionManager::new(PermissionConfig::default()),
+            LlmClient::new(LlmConfig::default()),
+        )
+    }
 
     #[test]
     fn test_apply_note_edit_and_undo() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let db_path = tmp.path().join("test.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
         let note_file = notes_dir.join("meeting.adoc");
         fs::write(&note_file, "= Meeting\nInitial agenda").unwrap();
 
-        let mut session = AgentSession::new(
-            &notes_dir,
-            &db_path,
-            &backup_dir,
-            PermissionManager::new(PermissionConfig::default()),
-            LlmClient::new(LlmConfig::default()),
-        );
+        let mut session = make_session(&notes_dir, &backup_dir);
 
         // Apply edit
         let res = session.apply_note_edit("meeting.adoc", "= Meeting\nUpdated agenda with action items", "Added items");
@@ -488,17 +478,10 @@ mod tests {
     fn test_execute_create_and_search_tool() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let db_path = tmp.path().join("test.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        let session = AgentSession::new(
-            &notes_dir,
-            &db_path,
-            &backup_dir,
-            PermissionManager::new(PermissionConfig::default()),
-            LlmClient::new(LlmConfig::default()),
-        );
+        let session = make_session(&notes_dir, &backup_dir);
 
         let create_call = ToolCall {
             id: Some("call_1".to_string()),
@@ -532,17 +515,10 @@ mod tests {
     fn test_read_and_edit_note_with_adoc_extension() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let db_path = tmp.path().join("test.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        let session = AgentSession::new(
-            &notes_dir,
-            &db_path,
-            &backup_dir,
-            PermissionManager::new(PermissionConfig::default()),
-            LlmClient::new(LlmConfig::default()),
-        );
+        let session = make_session(&notes_dir, &backup_dir);
 
         // Create a note with .adoc extension
         let note_path = notes_dir.join("test_note.adoc");
@@ -565,7 +541,7 @@ mod tests {
             id: Some("edit_1".to_string()),
             tool_type: "function".to_string(),
             function: crate::agent::tools::FunctionCall {
-                name: "edit_note".to_string(),
+                name: TOOL_EDIT_NOTE.to_string(),
                 arguments: json!({
                     "filename": "test_note.adoc",
                     "content": "= Test Note\nModified text.",
@@ -587,21 +563,111 @@ mod tests {
     fn test_non_blocking_status_inspection() {
         let tmp = tempdir().unwrap();
         let notes_dir = tmp.path().join("notes");
-        let db_path = tmp.path().join("test.db");
         let backup_dir = tmp.path().join("backups");
         fs::create_dir_all(&notes_dir).unwrap();
 
-        let session = AgentSession::new(
-            &notes_dir,
-            &db_path,
-            &backup_dir,
-            PermissionManager::new(PermissionConfig::default()),
-            LlmClient::new(LlmConfig::default()),
-        );
+        let session = make_session(&notes_dir, &backup_dir);
 
         assert!(!session.is_busy());
         assert!(!session.can_undo());
         assert!(session.pending_action().is_none());
         assert_eq!(session.messages().len(), 0);
+    }
+
+    #[test]
+    fn test_read_note_via_repository_not_fs() {
+        // Verify the agent reads through the repository, not direct filesystem access.
+        // The repository's safe_note_path prevents path traversal.
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        // Write a secret outside notes dir
+        fs::write(tmp.path().join("secret.txt"), "classified data").unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+
+        // Attempt traversal via the read_note tool
+        let read_call = ToolCall {
+            id: Some("traversal_1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "../secret.txt" }),
+            },
+        };
+        let output = session.execute_tool(&read_call);
+        assert!(output.starts_with("Error reading note"), "traversal must fail: {}", output);
+        assert!(!output.contains("classified"), "must not leak secret content");
+    }
+
+    #[test]
+    fn test_search_uses_repository() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+
+        // Create a note via the tool
+        let create_call = ToolCall {
+            id: Some("c1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "create_note".to_string(),
+                arguments: json!({ "title": "Searchable", "content": "= Searchable\nUnique keyword: xyzzy" }),
+            },
+        };
+        session.execute_tool(&create_call);
+
+        // Search via the tool — verifies the repository's FTS integration works
+        let search_call = ToolCall {
+            id: Some("s1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "search_notes".to_string(),
+                arguments: json!({ "query": "xyzzy" }),
+            },
+        };
+        let result = session.execute_tool(&search_call);
+        assert!(result.contains("Searchable"), "search should find the note: {}", result);
+    }
+
+    #[test]
+    fn test_list_uses_repository() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+
+        // Create notes
+        for title in &["Alpha", "Beta", "Gamma"] {
+            let call = ToolCall {
+                id: Some(format!("c_{}", title)),
+                tool_type: "function".to_string(),
+                function: crate::agent::tools::FunctionCall {
+                    name: "create_note".to_string(),
+                    arguments: json!({ "title": title, "content": format!("= {}\n", title) }),
+                },
+            };
+            session.execute_tool(&call);
+        }
+
+        let list_call = ToolCall {
+            id: Some("list1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "list_notes".to_string(),
+                arguments: json!({}),
+            },
+        };
+        let result = session.execute_tool(&list_call);
+        assert!(result.contains("Alpha"), "should list Alpha: {}", result);
+        assert!(result.contains("Beta"), "should list Beta: {}", result);
+        assert!(result.contains("Gamma"), "should list Gamma: {}", result);
     }
 }

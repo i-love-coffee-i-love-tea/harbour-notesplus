@@ -10,11 +10,19 @@ pub fn open_db(path: impl AsRef<Path>) -> SqlResult<Connection> {
 
 /// Initialize the SQLite schema and perform migrations if necessary. Idempotent.
 pub fn init_schema(conn: &Connection) -> SqlResult<()> {
-    // Performance PRAGMAs
-    let _ = conn.pragma_update(None, "journal_mode", "WAL");
-    let _ = conn.pragma_update(None, "synchronous", "NORMAL");
-    let _ = conn.pragma_update(None, "cache_size", -8000);
-    let _ = conn.pragma_update(None, "busy_timeout", 5000);
+    // Performance PRAGMAs — log failures but don't block startup
+    if let Err(e) = conn.pragma_update(None, "journal_mode", "WAL") {
+        log::warn!("Failed to set journal_mode=WAL: {}", e);
+    }
+    if let Err(e) = conn.pragma_update(None, "synchronous", "NORMAL") {
+        log::warn!("Failed to set synchronous=NORMAL: {}", e);
+    }
+    if let Err(e) = conn.pragma_update(None, "cache_size", -8000) {
+        log::warn!("Failed to set cache_size: {}", e);
+    }
+    if let Err(e) = conn.pragma_update(None, "busy_timeout", 5000) {
+        log::warn!("Failed to set busy_timeout: {}", e);
+    }
 
     conn.execute_batch(
         "

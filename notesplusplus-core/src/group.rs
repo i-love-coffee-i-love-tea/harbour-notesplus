@@ -190,7 +190,7 @@ pub fn rename_group(
     for page in &all_pages {
         let file_path = page::safe_note_path(notes_dir, &page.full_path());
         if let Ok(content) = std::fs::read_to_string(&file_path) {
-            let rewritten = page::rewrite_xrefs(&content, old_path, &new_path);
+            let rewritten = crate::xref::rewrite_xrefs(&content, old_path, &new_path);
             if rewritten != content {
                 let _ = page::atomic_write(&file_path, &rewritten);
                 let _ = db::update_fts_content(conn, page.id, &rewritten);

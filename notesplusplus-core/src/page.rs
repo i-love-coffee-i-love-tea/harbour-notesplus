@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
 use crate::CoreError;
 use crate::db;
+use crate::xref::rewrite_xrefs;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PageInfo {
@@ -500,7 +501,7 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, t
 
 /// Returns true if `dir` is an asset directory for a .adoc file in its parent.
 /// Convention: a directory named `foo/` is an asset directory if `foo.adoc` exists alongside it.
-fn is_asset_dir(dir: &Path) -> bool {
+pub fn is_asset_dir(dir: &Path) -> bool {
     let dir_name = match dir.file_name().and_then(|n| n.to_str()) {
         Some(n) => n,
         None => return false,
@@ -605,236 +606,8 @@ fn copy_dir_recursive(
     Ok(())
 }
 
-/// Scan notes directory recursively for .adoc files, insert any missing into DB and index into FTS.
-/// Skips re-reading and re-indexing files that have not changed since last recorded update.
-/// Purges records from DB and FTS when files no longer exist on disk.
-pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
-    if !notes_dir.exists() {
-        return Ok(());
-    }
-
-    sync_dir_recursive(conn, notes_dir, notes_dir, "", 0)?;
-    cleanup_orphaned_pages(conn, notes_dir)?;
-    cleanup_orphaned_groups(conn)?;
-
-    Ok(())
-}
-
-fn sync_dir_recursive(
-    conn: &Connection,
-    notes_root: &Path,
-    current_dir: &Path,
-    current_group: &str,
-    depth: usize,
-) -> Result<(), CoreError> {
-    if depth > 10 {
-        return Ok(());
-    }
-
-    let mut existing_pages: std::collections::HashMap<String, (i64, Option<chrono::DateTime<chrono::Utc>>)> = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT id, filename, updated_at FROM pages WHERE group_path = ?1") {
-        if let Ok(rows) = stmt.query_map([current_group], |row| {
-            let id: i64 = row.get(0)?;
-            let filename: String = row.get(1)?;
-            let updated_at_str: String = row.get(2)?;
-            let dt = chrono::DateTime::parse_from_rfc3339(&updated_at_str)
-                .map(|d| d.with_timezone(&chrono::Utc))
-                .ok();
-            Ok((filename, (id, dt)))
-        }) {
-            for row in rows.flatten() {
-                existing_pages.insert(row.0, row.1);
-            }
-        }
-    }
-
-    for entry in std::fs::read_dir(current_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        eprintln!("[sync] scanning: {:?} is_dir={} is_file={}", path.file_name().unwrap_or_default(), path.is_dir(), path.is_file());
-        if path.is_file() && path.extension().is_some_and(|ext| ext == "adoc") {
-            let filename = path.file_name().unwrap().to_string_lossy().to_string();
-            let is_journal = current_group.is_empty() && filename == JOURNAL_FILENAME;
-
-            let file_mtime = std::fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(chrono::DateTime::<chrono::Utc>::from);
-
-            match existing_pages.get(&filename) {
-                Some(&(page_id, Some(db_updated_at))) => {
-                    if let Some(mtime) = file_mtime {
-                        if mtime > db_updated_at {
-                            let content = std::fs::read_to_string(&path).unwrap_or_default();
-                            let _ = db::update_fts_content(conn, page_id, &content);
-                        }
-                    }
-                }
-                Some(&(page_id, None)) => {
-                    let content = std::fs::read_to_string(&path).unwrap_or_default();
-                    let _ = db::update_fts_content(conn, page_id, &content);
-                }
-                None => {
-                    let content = std::fs::read_to_string(&path).unwrap_or_default();
-                    let title = if is_journal {
-                        JOURNAL_TITLE.to_string()
-                    } else {
-                        extract_doc_title(&content, &filename)
-                    };
-                    let now = file_mtime.map(|m| m.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-
-                    conn.execute(
-                        "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0)",
-                        rusqlite::params![filename, current_group, title, is_journal as i32, now],
-                    )?;
-
-                    if let Ok(page_id) = conn.query_row(
-                        "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
-                        rusqlite::params![current_group, filename],
-                        |row| row.get::<_, i64>(0),
-                    ) {
-                        let _ = db::update_fts_content(conn, page_id, &content);
-                    }
-                }
-            }
-        } else if path.is_dir() {
-            let dir_name = path.file_name().unwrap().to_string_lossy().to_string();
-            if dir_name.starts_with('.') {
-                continue;
-            }
-            let sanitized_dir = sanitize_filename(&dir_name).trim_matches('_').to_string();
-            if sanitized_dir.is_empty() {
-                continue;
-            }
-
-            if is_asset_dir(&path) {
-                // Asset directory: recurse with parent's group, don't register as a group
-                sync_dir_recursive(conn, notes_root, &path, current_group, depth + 1)?;
-            } else {
-                // Normal directory: register as group and recurse
-                let child_group = if current_group.is_empty() {
-                    sanitized_dir.clone()
-                } else {
-                    format!("{}/{}", current_group, sanitized_dir)
-                };
-
-                let now = chrono::Utc::now().to_rfc3339();
-                let _ = conn.execute(
-                    "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
-                     VALUES (?1, ?2, 0, 0, 'newest', ?3)",
-                    rusqlite::params![child_group, dir_name, now],
-                );
-
-                sync_dir_recursive(conn, notes_root, &path, &child_group, depth + 1)?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Statistics returned by `rebuild_index`.
-pub struct RebuildStats {
-    pub pages_indexed: usize,
-    pub groups_found: usize,
-}
-
-/// Destroys and recreates the full-text search index, clears all page and group
-/// records, and rescans the notes directory from scratch. Use this to recover
-/// from suspected index corruption.
-pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats, CoreError> {
-    // 1. Drop FTS table
-    conn.execute_batch("DROP TABLE IF EXISTS pages_fts")?;
-
-    // 2. Clear pages and groups tables
-    conn.execute("DELETE FROM pages", [])?;
-    conn.execute("DELETE FROM groups", [])?;
-
-    // 3. Recreate FTS table
-    conn.execute_batch(
-        "CREATE VIRTUAL TABLE pages_fts USING fts5(
-            filename, title, content,
-            tokenize='porter unicode61'
-        )",
-    )?;
-
-    // 4. Rescan from disk
-    sync_and_index_pages(conn, notes_dir)?;
-
-    // 5. Collect stats
-    let pages_count: usize = conn
-        .query_row("SELECT COUNT(*) FROM pages", [], |r| r.get(0))
-        .unwrap_or(0);
-    let groups_count: usize = conn
-        .query_row("SELECT COUNT(*) FROM groups", [], |r| r.get(0))
-        .unwrap_or(0);
-
-    Ok(RebuildStats {
-        pages_indexed: pages_count,
-        groups_found: groups_count,
-    })
-}
-
-/// Purges page records from DB and FTS when files no longer exist on disk.
-pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
-    let mut stmt = conn.prepare("SELECT id, filename, group_path FROM pages")?;
-    let rows: Vec<(i64, String, String)> = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .filter_map(Result::ok)
-        .collect();
-
-    for (id, filename, group_path) in rows {
-        let file_path = if group_path.is_empty() {
-            notes_dir.join(&filename)
-        } else {
-            notes_dir.join(&group_path).join(&filename)
-        };
-
-        if !file_path.exists() {
-            let _ = db::delete_fts_entry(conn, id);
-            let _ = conn.execute("DELETE FROM pages WHERE id = ?1", rusqlite::params![id]);
-        }
-    }
-
-    Ok(())
-}
-
-/// Removes groups that have no pages and no child groups.
-fn cleanup_orphaned_groups(conn: &Connection) -> Result<(), CoreError> {
-    let groups: Vec<String> = conn
-        .prepare("SELECT path FROM groups")?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .filter_map(Result::ok)
-        .collect();
-
-    for group_path in groups {
-        let page_count: usize = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pages WHERE group_path = ?1",
-                rusqlite::params![group_path],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        let prefix = format!("{}/", group_path);
-        let child_count: usize = conn
-            .query_row(
-                "SELECT COUNT(*) FROM groups WHERE path LIKE ?1",
-                rusqlite::params![format!("{}%", prefix)],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        if page_count == 0 && child_count == 0 {
-            let _ = conn.execute(
-                "DELETE FROM groups WHERE path = ?1",
-                rusqlite::params![group_path],
-            );
-        }
-    }
-    Ok(())
-}
+// Re-export search index operations for backward compatibility.
+pub use crate::search_index::{sync_and_index_pages, rebuild_index, cleanup_orphaned_pages, RebuildStats};
 
 pub fn sanitize_filename(name: &str) -> String {
     name.chars()
@@ -955,52 +728,6 @@ pub fn atomic_write(path: &Path, content: impl AsRef<[u8]>) -> std::io::Result<(
     }
 
     Ok(())
-}
-
-/// Rewrites cross-references in AsciiDoc content from old_target to new_target.
-/// Handles:
-/// - Standard: `xref:old_target#anchor[label]`, `xref:old_target[label]`, `xref:old_target[]`
-/// - Standard without .adoc: `xref:old_target_stem#anchor[label]`
-/// - Shorthand angle-brackets: `<<old_target#anchor,label>>`, `<<old_target,label>>`, `<<old_target>>`
-/// - Shorthand angle-brackets without .adoc: `<<old_target_stem#anchor,label>>`, `<<old_target_stem>>`
-pub fn rewrite_xrefs(content: &str, old_target: &str, new_target: &str) -> String {
-    let old_clean = old_target.trim().trim_matches('/');
-    let new_clean = new_target.trim().trim_matches('/');
-
-    if old_clean.is_empty() || new_clean.is_empty() || old_clean == new_clean {
-        return content.to_string();
-    }
-
-    let old_stem = old_clean.strip_suffix(".adoc").unwrap_or(old_clean);
-    let new_stem = new_clean.strip_suffix(".adoc").unwrap_or(new_clean);
-    let old_adoc = if old_clean.ends_with(".adoc") { old_clean.to_string() } else { format!("{}.adoc", old_clean) };
-    let new_adoc = if new_clean.ends_with(".adoc") { new_clean.to_string() } else { format!("{}.adoc", new_clean) };
-
-    let mut result = content.to_string();
-
-    // 1. Standard xref:old_adoc#anchor[label] or xref:old_adoc[label]
-    if let Ok(re_std) = regex::Regex::new(&format!(r"xref:{}([#][^\]]*)?\[", regex::escape(&old_adoc))) {
-        result = re_std.replace_all(&result, format!("xref:{}$1[", new_adoc).as_str()).to_string();
-    }
-
-    // 2. Standard xref:old_stem#anchor[label] or xref:old_stem[label]
-    if old_stem != old_adoc {
-        if let Ok(re_std_stem) = regex::Regex::new(&format!(r"xref:{}([#][^\]]*)?\[", regex::escape(old_stem))) {
-            result = re_std_stem.replace_all(&result, format!("xref:{}$1[", new_adoc).as_str()).to_string();
-        }
-    }
-
-    // 3. Shorthand <<old_adoc#anchor,label>> or <<old_adoc>>
-    if let Ok(re_angle) = regex::Regex::new(&format!(r"<<{}([#][^,>]*)?(,[^>]*)?>>", regex::escape(&old_adoc))) {
-        result = re_angle.replace_all(&result, format!("<<{}$1$2>>", new_adoc).as_str()).to_string();
-    }
-
-    // 4. Shorthand <<old_stem#anchor,label>> or <<old_stem>>
-    if let Ok(re_angle_stem) = regex::Regex::new(&format!(r"<<{}([#][^,>]*)?(,[^>]*)?>>", regex::escape(old_stem))) {
-        result = re_angle_stem.replace_all(&result, format!("<<{}$1$2>>", new_stem).as_str()).to_string();
-    }
-
-    result
 }
 
 /// Moves a note to a new group, updates DB and disk atomically, and rewrites incoming and outgoing cross-references.
@@ -1226,6 +953,8 @@ pub fn rename_page(
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use std::sync::{Arc, Mutex};
+    use crate::repository::NoteRepository;
 
     fn setup() -> (Connection, TempDir) {
         let dir = TempDir::new().unwrap();
@@ -1625,20 +1354,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rewrite_xrefs_standard_with_anchor_and_label() {
-        let content = "See xref:OldNote.adoc#section-two[Custom Label] for info.";
-        let rewritten = rewrite_xrefs(content, "OldNote.adoc", "Work/NewNote.adoc");
-        assert_eq!(rewritten, "See xref:Work/NewNote.adoc#section-two[Custom Label] for info.");
-    }
-
-    #[test]
-    fn test_rewrite_xrefs_angle_bracket_shorthand() {
-        let content = "<<OldNote#section-two,Custom Label>> and <<OldNote>>";
-        let rewritten = rewrite_xrefs(content, "OldNote.adoc", "Work/NewNote.adoc");
-        assert_eq!(rewritten, "<<Work/NewNote#section-two,Custom Label>> and <<Work/NewNote>>");
-    }
-
-    #[test]
     fn test_move_page_incoming_and_outgoing_xrefs() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
@@ -1736,5 +1451,68 @@ mod tests {
 
         let root_path = safe_note_path(notes_dir, "Hendrix.adoc");
         assert_eq!(root_path, notes_dir.join("Hendrix.adoc"));
+    }
+
+    #[test]
+    fn safe_note_path_blocks_traversal() {
+        let temp_dir = TempDir::new().unwrap();
+        let notes_dir = temp_dir.path();
+
+        // Basic traversal
+        let path = safe_note_path(notes_dir, "../../../etc/passwd");
+        assert!(path.starts_with(notes_dir), "traversal path must stay within notes_dir: {:?}", path);
+
+        // Traversal with valid prefix
+        let path2 = safe_note_path(notes_dir, "valid/../../../etc/passwd");
+        assert!(path2.starts_with(notes_dir), "traversal path must stay within notes_dir: {:?}", path2);
+
+        // Dot-dot in middle
+        let path3 = safe_note_path(notes_dir, "group/../../secret.adoc");
+        assert!(path3.starts_with(notes_dir), "traversal path must stay within notes_dir: {:?}", path3);
+    }
+
+    #[test]
+    fn sanitize_note_path_strips_dotdot() {
+        let (group, file) = sanitize_note_path("../../../etc/passwd");
+        assert!(!group.contains(".."), "group must not contain '..': {}", group);
+        assert!(!file.contains(".."), "filename must not contain '..': {}", file);
+
+        let (group2, file2) = sanitize_note_path("valid/../../../etc/passwd");
+        assert!(!group2.contains(".."), "group must not contain '..': {}", group2);
+        assert!(!file2.contains(".."), "filename must not contain '..': {}", file2);
+    }
+
+    #[test]
+    fn repository_note_exists_prevents_traversal() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        create_page(&conn, &notes, "Secret", false).unwrap();
+
+        let repo = crate::repository::FsSqliteNoteRepository::new(&notes, Arc::new(Mutex::new(conn)));
+
+        // Should not find files outside notes dir
+        assert!(!repo.note_exists("../../../etc/passwd"));
+        assert!(!repo.note_exists("valid/../../../etc/passwd"));
+
+        // Should find existing note
+        assert!(repo.note_exists("Secret.adoc"));
+        assert!(!repo.note_exists("Nonexistent.adoc"));
+    }
+
+    #[test]
+    fn repository_read_note_content_stays_in_dir() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+        // Write a secret file outside notes dir
+        std::fs::write(dir.path().join("secret.txt"), "classified").unwrap();
+
+        let repo = crate::repository::FsSqliteNoteRepository::new(&notes, Arc::new(Mutex::new(conn)));
+
+        // Traversal attempt should fail
+        let result = repo.read_note_content("../secret.txt");
+        assert!(result.is_err(), "traversal read must fail");
+
+        let result2 = repo.read_note_content("../../../etc/passwd");
+        assert!(result2.is_err(), "traversal read must fail");
     }
 }

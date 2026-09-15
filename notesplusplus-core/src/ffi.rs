@@ -16,16 +16,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::agent::{
-    self, AgentSession, AgentStepResult, LlmClient, LlmConfig, LlmProvider, PendingConfirmation,
+    self, AgentSession, AgentStepResult, LlmClient, LlmConfig, PendingConfirmation,
     PermissionConfig, PermissionManager,
 };
-use crate::block::Block;
+use crate::block::{Block, collect_footnotes};
 use crate::constants;
 use crate::db;
 use crate::group;
 use crate::html;
 use crate::html::qt_html::{QtRenderOptions, QtThemeColors};
-use crate::inline::InlineSpan;
 use crate::journal;
 use crate::page;
 use crate::parser;
@@ -87,9 +86,7 @@ fn blocks_to_json_with_html(
     }
 
     // Collect footnotes and append synthetic footnotes block
-    let mut footnotes: Vec<(Option<String>, String)> = Vec::new();
-    let mut seen_ids: Vec<String> = Vec::new();
-    collect_footnotes(blocks, &mut footnotes, &mut seen_ids);
+    let footnotes = collect_footnotes(blocks);
     if !footnotes.is_empty() {
         let mut fn_html = String::from(
             "<hr/><p style='margin:4px 8px;font-weight:bold;color:__LINK_COLOR__;'>Footnotes</p>",
@@ -114,57 +111,6 @@ fn blocks_to_json_with_html(
     }
 
     list
-}
-
-fn collect_footnotes(blocks: &[Block], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
-    for block in blocks {
-        match block {
-            Block::Heading { spans, .. } | Block::Paragraph { spans, .. } => {
-                collect_footnotes_from_spans(spans, footnotes, seen_ids);
-            }
-            Block::OrderedListItem { children, .. } | Block::UnorderedListItem { children, .. } |
-            Block::DescriptionListItem { children, .. } | Block::CalloutListItem { children, .. } |
-            Block::Blockquote { children, .. } | Block::Admonition { children, .. } |
-            Block::Sidebar { children, .. } | Block::Example { children, .. } |
-            Block::Open { children, .. } => {
-                collect_footnotes(children, footnotes, seen_ids);
-            }
-            Block::Verse { spans, .. } => {
-                for line_spans in spans {
-                    collect_footnotes_from_spans(line_spans, footnotes, seen_ids);
-                }
-            }
-            Block::Table { rows, .. } => {
-                for row in rows {
-                    for cell in row {
-                        collect_footnotes(&cell.blocks, footnotes, seen_ids);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn collect_footnotes_from_spans(spans: &[InlineSpan], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
-    for span in spans {
-        match span {
-            InlineSpan::Footnote { id, text } => {
-                let key = id.clone().unwrap_or_default();
-                if key.is_empty() || !seen_ids.contains(&key) {
-                    if !key.is_empty() {
-                        seen_ids.push(key);
-                    }
-                    footnotes.push((id.clone(), text.clone()));
-                }
-            }
-            InlineSpan::Bold(inner) | InlineSpan::Italic(inner) | InlineSpan::Monospace(inner) |
-            InlineSpan::Superscript(inner) | InlineSpan::Subscript(inner) | InlineSpan::Mark(inner) => {
-                collect_footnotes_from_spans(inner, footnotes, seen_ids);
-            }
-            _ => {}
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,22 +167,6 @@ unsafe fn cstr_to_path(ptr: *const c_char) -> PathBuf {
 /// Allocate a C string from a Rust String. Caller must free via notes_core_free_string.
 fn string_to_c(s: String) -> *mut c_char {
     CString::new(s).unwrap_or_default().into_raw()
-}
-
-/// Wrap a Result<(), E> into a c_int (0 = ok, -1 = error, storing error in out_err).
-fn result_to_int<E: std::fmt::Display>(
-    result: Result<(), E>,
-    out_err: Option<&mut *mut c_char>,
-) -> i32 {
-    match result {
-        Ok(()) => 0,
-        Err(e) => {
-            if let Some(slot) = out_err {
-                *slot = string_to_c(e.to_string());
-            }
-            -1
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -544,7 +474,7 @@ pub extern "C" fn notes_core_render_qt_block_json(
 
     let block_val: serde_json::Value = match serde_json::from_str(&block_str) {
         Ok(v) => v,
-        Err(_) => return string_c(r#"{"error":"invalid block json"}"#.to_string()),
+        Err(_) => return string_to_c(r#"{"error":"invalid block json"}"#.to_string()),
     };
 
     let theme: HashMap<String, String> =
@@ -564,11 +494,6 @@ pub extern "C" fn notes_core_render_qt_block_json(
     } else {
         string_to_c(String::new())
     }
-}
-
-// helper alias
-fn string_c(s: String) -> *mut c_char {
-    string_to_c(s)
 }
 
 /// Save a block range in a page. Returns 0 on success.
@@ -626,31 +551,19 @@ pub extern "C" fn notes_core_page_toggle_checkbox(
     let conn = unsafe { &mut *conn };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let path = unsafe { cstr_to_string(page_path) };
-    let _ipath = unsafe { cstr_to_string(item_path) };
+    let ipath = unsafe { cstr_to_string(item_path) };
 
     let content = match page::read_page(&dir, &path) {
         Ok(c) => c,
         Err(_) => return -1,
     };
 
-    let mut blocks = parser::parse_blocks(&content);
     let idx = block_index.max(0) as usize;
-    if idx >= blocks.len() {
-        return -1;
-    }
+    let new_content = match parser::toggle_checkbox(&content, idx, &ipath) {
+        Some(c) => c,
+        None => return -1,
+    };
 
-    // Toggle checkbox in the block's raw text
-    if let Block::OrderedListItem { ref mut raw, .. }
-    | Block::UnorderedListItem { ref mut raw, .. } = blocks[idx]
-    {
-        if raw.contains("[x]") {
-            *raw = raw.replacen("[x]", "[ ]", 1);
-        } else if raw.contains("[ ]") {
-            *raw = raw.replacen("[ ]", "[x]", 1);
-        }
-    }
-
-    let new_content = parser::blocks_to_adoc(&blocks);
     match page::save_and_index_page(conn, &dir, &path, &new_content) {
         Ok(_) => 0,
         Err(_) => -1,
@@ -1206,57 +1119,17 @@ pub extern "C" fn notes_core_agent_new(
     let db = unsafe { cstr_to_path(db_path) };
     let backup = unsafe { cstr_to_path(backup_dir) };
     let cfg_str = unsafe { cstr_to_string(config_json) };
-
     let cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
-    let llm_config = LlmConfig {
-        provider: match cfg.get("provider").and_then(|v| v.as_str()).unwrap_or("ollama") {
-            "openai" => LlmProvider::OpenAiCompatible,
-            _ => LlmProvider::Ollama,
-        },
-        endpoint_url: cfg
-            .get("endpoint_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or(constants::DEFAULT_AI_ENDPOINT)
-            .to_string(),
-        model: cfg
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or(constants::DEFAULT_AI_MODEL)
-            .to_string(),
-        api_key: cfg.get("api_key").and_then(|v| v.as_str()).map(String::from),
-        timeout_secs: cfg
-            .get("timeout_secs")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(120),
-        allow_self_signed: cfg
-            .get("allow_self_signed")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        system_prompt: None,
-    };
-
-    let perm_config = PermissionConfig {
-        auto_allow_read: cfg
-            .get("auto_allow_read")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-        auto_allow_create: cfg
-            .get("auto_allow_create")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-        require_confirm_edit: cfg
-            .get("require_confirm_edit")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true),
-        allow_fetch_url: cfg
-            .get("allow_fetch_url")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-    };
+    let llm_config: LlmConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
+    let perm_config: PermissionConfig = serde_json::from_value(cfg).unwrap_or_default();
 
     let client = LlmClient::new(llm_config);
     let perm_mgr = PermissionManager::new(perm_config);
-    let session = AgentSession::new(ndir, db, backup, perm_mgr, client);
+    let conn = crate::db::open_db(&db).unwrap_or_else(|_| rusqlite::Connection::open_in_memory().unwrap());
+    let repository: std::sync::Arc<dyn crate::repository::NoteRepository> = std::sync::Arc::new(
+        crate::repository::FsSqliteNoteRepository::new(&ndir, std::sync::Arc::new(std::sync::Mutex::new(conn)))
+    );
+    let session = AgentSession::new(ndir, repository, backup, perm_mgr, client);
 
     Box::into_raw(Box::new(FfiAgentSession {
         session: Arc::new(Mutex::new(session)),
@@ -1447,40 +1320,8 @@ pub extern "C" fn notes_core_agent_configure(
     let ffi = unsafe { &mut *ffi };
     let cfg_str = unsafe { cstr_to_string(config_json) };
     let cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
-
-    let llm_config = LlmConfig {
-        provider: match cfg.get("provider").and_then(|v| v.as_str()).unwrap_or("ollama") {
-            "openai" => LlmProvider::OpenAiCompatible,
-            _ => LlmProvider::Ollama,
-        },
-        endpoint_url: cfg
-            .get("endpoint_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or(constants::DEFAULT_AI_ENDPOINT)
-            .to_string(),
-        model: cfg
-            .get("model")
-            .and_then(|v| v.as_str())
-            .unwrap_or(constants::DEFAULT_AI_MODEL)
-            .to_string(),
-        api_key: cfg.get("api_key").and_then(|v| v.as_str()).map(String::from),
-        timeout_secs: cfg
-            .get("timeout_secs")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(120),
-        allow_self_signed: cfg
-            .get("allow_self_signed")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        system_prompt: None,
-    };
-
-    let perm_config = PermissionConfig {
-        auto_allow_read: cfg.get("auto_allow_read").and_then(|v| v.as_bool()).unwrap_or(true),
-        auto_allow_create: cfg.get("auto_allow_create").and_then(|v| v.as_bool()).unwrap_or(true),
-        require_confirm_edit: cfg.get("require_confirm_edit").and_then(|v| v.as_bool()).unwrap_or(true),
-        allow_fetch_url: cfg.get("allow_fetch_url").and_then(|v| v.as_bool()).unwrap_or(false),
-    };
+    let llm_config: LlmConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
+    let perm_config: PermissionConfig = serde_json::from_value(cfg).unwrap_or_default();
 
     let client = LlmClient::new(llm_config);
     let perm_mgr = PermissionManager::new(perm_config);

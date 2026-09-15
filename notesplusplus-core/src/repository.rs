@@ -52,6 +52,12 @@ pub trait NoteRepository: Send + Sync {
 
     /// Move a page to a new group.
     fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError>;
+
+    /// Check whether a note file exists on disk.
+    fn note_exists(&self, name_or_filename: &str) -> bool;
+
+    /// Get the notes directory path.
+    fn notes_dir(&self) -> &Path;
 }
 
 /// Filesystem and SQLite backed NoteRepository.
@@ -66,10 +72,6 @@ impl FsSqliteNoteRepository {
             notes_dir: notes_dir.as_ref().to_path_buf(),
             conn,
         }
-    }
-
-    pub fn notes_dir(&self) -> &Path {
-        &self.notes_dir
     }
 
     pub fn conn(&self) -> &Arc<Mutex<Connection>> {
@@ -146,6 +148,15 @@ impl NoteRepository for FsSqliteNoteRepository {
     fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::move_page(&conn, &self.notes_dir, source_name_or_path, target_group)
+    }
+
+    fn note_exists(&self, name_or_filename: &str) -> bool {
+        let path = page::safe_note_path(&self.notes_dir, name_or_filename);
+        path.is_file()
+    }
+
+    fn notes_dir(&self) -> &Path {
+        &self.notes_dir
     }
 }
 

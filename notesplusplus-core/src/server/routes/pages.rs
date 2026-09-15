@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::Write;
 use std::path::Path;
 use serde_json::json;
@@ -7,7 +6,7 @@ use crate::block::Block;
 use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
 use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
-use crate::page::{safe_note_path, sanitize_note_filename};
+use crate::page::sanitize_note_filename;
 use crate::parser;
 use crate::repository::NoteRepository;
 use crate::server::http::{
@@ -143,16 +142,15 @@ pub fn handle_page_detail_api<W: Write>(
     cors_origin: &str,
 ) {
     let filename = sanitize_note_filename(filename);
-    let file_path = safe_note_path(&ctx.notes_dir, &filename);
 
     match req.method.as_str() {
         "GET" => {
-            if !file_path.is_file() {
+            if !ctx.repository.note_exists(&filename) {
                 send_json_error(stream, 404, "Not Found", &format!("Page '{}' not found", filename), cors_origin);
                 return;
             }
 
-            match fs::read_to_string(&file_path) {
+            match ctx.repository.read_note_content(&filename) {
                 Ok(content) => {
                     let title = page::extract_doc_title(&content, &filename);
                     let blocks = parser::parse_blocks(&content);
@@ -180,7 +178,7 @@ pub fn handle_page_detail_api<W: Write>(
                 let count = parsed.get("count").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
                 let raw_block = parsed.get("raw").and_then(|v| v.as_str()).unwrap_or("");
 
-                match fs::read_to_string(&file_path) {
+                match ctx.repository.read_note_content(&filename) {
                     Ok(content) => {
                         let mut blocks = parser::parse_blocks(&content);
                         let idx = block_idx as usize;
@@ -352,9 +350,8 @@ pub fn handle_notes_api<W: Write>(
             .unwrap()
             .strip_suffix("/toggle")
             .unwrap();
-        let file_path = safe_note_path(&ctx.notes_dir, raw_name);
-        if file_path.is_file() {
-            if let Ok(content) = fs::read_to_string(&file_path) {
+        if ctx.repository.note_exists(raw_name) {
+            if let Ok(content) = ctx.repository.read_note_content(raw_name) {
                 let json_body = req.json_body();
                 let block_idx = json_body.get("block_index").and_then(|v| v.as_u64()).map(|v| v as usize);
                 let item_idx = json_body.get("item_index").and_then(|v| v.as_u64()).map(|v| v as usize).unwrap_or(0);
@@ -414,15 +411,12 @@ pub fn handle_notes_api<W: Write>(
 
     if clean_path.starts_with("api/notes/") {
         let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
-        let file_path = safe_note_path(&ctx.notes_dir, note_name);
 
         match req.method.as_str() {
             "GET" => {
-                if file_path.is_file() {
-                    if let Ok(content) = fs::read_to_string(&file_path) {
-                        send_response(stream, 200, "OK", MIME_TEXT_PLAIN, content.as_bytes(), cors_origin);
-                        return;
-                    }
+                if let Ok(content) = ctx.repository.read_note_content(note_name) {
+                    send_response(stream, 200, "OK", MIME_TEXT_PLAIN, content.as_bytes(), cors_origin);
+                    return;
                 }
                 send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", note_name), cors_origin);
                 return;
@@ -662,13 +656,12 @@ pub fn handle_export_html_api<W: Write>(
     }
 
     let adoc_filename = sanitize_note_filename(&filename);
-    let file_path = safe_note_path(&ctx.notes_dir, &adoc_filename);
-    if !file_path.is_file() {
+    if !ctx.repository.note_exists(&adoc_filename) {
         send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", adoc_filename), cors_origin);
         return;
     }
 
-    match fs::read_to_string(&file_path) {
+    match ctx.repository.read_note_content(&adoc_filename) {
         Ok(content) => {
             let title = adoc_filename.strip_suffix(".adoc").unwrap_or(&adoc_filename);
             let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
@@ -718,26 +711,20 @@ pub fn handle_page_url<W: Write>(
         .or_else(|| clean_path.strip_prefix("edit/"))
         .unwrap_or("");
 
-    let file_path = safe_note_path(&ctx.notes_dir, note_name);
-
     if let Some(q) = req.query.as_deref() {
         if q.contains("export=1") || q.contains("download=1") {
-            if file_path.is_file() {
-                if let Ok(content) = fs::read_to_string(&file_path) {
-                    let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
-                    let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
-                    send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
-                    return;
-                }
+            if let Ok(content) = ctx.repository.read_note_content(note_name) {
+                let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
+                let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
+                send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
+                return;
             }
         } else if q.contains("view=rendered") {
-            if file_path.is_file() {
-                if let Ok(content) = fs::read_to_string(&file_path) {
-                    let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
-                    let html = render_web_page_html(&content, title, &ctx.notes_dir, note_name);
-                    send_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), cors_origin);
-                    return;
-                }
+            if let Ok(content) = ctx.repository.read_note_content(note_name) {
+                let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
+                let html = render_web_page_html(&content, title, &ctx.notes_dir, note_name);
+                send_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), cors_origin);
+                return;
             }
         }
     }
@@ -752,13 +739,10 @@ pub fn handle_raw_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("raw/").unwrap_or("");
-    let file_path = safe_note_path(&ctx.notes_dir, note_name);
 
-    if file_path.is_file() {
-        if let Ok(content) = fs::read_to_string(&file_path) {
-            send_response(stream, 200, "OK", MIME_TEXT_PLAIN, content.as_bytes(), cors_origin);
-            return;
-        }
+    if let Ok(content) = ctx.repository.read_note_content(note_name) {
+        send_response(stream, 200, "OK", MIME_TEXT_PLAIN, content.as_bytes(), cors_origin);
+        return;
     }
     send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
 }
@@ -771,15 +755,12 @@ pub fn handle_export_url<W: Write>(
 ) {
     let note_name = clean_path.strip_prefix("export/").unwrap_or("");
     let stripped = note_name.strip_suffix(".html").unwrap_or(note_name);
-    let file_path = safe_note_path(&ctx.notes_dir, stripped);
 
-    if file_path.is_file() {
-        if let Ok(content) = fs::read_to_string(&file_path) {
-            let title = stripped.rsplit('/').next().unwrap_or(stripped).strip_suffix(".adoc").unwrap_or(stripped);
-            let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
-            send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
-            return;
-        }
+    if let Ok(content) = ctx.repository.read_note_content(stripped) {
+        let title = stripped.rsplit('/').next().unwrap_or(stripped).strip_suffix(".adoc").unwrap_or(stripped);
+        let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
+        send_attachment_response(stream, 200, "OK", MIME_HTML, html.as_bytes(), &format!("{}.html", title), cors_origin);
+        return;
     }
     send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
 }

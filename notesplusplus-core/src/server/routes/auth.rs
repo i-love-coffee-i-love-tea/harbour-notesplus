@@ -178,7 +178,7 @@ pub fn handle_challenge_status<W: Write>(
 
     match ctx.auth_challenges.get_challenge(&challenge_id) {
         Some(challenge) => {
-            if challenge.status == "approved" {
+            if challenge.status == crate::server::auth::ChallengeStatus::Approved {
                 // Create a session and return it
                 let ttl = ctx.session_expiry_secs();
                 match ctx.session_store.create_session("web-user", "code", ttl) {
@@ -211,7 +211,7 @@ pub fn handle_challenge_status<W: Write>(
                         send_response(stream, 500, "Internal Server Error", MIME_JSON, err.to_string().as_bytes(), cors_origin);
                     }
                 }
-            } else if challenge.status == "denied" {
+            } else if challenge.status == crate::server::auth::ChallengeStatus::Denied {
                 ctx.auth_challenges.remove_challenge(&challenge_id);
                 let resp = json!({ "status": "denied" });
                 send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);

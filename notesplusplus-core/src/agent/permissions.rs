@@ -3,9 +3,10 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use crate::agent::diff::{compute_line_diff, DiffSummary};
-use crate::agent::tools::ToolCall;
+use crate::agent::tools::{ToolCall, TOOL_READ_NOTE, TOOL_LIST_NOTES, TOOL_SEARCH_NOTES, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_FETCH_URL};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PermissionConfig {
     pub auto_allow_read: bool,
     pub auto_allow_create: bool,
@@ -67,21 +68,21 @@ impl PermissionManager {
     ) -> PermissionDecision {
         let name = tool_call.function.name.as_str();
         match name {
-            "read_note" | "list_notes" | "search_notes" => {
+            TOOL_READ_NOTE | TOOL_LIST_NOTES | TOOL_SEARCH_NOTES => {
                 if self.config.auto_allow_read {
                     PermissionDecision::Allowed
                 } else {
                     PermissionDecision::Denied("Read operations are currently disabled by user configuration.".to_string())
                 }
             }
-            "fetch_url" => {
+            TOOL_FETCH_URL => {
                 if self.config.allow_fetch_url {
                     PermissionDecision::Allowed
                 } else {
                     PermissionDecision::Denied("Web requests are currently disabled by user configuration.".to_string())
                 }
             }
-            "create_note" => {
+            TOOL_CREATE_NOTE => {
                 if self.config.auto_allow_create {
                     PermissionDecision::Allowed
                 } else {
@@ -95,7 +96,7 @@ impl PermissionManager {
                     PermissionDecision::RequiresConfirmation(PendingConfirmation {
                         action_id,
                         tool_call_id: tool_call.id.clone(),
-                        tool_name: "create_note".to_string(),
+                        tool_name: TOOL_CREATE_NOTE.to_string(),
                         filename: format!("{}.adoc", title.to_lowercase().replace(' ', "_")),
                         reason: format!("Create new note '{}'", title),
                         new_content: content.to_string(),
@@ -103,7 +104,7 @@ impl PermissionManager {
                     })
                 }
             }
-            "edit_note" => {
+            TOOL_EDIT_NOTE => {
                 let filename = tool_call.function.arguments.get("filename")
                     .and_then(|v| v.as_str()).unwrap_or("unknown.adoc");
                 let new_content = tool_call.function.arguments.get("content")
@@ -121,7 +122,7 @@ impl PermissionManager {
                     PermissionDecision::RequiresConfirmation(PendingConfirmation {
                         action_id,
                         tool_call_id: tool_call.id.clone(),
-                        tool_name: "edit_note".to_string(),
+                        tool_name: TOOL_EDIT_NOTE.to_string(),
                         filename: filename.to_string(),
                         reason: reason.to_string(),
                         new_content: new_content.to_string(),

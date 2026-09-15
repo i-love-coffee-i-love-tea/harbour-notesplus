@@ -531,6 +531,66 @@ fn lines_to_json_array(lines: &[String]) -> serde_json::Value {
     )
 }
 
+/// Collects all footnotes from a block tree, deduplicating by footnote id.
+/// Returns a list of `(Option<id>, text)` pairs.
+pub fn collect_footnotes(blocks: &[Block]) -> Vec<(Option<String>, String)> {
+    let mut footnotes = Vec::new();
+    let mut seen_ids = Vec::new();
+    collect_footnotes_inner(blocks, &mut footnotes, &mut seen_ids);
+    footnotes
+}
+
+fn collect_footnotes_inner(blocks: &[Block], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
+    for block in blocks {
+        match block {
+            Block::Heading { spans, .. } | Block::Paragraph { spans, .. } => {
+                collect_footnotes_from_spans(spans, footnotes, seen_ids);
+            }
+            Block::OrderedListItem { children, .. } | Block::UnorderedListItem { children, .. } |
+            Block::DescriptionListItem { children, .. } | Block::CalloutListItem { children, .. } |
+            Block::Blockquote { children, .. } | Block::Admonition { children, .. } |
+            Block::Sidebar { children, .. } | Block::Example { children, .. } |
+            Block::Open { children, .. } => {
+                collect_footnotes_inner(children, footnotes, seen_ids);
+            }
+            Block::Verse { spans, .. } => {
+                for line_spans in spans {
+                    collect_footnotes_from_spans(line_spans, footnotes, seen_ids);
+                }
+            }
+            Block::Table { rows, .. } => {
+                for row in rows {
+                    for cell in row {
+                        collect_footnotes_inner(&cell.blocks, footnotes, seen_ids);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_footnotes_from_spans(spans: &[InlineSpan], footnotes: &mut Vec<(Option<String>, String)>, seen_ids: &mut Vec<String>) {
+    for span in spans {
+        match span {
+            InlineSpan::Footnote { id, text } => {
+                let key = id.clone().unwrap_or_default();
+                if key.is_empty() || !seen_ids.contains(&key) {
+                    if !key.is_empty() {
+                        seen_ids.push(key);
+                    }
+                    footnotes.push((id.clone(), text.clone()));
+                }
+            }
+            InlineSpan::Bold(inner) | InlineSpan::Italic(inner) | InlineSpan::Monospace(inner) |
+            InlineSpan::Superscript(inner) | InlineSpan::Subscript(inner) | InlineSpan::Mark(inner) => {
+                collect_footnotes_from_spans(inner, footnotes, seen_ids);
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

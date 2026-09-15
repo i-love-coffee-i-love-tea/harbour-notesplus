@@ -137,7 +137,7 @@ pub struct ServerContext {
     pub tls_status: Arc<Mutex<Option<tls::TlsStatusInfo>>>,
     pub reject_public_networks: Arc<AtomicBool>,
     pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
-    pub repository: Arc<crate::repository::FsSqliteNoteRepository>,
+    pub repository: Arc<dyn crate::repository::NoteRepository>,
     pub is_tls: bool,
 }
 
@@ -150,21 +150,29 @@ impl ServerContext {
         let _ = fs::create_dir_all(&config.notes_dir);
         let _ = fs::create_dir_all(&config.backup_dir);
 
+        let conn = match crate::db::open_db(&config.db_path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("[SERVER] Failed to open database at {:?}: {}. Falling back to in-memory DB — data will NOT persist!", config.db_path, e);
+                rusqlite::Connection::open_in_memory().expect("Failed to open even in-memory SQLite database")
+            }
+        };
+        let conn_arc = Arc::new(Mutex::new(conn));
+        if let Err(e) = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_dir) {
+            log::warn!("[SERVER] Initial index sync failed: {}", e);
+        }
+        let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_dir, Arc::clone(&conn_arc)));
+
         let perm_mgr = PermissionManager::new(config.permission_config.clone());
         let client = LlmClient::new(config.llm_config.clone());
         let mut session = AgentSession::new(
             &config.notes_dir,
-            &config.db_path,
+            repository.clone(),
             &config.backup_dir,
             perm_mgr,
             client,
         );
         session.reset_session(None, None);
-
-        let conn = crate::db::open_db(&config.db_path).ok();
-        let conn_arc = Arc::new(Mutex::new(conn.unwrap_or_else(|| rusqlite::Connection::open_in_memory().unwrap())));
-        let _ = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_dir);
-        let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_dir, Arc::clone(&conn_arc)));
 
         let sessions_path = config
             .db_path
@@ -340,11 +348,11 @@ pub fn start_server_full(
 
 /// Start the embedded documentation HTTP server with a `ServerConfig`.
 pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle, String> {
-    let port = if config.port == 0 { 8080 } else { config.port };
+    let port = if config.port == 0 { crate::constants::DEFAULT_SERVER_PORT } else { config.port };
     let mut listener = None;
 
     let bind_addr = config.bind_address.clone();
-    for p in port..(port + 20) {
+    for p in port..(port + crate::constants::PORT_SCAN_RANGE) {
         if let Ok(l) = TcpListener::bind((bind_addr.as_str(), p)) {
             listener = Some((l, p));
             break;
@@ -436,7 +444,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
 
     let context_clone = context.clone();
     let server_clone = server.clone();
-    let limiter = ConcurrencyLimiter::new(16);
+    let limiter = ConcurrencyLimiter::new(crate::constants::MAX_CONCURRENT_CONNECTIONS);
 
     thread::spawn(move || {
         while is_running_clone.load(Ordering::SeqCst) {
@@ -462,10 +470,11 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
                         handle_http_client(req, ctx);
                     });
                 }
-                Err(_) => {
+                Err(e) => {
                     if !is_running_clone.load(Ordering::SeqCst) {
                         break;
                     }
+                    log::warn!("[SERVER] Accept error: {}", e);
                     thread::sleep(std::time::Duration::from_millis(50));
                 }
             }

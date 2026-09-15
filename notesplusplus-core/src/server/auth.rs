@@ -29,7 +29,7 @@ pub fn generate_verification_code(digit_count: u32) -> String {
     let rng = SystemRandom::new();
     let max = 10u32.pow(digit_count);
     let mut bytes = [0u8; 4];
-    rng.fill(&mut bytes).unwrap_or(());
+    rng.fill(&mut bytes).expect("CSPRNG failure — cannot generate secure verification code");
     let num = u32::from_be_bytes(bytes) % max;
     format!("{:0width$}", num, width = digit_count as usize)
 }
@@ -205,6 +205,15 @@ impl SessionStore {
     }
 }
 
+/// Status of an authorization challenge.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChallengeStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
 /// A pending authorization challenge.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthChallenge {
@@ -212,7 +221,7 @@ pub struct AuthChallenge {
     pub verification_code: String,
     pub created_at: u64,
     pub expires_at: u64,
-    pub status: String, // "pending" | "approved" | "denied"
+    pub status: ChallengeStatus,
 }
 
 impl AuthChallenge {
@@ -242,7 +251,7 @@ impl AuthChallengeStore {
             verification_code: generate_verification_code(4),
             created_at: now,
             expires_at: now + ttl_secs,
-            status: "pending".to_string(),
+            status: ChallengeStatus::Pending,
         };
         let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(challenge.challenge_id.clone(), challenge.clone());
@@ -252,7 +261,7 @@ impl AuthChallengeStore {
     /// Returns a challenge if it exists and hasn't been cleaned up.
     pub fn get_challenge(&self, id: &str) -> Option<AuthChallenge> {
         let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
-        map.retain(|_, c| !c.is_expired() || c.status == "approved");
+        map.retain(|_, c| !c.is_expired() || c.status == ChallengeStatus::Approved);
         map.get(id).cloned()
     }
 
@@ -260,8 +269,8 @@ impl AuthChallengeStore {
     pub fn approve_challenge(&self, id: &str) -> bool {
         let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(challenge) = map.get_mut(id) {
-            if challenge.status == "pending" && !challenge.is_expired() {
-                challenge.status = "approved".to_string();
+            if challenge.status == ChallengeStatus::Pending && !challenge.is_expired() {
+                challenge.status = ChallengeStatus::Approved;
                 return true;
             }
         }
@@ -272,8 +281,8 @@ impl AuthChallengeStore {
     pub fn deny_challenge(&self, id: &str) -> bool {
         let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(challenge) = map.get_mut(id) {
-            if challenge.status == "pending" {
-                challenge.status = "denied".to_string();
+            if challenge.status == ChallengeStatus::Pending {
+                challenge.status = ChallengeStatus::Denied;
                 return true;
             }
         }
@@ -339,7 +348,7 @@ mod tests {
     fn test_auth_challenge_lifecycle() {
         let store = AuthChallengeStore::new();
         let challenge = store.create_challenge(60).unwrap();
-        assert_eq!(challenge.status, "pending");
+        assert_eq!(challenge.status, ChallengeStatus::Pending);
         assert_eq!(challenge.verification_code.len(), 4);
 
         let retrieved = store.get_challenge(&challenge.challenge_id);
@@ -349,7 +358,7 @@ mod tests {
         assert!(approved);
 
         let after_approval = store.get_challenge(&challenge.challenge_id).unwrap();
-        assert_eq!(after_approval.status, "approved");
+        assert_eq!(after_approval.status, ChallengeStatus::Approved);
     }
 
     #[test]
@@ -360,7 +369,7 @@ mod tests {
         assert!(denied);
 
         let after_deny = store.get_challenge(&challenge.challenge_id).unwrap();
-        assert_eq!(after_deny.status, "denied");
+        assert_eq!(after_deny.status, ChallengeStatus::Denied);
     }
 
     #[test]

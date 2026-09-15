@@ -1,8 +1,18 @@
 //! Tool specifications and JSON Schema definitions for LLM function calling.
 
-use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
+use std::net::ToSocketAddrs;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+pub use crate::net::{is_blocked_ip, parse_direct_ip};
+
+/// Canonical tool name constants — use these everywhere instead of string literals.
+pub const TOOL_READ_NOTE: &str = "read_note";
+pub const TOOL_LIST_NOTES: &str = "list_notes";
+pub const TOOL_SEARCH_NOTES: &str = "search_notes";
+pub const TOOL_CREATE_NOTE: &str = "create_note";
+pub const TOOL_EDIT_NOTE: &str = "edit_note";
+pub const TOOL_FETCH_URL: &str = "fetch_url";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -43,7 +53,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "read_note".to_string(),
+                name: TOOL_READ_NOTE.to_string(),
                 description: "Read the full raw AsciiDoc content of a note given its filename.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -60,7 +70,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "list_notes".to_string(),
+                name: TOOL_LIST_NOTES.to_string(),
                 description: "List all existing notes in the library with their filenames, titles, and updated timestamps.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -71,7 +81,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "search_notes".to_string(),
+                name: TOOL_SEARCH_NOTES.to_string(),
                 description: "Search notes by title and content using full-text search keywords.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -88,7 +98,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "create_note".to_string(),
+                name: TOOL_CREATE_NOTE.to_string(),
                 description: "Create a new note with a title and AsciiDoc formatted content.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -109,7 +119,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "edit_note".to_string(),
+                name: TOOL_EDIT_NOTE.to_string(),
                 description: "Update or replace the content of an existing note. Requires user confirmation before applying.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -134,7 +144,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
-                name: "fetch_url".to_string(),
+                name: TOOL_FETCH_URL.to_string(),
                 description: "Download external text or webpage content from an HTTP/HTTPS URL for analysis.".to_string(),
                 parameters: json!({
                     "type": "object",
@@ -149,105 +159,6 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             },
         },
     ]
-}
-
-/// Checks whether an IP address belongs to loopback, private, link-local, multicast, or reserved ranges.
-pub fn is_blocked_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let octets = v4.octets();
-            // Loopback (127.0.0.0/8)
-            if v4.is_loopback() || octets[0] == 127 {
-                return true;
-            }
-            // Unspecified / Current network (0.0.0.0/8)
-            if v4.is_unspecified() || octets[0] == 0 {
-                return true;
-            }
-            // Private ranges:
-            // 10.0.0.0/8
-            if octets[0] == 10 {
-                return true;
-            }
-            // 172.16.0.0/12
-            if octets[0] == 172 && (16..=31).contains(&octets[1]) {
-                return true;
-            }
-            // 192.168.0.0/16
-            if octets[0] == 192 && octets[1] == 168 {
-                return true;
-            }
-            // Link-local / AWS & cloud metadata (169.254.0.0/16)
-            if v4.is_link_local() || (octets[0] == 169 && octets[1] == 254) {
-                return true;
-            }
-            // Carrier-grade NAT (100.64.0.0/10)
-            if octets[0] == 100 && (64..=127).contains(&octets[1]) {
-                return true;
-            }
-            // IETF Protocol Assignments (192.0.0.0/24)
-            if octets[0] == 192 && octets[1] == 0 && octets[2] == 0 {
-                return true;
-            }
-            // Documentation TEST-NET-1 (192.0.2.0/24)
-            if octets[0] == 192 && octets[1] == 0 && octets[2] == 2 {
-                return true;
-            }
-            // Documentation TEST-NET-2 (198.51.100.0/24)
-            if octets[0] == 198 && octets[1] == 51 && octets[2] == 100 {
-                return true;
-            }
-            // Documentation TEST-NET-3 (203.0.113.0/24)
-            if octets[0] == 203 && octets[1] == 0 && octets[2] == 113 {
-                return true;
-            }
-            // Benchmarking (198.18.0.0/15)
-            if octets[0] == 198 && (18..=19).contains(&octets[1]) {
-                return true;
-            }
-            // Multicast (224.0.0.0/4) & Reserved (240.0.0.0/4) & Broadcast
-            if v4.is_multicast() || v4.is_broadcast() || octets[0] >= 224 {
-                return true;
-            }
-            false
-        }
-        IpAddr::V6(v6) => {
-            let segments = v6.segments();
-            // Loopback (::1)
-            if v6.is_loopback() {
-                return true;
-            }
-            // Unspecified (::)
-            if v6.is_unspecified() {
-                return true;
-            }
-            // IPv4-mapped IPv6 (::ffff:0:0/96 or ::ffff:0:0:0/96)
-            if let Some(v4) = v6.to_ipv4() {
-                return is_blocked_ip(&IpAddr::V4(v4));
-            }
-            // Unique Local Address ULA (fc00::/7 -> fc00:: & fd00::)
-            if (segments[0] & 0xfe00) == 0xfc00 {
-                return true;
-            }
-            // Link-local unicast (fe80::/10)
-            if (segments[0] & 0xffc0) == 0xfe80 {
-                return true;
-            }
-            // Multicast (ff00::/8)
-            if v6.is_multicast() || (segments[0] & 0xff00) == 0xff00 {
-                return true;
-            }
-            // Documentation (2001:db8::/32)
-            if segments[0] == 0x2001 && segments[1] == 0x0db8 {
-                return true;
-            }
-            // Discard prefix (100::/64)
-            if segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0 {
-                return true;
-            }
-            false
-        }
-    }
 }
 
 /// Parses target host, port, and scheme from an HTTP/HTTPS URL string.
@@ -293,55 +204,6 @@ pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), St
     };
 
     Ok((host.to_string(), port, scheme.to_string()))
-}
-
-/// Parses alternative direct IP representations (standard, hex 0x, decimal, octal 0o, dotted).
-pub fn parse_direct_ip(host: &str) -> Option<IpAddr> {
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return Some(ip);
-    }
-    if let Some(hex) = host.strip_prefix("0x") {
-        if let Ok(num) = u32::from_str_radix(hex, 16) {
-            return Some(IpAddr::V4(Ipv4Addr::from(num)));
-        }
-    }
-    if let Some(oct) = host.strip_prefix("0o") {
-        if let Ok(num) = u32::from_str_radix(oct, 8) {
-            return Some(IpAddr::V4(Ipv4Addr::from(num)));
-        }
-    }
-    if let Ok(num) = host.parse::<u32>() {
-        return Some(IpAddr::V4(Ipv4Addr::from(num)));
-    }
-    let parts: Vec<&str> = host.split('.').collect();
-    if parts.len() == 4 {
-        let mut octets = [0u8; 4];
-        let mut valid = true;
-        for (i, part) in parts.iter().enumerate() {
-            let val = if let Some(hex) = part.strip_prefix("0x") {
-                u32::from_str_radix(hex, 16).ok()
-            } else if let Some(oct) = part.strip_prefix("0o") {
-                u32::from_str_radix(oct, 8).ok()
-            } else {
-                part.parse::<u32>().ok()
-            };
-            if let Some(v) = val {
-                if v <= 255 {
-                    octets[i] = v as u8;
-                } else {
-                    valid = false;
-                    break;
-                }
-            } else {
-                valid = false;
-                break;
-            }
-        }
-        if valid {
-            return Some(IpAddr::V4(Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3])));
-        }
-    }
-    None
 }
 
 /// Returns true only if the URL resolves to a verified public (non-private) host.
@@ -403,7 +265,7 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
 
     let agent = ureq::AgentBuilder::new()
         .redirects(0)
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(crate::constants::FETCH_URL_TIMEOUT_SECS))
         .build();
 
     const MAX_REDIRECTS: usize = 3;

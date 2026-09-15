@@ -110,9 +110,17 @@ impl Default for AgentBridge {
         let client = LlmClient::new(config);
         let perm_mgr = PermissionManager::new(perm_config);
 
+        let conn = notesplusplus_core::db::open_db(&db_path).ok();
+        let conn_arc = std::sync::Arc::new(std::sync::Mutex::new(
+            conn.unwrap_or_else(|| rusqlite::Connection::open_in_memory().unwrap())
+        ));
+        let repository: std::sync::Arc<dyn notesplusplus_core::repository::NoteRepository> = std::sync::Arc::new(
+            notesplusplus_core::repository::FsSqliteNoteRepository::new(&notes_dir, conn_arc)
+        );
+
         let mut session = AgentSession::new(
             &notes_dir,
-            &db_path,
+            repository,
             &backup_dir,
             perm_mgr,
             client,
