@@ -10,7 +10,7 @@ qttypes = { path = "vendor/qttypes" }
 
 [profile.release]
 opt-level = "s"
-lto = "thin"
+lto = true
 codegen-units = 1
-panic = "unwind"
+panic = "abort"
 strip = "symbols"

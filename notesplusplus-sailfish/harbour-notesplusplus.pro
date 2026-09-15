@@ -50,10 +50,10 @@ exists($$RUST_CORE_LIB) {
 }
 
 # System libraries required by the Rust static lib
-LIBS += -lpthread -lm -ldl
+LIBS += -lpthread -lm -ldl -lsqlite3
 
 # pkg-config packages
-PKGCONFIG += sailfishapp
+PKGCONFIG += sailfishapp sqlite3
 
 # Install paths (handled by sailfishapp feature)
 # Binary: /usr/bin/harbour-notesplusplus

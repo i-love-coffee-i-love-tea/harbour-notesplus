@@ -17,7 +17,7 @@ whisper = []
 cc = "1"
 
 [dependencies]
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = "0.31"
 chrono = "0.4"
 regex = "1"
 thiserror = "1"

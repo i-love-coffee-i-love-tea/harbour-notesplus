@@ -13,6 +13,7 @@ BuildRequires:  pkgconfig(Qt5Qml)
 BuildRequires:  pkgconfig(Qt5Quick)
 BuildRequires:  pkgconfig(Qt5Network)
 BuildRequires:  pkgconfig(Qt5Multimedia)
+BuildRequires:  pkgconfig(sqlite3)
 BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  rust-std-static
