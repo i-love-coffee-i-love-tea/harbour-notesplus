@@ -422,6 +422,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     let is_running_clone = is_running.clone();
     let is_tls = ssl_info.is_some();
 
+    let bind_address = config.bind_address.clone();
     let context = ServerContext::new_with_tls(config, is_tls);
     let (tiny_ssl, cert_p, key_p) = match ssl_info {
         Some((ssl, cp, kp)) => (Some(ssl), Some(cp), Some(kp)),
@@ -485,7 +486,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         is_running,
         port: actual_port,
         local_urls,
-        bind_address: bind_addr,
+        bind_address,
         context,
         server,
     })

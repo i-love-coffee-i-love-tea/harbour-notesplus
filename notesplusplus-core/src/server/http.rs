@@ -91,7 +91,7 @@ impl ParsedHttpRequest {
         };
         let mut headers = HashMap::new();
         for h in req.headers() {
-            headers.insert(h.field.as_str().to_ascii_lowercase(), h.value.to_string());
+            headers.insert(h.field.as_str().to_ascii_lowercase().to_string(), h.value.to_string());
         }
 
         let body_len = req.body_length().unwrap_or(0);
