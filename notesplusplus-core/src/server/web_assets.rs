@@ -3,9 +3,13 @@
 // Force rebuild: code block styles v2
 pub const APP_JS: &str = include_str!("../../assets/web/app.js");
 pub const VUE_JS: &str = include_str!("../../assets/web/vue.esm-browser.prod.js");
+pub const PINIA_JS: &str = include_str!("../../assets/web/pinia.esm-browser.prod.js");
 pub const STYLE_CSS: &str = include_str!("../../assets/web/style.css");
 pub const INDEX_HTML: &str = include_str!("../../assets/web/index.html");
 pub const ICON_PNG: &[u8] = include_bytes!("../../assets/web/icon.png");
+
+// Store modules
+pub const STORES_INDEX_JS: &str = include_str!("../../assets/web/stores/index.js");
 
 // Composable modules
 pub const COMPOSABLE_UTILS_JS: &str = include_str!("../../assets/web/composables/utils.js");

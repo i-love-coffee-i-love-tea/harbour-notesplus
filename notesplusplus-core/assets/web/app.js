@@ -1,4 +1,5 @@
 import { createApp, ref, computed, watch, nextTick, onMounted } from 'vue';
+import { pinia } from '/stores/index.js';
 import { formatMarkdown, getRequestedNote, consumeSseStream } from '/composables/utils.js';
 import { useAuth } from '/composables/useAuth.js';
 import { useTheme } from '/composables/useTheme.js';
@@ -18,7 +19,7 @@ try {
   console.warn('Asciidoctor.js initialization error, fallback to server rendering:', e);
 }
 
-createApp({
+const app = createApp({
   setup() {
     // Core Note & View State
     const currentFilename = ref(getRequestedNote() || 'welcome.adoc');
@@ -939,4 +940,6 @@ createApp({
       formatMessageContent,
     };
   }
-}).mount('#app');
+});
+app.use(pinia);
+app.mount('#app');

@@ -4,7 +4,8 @@ use std::io::Write;
 use crate::constants::MIME_HTML;
 use crate::server::http::{send_response, ParsedHttpRequest};
 use crate::server::web_assets::{
-    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS,
+    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, PINIA_JS,
+    STORES_INDEX_JS,
     COMPOSABLE_UTILS_JS, COMPOSABLE_USE_AUTH_JS, COMPOSABLE_USE_THEME_JS, COMPOSABLE_USE_HEALTH_CHECK_JS,
     COMPOSABLE_USE_PRESENTATION_JS, COMPOSABLE_USE_LINK_MODAL_JS,
     COMPOSABLE_USE_AI_ASSISTANT_JS, COMPOSABLE_USE_IMPORT_JS,
@@ -43,13 +44,19 @@ pub fn handle_static_asset<W: Write>(
         return;
     }
 
+    if clean_path == "pinia.esm-browser.prod.js" || clean_path == "pinia.js" {
+        send_response(stream, 200, "OK", "application/javascript; charset=utf-8", PINIA_JS.as_bytes(), cors_origin);
+        return;
+    }
+
     if clean_path == "style.css" {
         send_response(stream, 200, "OK", "text/css; charset=utf-8", STYLE_CSS.as_bytes(), cors_origin);
         return;
     }
 
-    // Composable modules
-    let composable_content = match clean_path {
+    // Store & composable modules
+    let module_content = match clean_path {
+        "stores/index.js" => Some(STORES_INDEX_JS),
         "composables/utils.js" => Some(COMPOSABLE_UTILS_JS),
         "composables/useAuth.js" => Some(COMPOSABLE_USE_AUTH_JS),
         "composables/useTheme.js" => Some(COMPOSABLE_USE_THEME_JS),
@@ -60,7 +67,7 @@ pub fn handle_static_asset<W: Write>(
         "composables/useImport.js" => Some(COMPOSABLE_USE_IMPORT_JS),
         _ => None,
     };
-    if let Some(content) = composable_content {
+    if let Some(content) = module_content {
         send_response(stream, 200, "OK", "application/javascript; charset=utf-8", content.as_bytes(), cors_origin);
         return;
     }
