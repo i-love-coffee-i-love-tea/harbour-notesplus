@@ -18,12 +18,20 @@
 #include <QtConcurrent/QtConcurrent>
 #include <mutex>
 #include <condition_variable>
-#include <optional>
-#include <thread>
 #include <atomic>
 
 #include "BlockListModel.h"
+#include "BridgeContext.h"
+#include "RenderHelper.h"
+#include "ExportHelper.h"
+#include "PageStore.h"
+#include "GroupManager.h"
+#include "MainPageLoader.h"
+#include "SearchManager.h"
+#include "ServerManager.h"
 #include "../ffi/ffi_raii.h"
+
+#include <memory>
 
 class NotesBridge : public QObject
 {
@@ -183,7 +191,6 @@ private:
     /* ---- FFI handles (RAII) ---- */
     AppPathsPtr    paths_;
     DbConnPtr      conn_;
-    HttpServerPtr  server_;
 
     /* ---- Filesystem paths ---- */
     QString m_notesPath;                    // absolute notes directory
@@ -196,57 +203,8 @@ private:
     bool                    m_initDone   = false;
     bool                    m_initStarted = false;
 
-    /* ---- Pending page-load result (background -> poll_results) ---- */
-    struct PendingPageResult {
-        QVariantList blocks;
-        QString      error;
-    };
-    std::mutex                        m_pendingMutex;
-    std::optional<PendingPageResult>  m_pendingPage;
-
-    /* ---- Pending main-page data (background -> poll_main_page_data) ---- */
-    struct MainPageData {
-        QStringList recentPageJsons;
-        QString     groupedTreeJson;
-    };
-    std::mutex                    m_pendingMainMutex;
-    std::optional<MainPageData>   m_pendingMainPage;
-
-    /* ---- Pending search result (background -> poll_search) ---- */
-    struct SearchHit {
-        QString title, filename, groupPath, fullPath, snippet;
-        QString createdAt, updatedAt;
-        int     blockCount = 0;
-        QString previewJson;
-    };
-    std::mutex                         m_pendingSearchMutex;
-    std::optional<QList<SearchHit>>    m_pendingSearchHits;
-    QString                            m_pendingSearchError;
-    std::atomic<int>                   m_searchGeneration{0};
-
-    /* ---- Pending search previews (background -> poll_search_previews) ---- */
-    std::mutex                               m_pendingPreviewMutex;
-    std::optional<QMap<QString, QString>>    m_pendingPreviews;
-
-    /* ---- Search state for preview matching ---- */
-    QStringList m_currentSearchFilenames;
-    QStringList m_currentSearchJsons;
-
     /* ---- Theme / options cache ---- */
     QString m_themeColorsJson;
-
-    /* ---- AI / Server config ---- */
-    QString m_llmProvider;
-    QString m_llmEndpointUrl;
-    QString m_llmModel;
-    QString m_llmApiKey;
-    int     m_llmTimeoutSecs     = 90;
-    bool    m_autoAllowRead      = false;
-    bool    m_autoAllowCreate    = false;
-    bool    m_requireConfirmEdit = true;
-    bool    m_allowSelfSigned    = false;
-    bool    m_allowFetchUrl      = false;
-    int     m_sessionExpirySecs  = 86400;
 
     /* ---- Property storage (28) ---- */
     QString      m_currentPageName;
@@ -277,6 +235,15 @@ private:
     bool         m_authChallengePending = false;
     QString      m_authChallengeId;
     QString      m_authVerificationCode;
+
+    /* ---- Domain classes (delegation targets) ---- */
+    std::unique_ptr<PageStore>       m_pageStore;
+    std::unique_ptr<GroupManager>    m_groupManager;
+    std::unique_ptr<MainPageLoader>  m_mainPageLoader;
+    std::unique_ptr<SearchManager>   m_searchManager;
+    std::unique_ptr<ServerManager>   m_serverManager;
+    std::unique_ptr<RenderHelper>    m_renderHelper;
+    std::unique_ptr<ExportHelper>    m_exportHelper;
 
     /* ---- Lifetime guard for detached threads ---- */
     std::shared_ptr<std::atomic<bool>> m_alive;

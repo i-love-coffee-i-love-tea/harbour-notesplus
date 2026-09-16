@@ -18,7 +18,14 @@ SOURCES += \
     src/bridge/BlockListModel.cpp \
     src/bridge/NotesBridge.cpp \
     src/bridge/AgentBridge.cpp \
-    src/bridge/SpeechBridge.cpp
+    src/bridge/SpeechBridge.cpp \
+    src/bridge/RenderHelper.cpp \
+    src/bridge/ExportHelper.cpp \
+    src/bridge/MainPageLoader.cpp \
+    src/bridge/PageStore.cpp \
+    src/bridge/GroupManager.cpp \
+    src/bridge/SearchManager.cpp \
+    src/bridge/ServerManager.cpp
 
 HEADERS += \
     src/ffi/notesplusplus_core.h \
@@ -26,7 +33,15 @@ HEADERS += \
     src/bridge/BlockListModel.h \
     src/bridge/NotesBridge.h \
     src/bridge/AgentBridge.h \
-    src/bridge/SpeechBridge.h
+    src/bridge/SpeechBridge.h \
+    src/bridge/BridgeContext.h \
+    src/bridge/RenderHelper.h \
+    src/bridge/ExportHelper.h \
+    src/bridge/MainPageLoader.h \
+    src/bridge/PageStore.h \
+    src/bridge/GroupManager.h \
+    src/bridge/SearchManager.h \
+    src/bridge/ServerManager.h
 
 # Include path for FFI headers
 INCLUDEPATH += src/ffi
