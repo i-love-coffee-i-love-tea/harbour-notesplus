@@ -8,7 +8,6 @@ use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
 use crate::page::sanitize_note_filename;
 use crate::parser;
-use crate::repository::NoteRepository;
 use crate::server::http::{
     escape_html, send_attachment_response, send_json_error, send_json_ok, send_response,
     ParsedHttpRequest,
@@ -75,7 +74,7 @@ pub fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, f
     let top_bar = format!(
         r#"<div class="web-page-topbar">
             <div class="topbar-left">
-                <a class="nav-btn" href="/">&larr; Notes++ Web Editor</a>
+                <a class="nav-btn" href="/">&larr; Notes Plus Web Editor</a>
                 <span class="page-current_title">{}</span>
             </div>
             <div class="topbar-right">
