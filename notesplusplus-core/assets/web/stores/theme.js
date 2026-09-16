@@ -1,8 +1,10 @@
-import { ref, computed, watch, onMounted } from 'vue';
+import { defineStore } from 'pinia';
+import { ref, computed, watch } from 'vue';
+import { apiFetch } from './api.js';
 
 const THEME_STORAGE_KEY = 'notesplus_theme_preference';
 
-export function useTheme() {
+export const useThemeStore = defineStore('theme', () => {
   const themePreference = ref(localStorage.getItem(THEME_STORAGE_KEY) || 'os');
   const osTheme = ref(null);
   const browserPrefersDark = ref(
@@ -12,10 +14,7 @@ export function useTheme() {
   const effectiveTheme = computed(() => {
     if (themePreference.value === 'dark') return 'dark';
     if (themePreference.value === 'light') return 'light';
-    if (themePreference.value === 'browser') {
-      return browserPrefersDark.value ? 'dark' : 'light';
-    }
-    // 'os' mode (default): Follow OS ambiance if available, fallback to browser
+    if (themePreference.value === 'browser') return browserPrefersDark.value ? 'dark' : 'light';
     if (osTheme.value && (osTheme.value.colorScheme === 'dark' || osTheme.value.colorScheme === 'light')) {
       return osTheme.value.colorScheme;
     }
@@ -26,7 +25,6 @@ export function useTheme() {
     const root = document.documentElement;
     const theme = effectiveTheme.value;
     root.setAttribute('data-theme', theme);
-
     if (osTheme.value) {
       if (theme === 'dark') {
         if (osTheme.value.highlightColor) {
@@ -44,12 +42,8 @@ export function useTheme() {
         root.style.removeProperty('--primary-hover');
         root.style.removeProperty('--accent');
         root.style.removeProperty('--accent-light');
-        if (osTheme.value.highlightColor) {
-          root.style.setProperty('--silica-highlight', osTheme.value.highlightColor);
-        }
-        if (osTheme.value.highlightBackgroundColor) {
-          root.style.setProperty('--silica-highlight-bg', osTheme.value.highlightBackgroundColor);
-        }
+        if (osTheme.value.highlightColor) root.style.setProperty('--silica-highlight', osTheme.value.highlightColor);
+        if (osTheme.value.highlightBackgroundColor) root.style.setProperty('--silica-highlight-bg', osTheme.value.highlightBackgroundColor);
       }
     }
   }
@@ -57,55 +51,35 @@ export function useTheme() {
   function setThemePreference(pref) {
     if (['os', 'browser', 'dark', 'light'].includes(pref)) {
       themePreference.value = pref;
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, pref);
-      } catch (_) {}
+      try { localStorage.setItem(THEME_STORAGE_KEY, pref); } catch (_) {}
       applyTheme();
     }
   }
 
   async function fetchTheme() {
     try {
-      const res = await fetch('/api/theme', { cache: 'no-store' });
+      const res = await apiFetch('/api/theme', { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
-      if (data && typeof data === 'object') {
-        osTheme.value = data;
-        applyTheme();
-      }
+      if (data && typeof data === 'object') { osTheme.value = data; applyTheme(); }
     } catch (_) {}
   }
 
   function initTheme() {
-    // Listen for browser color scheme changes
     if (typeof window !== 'undefined' && window.matchMedia) {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const listener = (e) => {
-        browserPrefersDark.value = e.matches;
-        applyTheme();
-      };
-      if (mediaQuery.addEventListener) {
-        mediaQuery.addEventListener('change', listener);
-      } else if (mediaQuery.addListener) {
-        mediaQuery.addListener(listener);
-      }
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = (e) => { browserPrefersDark.value = e.matches; applyTheme(); };
+      if (mq.addEventListener) mq.addEventListener('change', listener);
+      else if (mq.addListener) mq.addListener(listener);
     }
-
     applyTheme();
     fetchTheme();
   }
 
-  watch(effectiveTheme, () => {
-    applyTheme();
-  });
+  watch(effectiveTheme, () => applyTheme());
 
   return {
-    themePreference,
-    effectiveTheme,
-    osTheme,
-    setThemePreference,
-    fetchTheme,
-    initTheme,
-    applyTheme,
+    themePreference, effectiveTheme, osTheme,
+    setThemePreference, fetchTheme, initTheme, applyTheme,
   };
-}
+});

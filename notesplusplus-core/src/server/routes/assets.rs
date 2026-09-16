@@ -5,10 +5,9 @@ use crate::constants::MIME_HTML;
 use crate::server::http::{send_response, ParsedHttpRequest};
 use crate::server::web_assets::{
     APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, PINIA_JS,
-    STORES_INDEX_JS,
-    COMPOSABLE_UTILS_JS, COMPOSABLE_USE_AUTH_JS, COMPOSABLE_USE_THEME_JS, COMPOSABLE_USE_HEALTH_CHECK_JS,
-    COMPOSABLE_USE_PRESENTATION_JS, COMPOSABLE_USE_LINK_MODAL_JS,
-    COMPOSABLE_USE_AI_ASSISTANT_JS, COMPOSABLE_USE_IMPORT_JS,
+    STORES_INDEX_JS, STORES_API_JS, STORES_NOTES_JS, STORES_AUTH_JS,
+    STORES_THEME_JS, STORES_HEALTH_JS, STORES_AI_JS, STORES_UI_JS,
+    COMPOSABLE_UTILS_JS,
 };
 use crate::server::ServerContext;
 
@@ -54,17 +53,17 @@ pub fn handle_static_asset<W: Write>(
         return;
     }
 
-    // Store & composable modules
+    // Store modules & shared utilities
     let module_content = match clean_path {
         "stores/index.js" => Some(STORES_INDEX_JS),
+        "stores/api.js" => Some(STORES_API_JS),
+        "stores/notes.js" => Some(STORES_NOTES_JS),
+        "stores/auth.js" => Some(STORES_AUTH_JS),
+        "stores/theme.js" => Some(STORES_THEME_JS),
+        "stores/health.js" => Some(STORES_HEALTH_JS),
+        "stores/ai.js" => Some(STORES_AI_JS),
+        "stores/ui.js" => Some(STORES_UI_JS),
         "composables/utils.js" => Some(COMPOSABLE_UTILS_JS),
-        "composables/useAuth.js" => Some(COMPOSABLE_USE_AUTH_JS),
-        "composables/useTheme.js" => Some(COMPOSABLE_USE_THEME_JS),
-        "composables/useHealthCheck.js" => Some(COMPOSABLE_USE_HEALTH_CHECK_JS),
-        "composables/usePresentation.js" => Some(COMPOSABLE_USE_PRESENTATION_JS),
-        "composables/useLinkModal.js" => Some(COMPOSABLE_USE_LINK_MODAL_JS),
-        "composables/useAiAssistant.js" => Some(COMPOSABLE_USE_AI_ASSISTANT_JS),
-        "composables/useImport.js" => Some(COMPOSABLE_USE_IMPORT_JS),
         _ => None,
     };
     if let Some(content) = module_content {

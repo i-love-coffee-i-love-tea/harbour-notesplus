@@ -1,7 +1,9 @@
+import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
-import { consumeSseStream } from './utils.js';
+import { apiFetch, apiJson } from './api.js';
+import { consumeSseStream } from '/composables/utils.js';
 
-export function useAiAssistant({ currentFilename, rawContent, notesList, markPhoneReachable, markPhoneUnreachable, fetchNotesList, loadNote }) {
+export const useAiStore = defineStore('ai', () => {
   const openAiDrawer = ref(false);
   const showAiSettings = ref(false);
   const isAiBusy = ref(false);
@@ -17,12 +19,7 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
   const modelsError = ref('');
   const chatMessagesContainer = ref(null);
 
-  const aiConfig = ref({
-    provider: 'ollama',
-    model: 'llama3.2',
-    system_prompt: ''
-  });
-
+  const aiConfig = ref({ provider: 'ollama', model: 'llama3.2', system_prompt: '' });
   const aiTab = ref('chat');
 
   const isCurrentModelInList = computed(() => {
@@ -32,29 +29,20 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
 
   function scrollChatToBottom() {
     nextTick(() => {
-      if (chatMessagesContainer.value) {
-        chatMessagesContainer.value.scrollTop = chatMessagesContainer.value.scrollHeight;
-      }
+      if (chatMessagesContainer.value) chatMessagesContainer.value.scrollTop = chatMessagesContainer.value.scrollHeight;
     });
   }
 
   async function fetchAiConfig() {
     try {
-      const res = await fetch('/api/ai/config');
-      if (res.ok) {
-        if (markPhoneReachable) markPhoneReachable();
-        const data = await res.json();
-        if (data.provider) aiConfig.value.provider = data.provider;
-        if (data.model) aiConfig.value.model = data.model;
-        aiConfig.value.system_prompt = data.system_prompt || '';
-        canUndo.value = !!data.can_undo;
-        await fetchAvailableModels();
-      } else {
-        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-      }
+      const data = await apiJson('/api/ai/config');
+      if (data.provider) aiConfig.value.provider = data.provider;
+      if (data.model) aiConfig.value.model = data.model;
+      aiConfig.value.system_prompt = data.system_prompt || '';
+      canUndo.value = !!data.can_undo;
+      await fetchAvailableModels();
     } catch (err) {
       console.warn('Could not load AI config:', err);
-      if (markPhoneUnreachable) markPhoneUnreachable(err);
     }
   }
 
@@ -62,14 +50,8 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
     isLoadingModels.value = true;
     modelsError.value = '';
     try {
-      const res = await fetch('/api/ai/models');
-      if (res.ok) {
-        if (markPhoneReachable) markPhoneReachable();
-        const data = await res.json();
-        availableModels.value = (data && Array.isArray(data.models)) ? data.models : [];
-      } else {
-        console.warn('Could not fetch models from server:', res.status);
-      }
+      const data = await apiJson('/api/ai/models');
+      availableModels.value = (data && Array.isArray(data.models)) ? data.models : [];
     } catch (err) {
       console.warn('Failed to fetch models from server:', err);
     } finally {
@@ -77,17 +59,12 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
     }
   }
 
-  async function onProviderChange() {
-    await saveAiSettings();
-  }
-
-  async function onModelSelect() {
-    await saveAiSettings();
-  }
+  async function onProviderChange() { await saveAiSettings(); }
+  async function onModelSelect() { await saveAiSettings(); }
 
   async function saveAiSettings() {
     try {
-      const res = await fetch('/api/ai/config', {
+      await apiJson('/api/ai/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,16 +73,10 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
           system_prompt: aiConfig.value.system_prompt
         })
       });
-      if (res.ok) {
-        if (markPhoneReachable) markPhoneReachable();
-        showAiSettings.value = false;
-        await fetchAvailableModels();
-      } else {
-        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-      }
+      showAiSettings.value = false;
+      await fetchAvailableModels();
     } catch (err) {
       alert('Failed to save AI config: ' + err.message);
-      if (markPhoneUnreachable) markPhoneUnreachable(err);
     }
   }
 
@@ -127,6 +98,9 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
   }
 
   async function sendUserPrompt(customInstruction = null) {
+    const { useNotesStore } = await import('./notes.js');
+    const notesStore = useNotesStore();
+
     const instructionText = typeof customInstruction === 'string' ? customInstruction : null;
     const prompt = (instructionText || aiPromptInput.value || '').trim();
     if (!prompt || isAiBusy.value) return;
@@ -140,31 +114,22 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
     scrollChatToBottom();
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const response = await apiFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: prompt,
-          context_filename: currentFilename.value,
-          context_content: rawContent.value
+          prompt,
+          context_filename: notesStore.currentFilename,
+          context_content: notesStore.rawContent
         })
       });
 
-      if (!response.ok) {
-        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${response.status}`));
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-      }
-      if (markPhoneReachable) markPhoneReachable();
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
 
       let fullAnswer = '';
-
       await consumeSseStream(
         response,
-        (token) => {
-          streamingText.value += token;
-          fullAnswer += token;
-          scrollChatToBottom();
-        },
+        (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
         async (payload) => {
           if (payload.type === 'pending_confirmation') {
             pendingAction.value = payload.action;
@@ -173,8 +138,8 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
             if (payload.content) fullAnswer = payload.content;
             if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
             if (payload.last_snapshot_id || payload.last_created_note) {
-              await fetchNotesList();
-              await loadNote(currentFilename.value);
+              await notesStore.fetchNotesList();
+              await notesStore.loadNote(notesStore.currentFilename);
             }
           } else if (payload.type === 'error') {
             aiError.value = payload.error;
@@ -182,9 +147,7 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
         }
       );
 
-      if (fullAnswer.trim()) {
-        messages.value.push({ role: 'assistant', content: fullAnswer });
-      }
+      if (fullAnswer.trim()) messages.value.push({ role: 'assistant', content: fullAnswer });
     } catch (err) {
       aiError.value = `Server AI Error: ${err.message}`;
     } finally {
@@ -198,20 +161,20 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
   async function triggerTemplate(templateId) {
     if (isAiBusy.value) return;
     openAiDrawer.value = true;
-
-    const templatePrompts = {
+    const prompts = {
       summarize: 'Please provide a clear, structured summary of this AsciiDoc document.',
       fix_grammar: 'Review this AsciiDoc document, fixing all grammar and spelling errors while preserving formatting, headings, and structure.',
       add_admonition: 'Analyze this document and add relevant AsciiDoc [NOTE], [TIP], or [WARNING] blocks to highlight key takeaways.',
       format_table: 'Convert the main data or list points in this document into a well-structured AsciiDoc table |=== ... |===',
       continue_writing: 'Continue writing the next logical section of this AsciiDoc document.'
     };
-
-    const prompt = templatePrompts[templateId] || `Run template ${templateId} on this note.`;
-    await sendUserPrompt(prompt);
+    await sendUserPrompt(prompts[templateId] || `Run template ${templateId} on this note.`);
   }
 
   async function confirmAction(approved) {
+    const { useNotesStore } = await import('./notes.js');
+    const notesStore = useNotesStore();
+
     if (isAiBusy.value) return;
     isAiBusy.value = true;
     isAiStreaming.value = true;
@@ -219,42 +182,30 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
     pendingAction.value = null;
 
     try {
-      const response = await fetch('/api/ai/confirm', {
+      const response = await apiFetch('/api/ai/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ approved })
       });
-
-      if (!response.ok) {
-        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${response.status}`));
-        throw new Error(`HTTP ${response.status}`);
-      }
-      if (markPhoneReachable) markPhoneReachable();
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       let fullAnswer = '';
-
       await consumeSseStream(
         response,
-        (token) => {
-          streamingText.value += token;
-          fullAnswer += token;
-          scrollChatToBottom();
-        },
+        (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
         async (payload) => {
           if (payload.type === 'finished') {
             if (payload.content) fullAnswer = payload.content;
             if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
-            await fetchNotesList();
-            await loadNote(currentFilename.value);
+            await notesStore.fetchNotesList();
+            await notesStore.loadNote(notesStore.currentFilename);
           } else if (payload.type === 'error') {
             aiError.value = payload.error;
           }
         }
       );
 
-      if (fullAnswer.trim()) {
-        messages.value.push({ role: 'assistant', content: fullAnswer });
-      }
+      if (fullAnswer.trim()) messages.value.push({ role: 'assistant', content: fullAnswer });
     } catch (err) {
       aiError.value = `Failed to confirm action: ${err.message}`;
     } finally {
@@ -266,21 +217,16 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
   }
 
   async function undoLastAiAction() {
+    const { useNotesStore } = await import('./notes.js');
+    const notesStore = useNotesStore();
+
     try {
-      const res = await fetch('/api/ai/undo', { method: 'POST' });
-      if (res.ok) {
-        if (markPhoneReachable) markPhoneReachable();
-        const data = await res.json();
-        canUndo.value = !!data.can_undo;
-        await loadNote(currentFilename.value);
-        messages.value.push({ role: 'assistant', content: `\u21a9 ${data.message}` });
-      } else {
-        if (markPhoneUnreachable) markPhoneUnreachable(new Error(`HTTP ${res.status}`));
-        alert('Undo failed: Server error');
-      }
+      const data = await apiJson('/api/ai/undo', { method: 'POST' });
+      canUndo.value = !!data.can_undo;
+      await notesStore.loadNote(notesStore.currentFilename);
+      messages.value.push({ role: 'assistant', content: `↩ ${data.message}` });
     } catch (err) {
       alert('Undo error: ' + err.message);
-      if (markPhoneUnreachable) markPhoneUnreachable(err);
     }
   }
 
@@ -294,4 +240,4 @@ export function useAiAssistant({ currentFilename, rawContent, notesList, markPho
     onModelSelect, saveAiSettings, toggleAiDrawer, toggleAiDrawerImport,
     sendUserPrompt, triggerTemplate, confirmAction, undoLastAiAction,
   };
-}
+});

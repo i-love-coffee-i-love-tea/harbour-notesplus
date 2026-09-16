@@ -1,6 +1,8 @@
+import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { apiFetch, apiJson } from './api.js';
 
-export function useAuth({ onAuthenticated }) {
+export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false);
   const authUser = ref('');
   const authError = ref('');
@@ -8,13 +10,12 @@ export function useAuth({ onAuthenticated }) {
   const authVerificationCode = ref('');
   const authChallengeId = ref('');
   const authCanRetry = ref(false);
-  const authPollTimer = ref(null);
+  let authPollTimer = null;
 
-  // Session Expiry & Timer State
   const sessionExpiresAt = ref(0);
   const sessionRemainingText = ref('');
   const sessionRemainingFullText = ref('');
-  const sessionCountdownTimer = ref(null);
+  let sessionCountdownTimer = null;
 
   function formatSessionRemaining(seconds) {
     if (seconds <= 0) return 'Expired';
@@ -48,8 +49,7 @@ export function useAuth({ onAuthenticated }) {
       sessionRemainingFullText.value = '';
       return;
     }
-    const now = Math.floor(Date.now() / 1000);
-    const diff = sessionExpiresAt.value - now;
+    const diff = sessionExpiresAt.value - Math.floor(Date.now() / 1000);
     if (diff <= 0) {
       sessionRemainingText.value = 'Expired';
       sessionRemainingFullText.value = 'Session expired';
@@ -65,26 +65,20 @@ export function useAuth({ onAuthenticated }) {
     stopSessionCountdown();
     if (expiresAt) sessionExpiresAt.value = expiresAt;
     updateSessionCountdown();
-    sessionCountdownTimer.value = setInterval(updateSessionCountdown, 1000);
+    sessionCountdownTimer = setInterval(updateSessionCountdown, 1000);
   }
 
   function stopSessionCountdown() {
-    if (sessionCountdownTimer.value) {
-      clearInterval(sessionCountdownTimer.value);
-      sessionCountdownTimer.value = null;
-    }
+    if (sessionCountdownTimer) { clearInterval(sessionCountdownTimer); sessionCountdownTimer = null; }
   }
 
   function stopAuthPolling() {
-    if (authPollTimer.value) {
-      clearInterval(authPollTimer.value);
-      authPollTimer.value = null;
-    }
+    if (authPollTimer) { clearInterval(authPollTimer); authPollTimer = null; }
   }
 
   async function fetchAuthConfig() {
     try {
-      const res = await fetch('/api/auth/config', { cache: 'no-store' });
+      const res = await apiFetch('/api/auth/config', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         isAuthenticated.value = !!data.authenticated;
@@ -106,7 +100,7 @@ export function useAuth({ onAuthenticated }) {
   }
 
   async function logout() {
-    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
+    try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
     isAuthenticated.value = false;
     authUser.value = '';
     stopAuthPolling();
@@ -125,7 +119,7 @@ export function useAuth({ onAuthenticated }) {
     authStatus.value = 'Connecting to phone...';
     authCanRetry.value = false;
     try {
-      const res = await fetch('/api/auth/code/initiate', { method: 'POST' });
+      const res = await apiFetch('/api/auth/code/initiate', { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.ok) {
         authChallengeId.value = data.challenge_id;
@@ -146,10 +140,10 @@ export function useAuth({ onAuthenticated }) {
 
   function startAuthPolling() {
     stopAuthPolling();
-    authPollTimer.value = setInterval(async () => {
+    authPollTimer = setInterval(async () => {
       if (!authChallengeId.value) { stopAuthPolling(); return; }
       try {
-        const res = await fetch('/api/auth/code/status?challenge_id=' + encodeURIComponent(authChallengeId.value));
+        const res = await apiFetch('/api/auth/code/status?challenge_id=' + encodeURIComponent(authChallengeId.value));
         const data = await res.json();
         if (data.status === 'approved') {
           stopAuthPolling();
@@ -161,7 +155,13 @@ export function useAuth({ onAuthenticated }) {
           authError.value = '';
           authCanRetry.value = false;
           if (data.expires_at) startSessionCountdown(data.expires_at);
-          if (onAuthenticated) await onAuthenticated();
+          // Trigger post-auth actions via other stores
+          const { useNotesStore } = await import('./notes.js');
+          const { useAiStore } = await import('./ai.js');
+          const notesStore = useNotesStore();
+          const aiStore = useAiStore();
+          await notesStore.fetchNotesList();
+          await aiStore.fetchAiConfig();
         } else if (data.status === 'denied') {
           stopAuthPolling();
           authStatus.value = 'Login request was denied on the phone.';
@@ -182,4 +182,4 @@ export function useAuth({ onAuthenticated }) {
     fetchAuthConfig, logout, startPhoneAuth, stopAuthPolling,
     startSessionCountdown, stopSessionCountdown,
   };
-}
+});
