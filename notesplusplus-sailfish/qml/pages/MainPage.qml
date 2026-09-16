@@ -2,6 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../components"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../js/EditorHelpers.js" as EH
 import "../js/ThemeColors.js" as TC
 
 Page {
@@ -132,47 +133,37 @@ Page {
         })
     }
 
-    function insertSnippetIntoActiveEditor(snippet) {
-        if (!snippet || snippet.length === 0) return
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var txt = target.text || ""
-            var pos = target.cursorPosition
-            if (pos < 0 || pos > txt.length) pos = txt.length
-
-            var needsPrefix = false
-            if (snippet.indexOf('\n') >= 0 && pos > 0 && txt.charAt(pos - 1) !== '\n') {
-                needsPrefix = true
-            }
-            var prefix = needsPrefix ? "\n\n" : ""
-            var toInsert = prefix + snippet
-
-            var before = txt.substring(0, pos)
-            var after = txt.substring(pos)
-            target.text = before + toInsert + after
-            target.cursorPosition = pos + toInsert.length
-
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = target.text
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                mainPage.editingJournalCurrentText = target.text
-                mainPage.editingJournalRawText = target.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        } else {
-            if (mainPage.isAddingJournalBlock) {
-                var cur = mainPage.newJournalBlockText || ""
-                mainPage.newJournalBlockText = (cur.length > 0 ? cur + "\n" : "") + snippet
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                var cur2 = mainPage.editingJournalCurrentText || ""
-                var updated = (cur2.length > 0 ? cur2 + "\n" : "") + snippet
-                mainPage.editingJournalRawText = updated
-                mainPage.editingJournalCurrentText = updated
+    function _editorCtx() {
+        return {
+            target: getActiveEditorTextArea(),
+            isAdding: mainPage.isAddingJournalBlock,
+            newBlockText: mainPage.newJournalBlockText,
+            editingIndex: mainPage.editingJournalBlockIndex,
+            editingText: mainPage.editingJournalCurrentText || mainPage.editingCurrentText,
+            editingRaw: mainPage.editingJournalRawText || mainPage.editingRawText,
+            focusCb: function(t) {
+                if (t) {
+                    t.forceActiveFocus()
+                    Qt.callLater(function() { if (t) t.forceActiveFocus() })
+                }
             }
         }
+    }
+    function _syncFromCtx(ctx) {
+        if (ctx.isAdding) {
+            mainPage.newJournalBlockText = ctx.newBlockText
+        } else if (ctx.editingIndex >= 0) {
+            mainPage.editingJournalCurrentText = ctx.editingText
+            mainPage.editingJournalRawText = ctx.editingRaw
+            mainPage.editingCurrentText = ctx.editingText
+            mainPage.editingRawText = ctx.editingRaw
+        }
+    }
+
+    function insertSnippetIntoActiveEditor(snippet) {
+        var ctx = _editorCtx()
+        EH.insertSnippet(ctx, snippet)
+        _syncFromCtx(ctx)
     }
 
     function pasteTextIntoActiveEditor(clipText) {
@@ -180,44 +171,9 @@ Page {
             remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
             return
         }
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var start = Math.min(target.selectionStart, target.selectionEnd)
-            var end = Math.max(target.selectionStart, target.selectionEnd)
-            var txt = target.text || ""
-            var pos = target.cursorPosition
-            if (start !== end && start >= 0 && end <= txt.length) {
-                var before = txt.substring(0, start)
-                var after = txt.substring(end)
-                target.text = before + clipText + after
-                target.cursorPosition = start + clipText.length
-            } else {
-                if (pos < 0 || pos > txt.length) pos = txt.length
-                var before = txt.substring(0, pos)
-                var after = txt.substring(pos)
-                target.text = before + clipText + after
-                target.cursorPosition = pos + clipText.length
-            }
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = target.text
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                mainPage.editingCurrentText = target.text
-                mainPage.editingRawText = target.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        } else {
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = (mainPage.newJournalBlockText && mainPage.newJournalBlockText.length > 0 ? mainPage.newJournalBlockText + "\n" : "") + clipText
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                var cur = mainPage.editingCurrentText || ""
-                var updated = (cur.length > 0 ? cur + "\n" : "") + clipText
-                mainPage.editingRawText = updated
-                mainPage.editingCurrentText = updated
-            }
-        }
+        var ctx = _editorCtx()
+        EH.pasteText(ctx, clipText)
+        _syncFromCtx(ctx)
     }
 
     function pasteSpecialIntoActiveEditor(prefix, multiLine) {
@@ -227,82 +183,15 @@ Page {
             return
         }
         var formatted = BlockHtmlUtils.formatPasteWithPrefix(clipText, prefix)
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var start = Math.min(target.selectionStart, target.selectionEnd)
-            var end = Math.max(target.selectionStart, target.selectionEnd)
-            var txt = target.text || ""
-            var pos = target.cursorPosition
-            var inserted = formatted
-            if (start !== end && start >= 0 && end <= txt.length) {
-                var before = txt.substring(0, start)
-                var after = txt.substring(end)
-                target.text = before + inserted + after
-                target.cursorPosition = start + inserted.length
-            } else {
-                if (pos < 0 || pos > txt.length) pos = txt.length
-                var prefixNewline = ""
-                if (pos > 0 && txt.charAt(pos - 1) !== '\n') {
-                    prefixNewline = "\n"
-                }
-                var toInsert = prefixNewline + inserted
-                var before = txt.substring(0, pos)
-                var after = txt.substring(pos)
-                target.text = before + toInsert + after
-                target.cursorPosition = pos + toInsert.length
-            }
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = target.text
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                mainPage.editingCurrentText = target.text
-                mainPage.editingRawText = target.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        } else {
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = (mainPage.newJournalBlockText && mainPage.newJournalBlockText.length > 0 ? mainPage.newJournalBlockText + "\n" : "") + formatted
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                var cur = mainPage.editingCurrentText || ""
-                var updated = (cur.length > 0 ? cur + "\n" : "") + formatted
-                mainPage.editingRawText = updated
-                mainPage.editingCurrentText = updated
-            }
-        }
+        var ctx = _editorCtx()
+        EH.pasteSpecial(ctx, formatted, BlockHtmlUtils)
+        _syncFromCtx(ctx)
     }
 
     function applyPrefixToActiveEditor(prefix, multiLineList) {
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var curPos = target.cursorPosition
-            var txt = target.text || ""
-            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
-                txt, target.selectionStart, target.selectionEnd, curPos, prefix)
-            target.text = result.text
-            target.cursorPosition = result.cursorPos
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = result.text
-            } else {
-                mainPage.editingRawText = result.text
-                mainPage.editingCurrentText = result.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        } else {
-            var curText = mainPage.isAddingJournalBlock ? (mainPage.newJournalBlockText || "") : (mainPage.editingCurrentText || "")
-            var result = BlockHtmlUtils.applyPrefixToSelectionOrCursor(
-                curText, curText.length, curText.length, curText.length, prefix)
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = result.text
-            } else {
-                mainPage.editingRawText = result.text
-                mainPage.editingCurrentText = result.text
-            }
-        }
+        var ctx = _editorCtx()
+        EH.applyPrefix(ctx, prefix, BlockHtmlUtils)
+        _syncFromCtx(ctx)
     }
 
     function insertLinkIntoActiveEditor() {
@@ -320,103 +209,22 @@ Page {
             selectedText: sel
         })
         dialog.accepted.connect(function() {
-            var link = dialog.formattedLink
-            if (!link) return
-            var activeTarget = getActiveEditorTextArea()
-            if (activeTarget) {
-                var start = Math.min(activeTarget.selectionStart, activeTarget.selectionEnd)
-                var end = Math.max(activeTarget.selectionStart, activeTarget.selectionEnd)
-                var txt = activeTarget.text || ""
-                var pos = activeTarget.cursorPosition
-                if (start !== end && start >= 0 && end <= txt.length) {
-                    var before = txt.substring(0, start)
-                    var after = txt.substring(end)
-                    activeTarget.text = before + link + after
-                    activeTarget.cursorPosition = start + link.length
-                } else {
-                    if (pos < 0 || pos > txt.length) pos = txt.length
-                    var before = txt.substring(0, pos)
-                    var after = txt.substring(pos)
-                    activeTarget.text = before + link + after
-                    activeTarget.cursorPosition = pos + link.length
-                }
-                if (mainPage.isAddingJournalBlock) {
-                    mainPage.newJournalBlockText = activeTarget.text
-                } else if (mainPage.editingJournalBlockIndex >= 0) {
-                    mainPage.editingCurrentText = activeTarget.text
-                    mainPage.editingRawText = activeTarget.text
-                }
-                activeTarget.forceActiveFocus()
-                Qt.callLater(function() {
-                    if (activeTarget) activeTarget.forceActiveFocus()
-                })
-            } else {
-                if (mainPage.isAddingJournalBlock) {
-                    mainPage.newJournalBlockText = (mainPage.newJournalBlockText && mainPage.newJournalBlockText.length > 0 ? mainPage.newJournalBlockText + " " : "") + link
-                } else if (mainPage.editingJournalBlockIndex >= 0) {
-                    var cur = mainPage.editingCurrentText || ""
-                    var updated = (cur.length > 0 ? cur + " " : "") + link
-                    mainPage.editingRawText = updated
-                    mainPage.editingCurrentText = updated
-                }
-            }
+            var ctx = _editorCtx()
+            EH.insertLink(ctx, dialog.formattedLink)
+            _syncFromCtx(ctx)
         })
     }
 
     function changeActiveEditorListLevel(delta) {
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var res = BlockHtmlUtils.changeListLevel(
-                target.text,
-                target.selectionStart,
-                target.selectionEnd,
-                target.cursorPosition,
-                delta
-            )
-            target.text = res.text
-            target.cursorPosition = res.cursorPosition
-            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
-                target.select(res.selectionStart, res.selectionEnd)
-            }
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = target.text
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                mainPage.editingCurrentText = target.text
-                mainPage.editingRawText = target.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        }
+        var ctx = _editorCtx()
+        EH.changeListLevel(ctx, delta, BlockHtmlUtils)
+        _syncFromCtx(ctx)
     }
 
     function moveActiveEditorLines(direction) {
-        var target = getActiveEditorTextArea()
-        if (target) {
-            var res = BlockHtmlUtils.moveLines(
-                target.text,
-                target.selectionStart,
-                target.selectionEnd,
-                target.cursorPosition,
-                direction
-            )
-            target.text = res.text
-            target.cursorPosition = res.cursorPosition
-            if (res.selectionStart !== res.selectionEnd && typeof target.select === "function") {
-                target.select(res.selectionStart, res.selectionEnd)
-            }
-            if (mainPage.isAddingJournalBlock) {
-                mainPage.newJournalBlockText = target.text
-            } else if (mainPage.editingJournalBlockIndex >= 0) {
-                mainPage.editingCurrentText = target.text
-                mainPage.editingRawText = target.text
-            }
-            target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
-        }
+        var ctx = _editorCtx()
+        EH.moveLines(ctx, direction, BlockHtmlUtils)
+        _syncFromCtx(ctx)
     }
 
     function applyJournalBlockPrefix(prefix, multiLineList) {
