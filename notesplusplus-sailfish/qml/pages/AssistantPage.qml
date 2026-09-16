@@ -1,4 +1,4 @@
-import QtQuick 2.0
+import QtQuick 2.6
 import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
 import "../components"
@@ -176,12 +176,6 @@ Page {
 
     Connections {
         target: agentBridge
-
-        onSession_initialized: {
-            if (contextFilename.length > 0 || extraContext.length > 0) {
-                agentBridge.reset_session(contextFilename, contextContent, extraContext)
-            }
-        }
 
         onError_occurred: {
             remorsePopup.execute("AI Error: " + message, function() {})

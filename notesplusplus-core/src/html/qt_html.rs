@@ -375,7 +375,7 @@ fn render_table(rows: &[Vec<crate::block::TableCell>], col_widths: &[f64], ctx: 
             let width_attr = if !col_widths.is_empty() && cell_idx < col_widths.len() {
                 let total: f64 = col_widths.iter().sum();
                 if total > 0.0 {
-                    let pct = (col_widths[cell_idx] / total * 100.0) as u32;
+                    let pct = (col_widths[cell_idx] / total * 100.0).round() as u32;
                     format!(" width='{}%'", pct)
                 } else { String::new() }
             } else { String::new() };
@@ -483,7 +483,7 @@ fn flush_list(buf: &mut Vec<(&Block, &str)>, lt: &mut &str, html: &mut String, d
                     let child_items: Vec<(&Block, String)> = children[1..].iter()
                         .enumerate()
                         .map(|(k, child)| {
-                            let child_path = if path.is_empty() { format!("{}", k) } else { format!("{}.{}", path, k) };
+                            let child_path = if path.is_empty() { k.to_string() } else { format!("{}.{}", path, k) };
                             (child, child_path)
                         })
                         .collect();

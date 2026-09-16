@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../../js/ThemeColors.js" as TC
 import "../"
 import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
@@ -14,8 +15,8 @@ Item {
     property string kind: (blockData && blockData.kind) ? blockData.kind : "NOTE"
     property color borderColor: {
         switch (kind) {
-            case "WARNING": return "#d9534f"
-            case "TIP": return "#f0ad4e"
+            case "WARNING": return TC.kAdmonitionWarning
+            case "TIP": return TC.kAdmonitionTip
             default: return Theme.highlightColor
         }
     }

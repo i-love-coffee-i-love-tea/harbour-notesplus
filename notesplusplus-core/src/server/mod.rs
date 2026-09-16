@@ -352,9 +352,8 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     let port = if config.port == 0 { crate::constants::DEFAULT_SERVER_PORT } else { config.port };
     let mut listener = None;
 
-    let bind_addr = config.bind_address.clone();
     for p in port..(port + crate::constants::PORT_SCAN_RANGE) {
-        if let Ok(l) = TcpListener::bind((bind_addr.as_str(), p)) {
+        if let Ok(l) = TcpListener::bind((config.bind_address.as_str(), p)) {
             listener = Some((l, p));
             break;
         }
@@ -368,7 +367,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     let scheme = if config.enable_tls { "https" } else { "http" };
     let local_ips = get_local_ip_addresses();
     let mut local_urls = Vec::new();
-    if bind_addr == crate::constants::DEFAULT_BIND_ADDRESS {
+    if config.bind_address == crate::constants::DEFAULT_BIND_ADDRESS {
         local_urls.push(format!("{}://{}:{}", scheme, crate::constants::DEFAULT_BIND_ADDRESS, actual_port));
     }
     for ip in &local_ips {

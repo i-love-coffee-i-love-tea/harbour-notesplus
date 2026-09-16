@@ -14,11 +14,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QThread>
-#include <QtConcurrent>
 #include <QStandardPaths>
 #include <cstdlib>
 

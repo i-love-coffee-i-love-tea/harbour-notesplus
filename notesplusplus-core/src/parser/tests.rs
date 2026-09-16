@@ -604,9 +604,8 @@ use crate::inline::InlineSpan;
 
     #[test]
     fn parse_blocks_only_whitespace() {
-        let blocks = parse_blocks("   \n  \n");
-        // Should produce empty_line blocks, never panic
-        assert!(!blocks.is_empty() || blocks.is_empty()); // just no panic
+        let _blocks = parse_blocks("   \n  \n");
+        // Must not panic on whitespace-only input
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../js/ThemeColors.js" as TC
 
 GridItem {
     id: noteCardItem
@@ -55,11 +56,7 @@ GridItem {
     }
 
     function getNoteColor(name) {
-        var palette = [
-            "#e67e22", "#3498db", "#2ecc71", "#9b59b6",
-            "#f1c40f", "#e74c3c", "#1abc9c", "#e84393",
-            "#00cec9", "#6c5ce7", "#fdcb6e", "#00b894"
-        ];
+        var palette = TC.kNoteCardPalette;
         var hash = 0;
         if (name) {
             for (var i = 0; i < name.length; i++) {

@@ -1,5 +1,6 @@
-import QtQuick 2.0
+import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../js/ThemeColors.js" as TC
 
 Column {
     id: voiceInputBar
@@ -114,7 +115,7 @@ Column {
                 width: parent.width + Theme.paddingSmall + Math.round(voiceInputBar.liveAudioLevel * 28)
                 height: parent.height + Theme.paddingSmall + Math.round(voiceInputBar.liveAudioLevel * 28)
                 radius: width / 2
-                color: (voiceInputBar.liveAudioLevel > 0.06) ? "#44ff88" : "#ff4444"
+                color: (voiceInputBar.liveAudioLevel > 0.06) ? TC.kVoiceActive : TC.kVoiceInactive
                 opacity: voiceInputBar.isSpeechRecording ? Math.min(0.85, 0.25 + voiceInputBar.liveAudioLevel * 0.6) : 0.0
                 visible: voiceInputBar.isSpeechRecording
 

@@ -23,7 +23,14 @@ pub fn generate_secure_token(byte_len: usize) -> Result<String, NotesError> {
     let rng = SystemRandom::new();
     let mut bytes = vec![0u8; byte_len];
     rng.fill(&mut bytes).map_err(|e| NotesError::Auth(format!("Failed to generate random bytes: {}", e)))?;
-    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+    {
+        let mut hex = String::with_capacity(byte_len * 2);
+        for b in &bytes {
+            use std::fmt::Write;
+            let _ = write!(hex, "{:02x}", b);
+        }
+        Ok(hex)
+    }
 }
 
 /// Generates a short numeric verification code (e.g. "4729") for challenge confirmation.
@@ -251,7 +258,8 @@ impl AuthChallengeStore {
             status: ChallengeStatus::Pending,
         };
         let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
-        map.insert(challenge.challenge_id.clone(), challenge.clone());
+        let id = challenge.challenge_id.clone();
+        map.insert(id, challenge.clone());
         Ok(challenge)
     }
 
@@ -313,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_session_store_persistence() {
-        let tmp_dir = std::env::temp_dir().join(format!("notes_sess_test_{}", generate_verification_code(6)));
-        let sess_file = tmp_dir.join("sessions.json");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sess_file = tmp_dir.path().join("sessions.json");
 
         {
             let store = SessionStore::with_storage(sess_file.clone());
@@ -323,11 +331,9 @@ mod tests {
 
         // Reopen from disk
         let store2 = SessionStore::with_storage(sess_file.clone());
-        let map = store2.sessions.lock().unwrap().clone();
+        let map = store2.sessions.lock().unwrap_or_else(|e| e.into_inner()).clone();
         assert_eq!(map.len(), 1);
         assert_eq!(map.values().next().unwrap().user, "bob");
-
-        let _ = std::fs::remove_dir_all(tmp_dir);
     }
 
     #[test]

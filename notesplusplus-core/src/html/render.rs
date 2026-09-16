@@ -289,7 +289,10 @@ impl<'a> HtmlRenderContext<'a> {
                     ),
                     None => ("", ""),
                 };
-                out.push_str(&format!("<li{class_attr}>{checkbox}"));
+                {
+                    use std::fmt::Write;
+                    let _ = write!(out, "<li{class_attr}>{checkbox}");
+                }
                 out.push_str(self.render_blocks(children).trim());
                 if !node.sub_items.is_empty() {
                     out.push('\n');

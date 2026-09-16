@@ -74,6 +74,9 @@ pub const API_ROUTE_AGENT_FETCH_URL: &str = "api/agent/fetch_url";
 pub const API_ROUTE_AGENT_PREPROCESS_HTML: &str = "api/agent/preprocess_html";
 pub const API_ROUTE_AGENT_READ_FILE: &str = "api/agent/read_file";
 
+// Request limits
+pub const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+
 // Content-Types & MIME types
 pub const MIME_JSON: &str = "application/json; charset=utf-8";
 pub const MIME_HTML: &str = "text/html; charset=utf-8";

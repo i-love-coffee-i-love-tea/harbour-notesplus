@@ -222,14 +222,15 @@ private:
 
     void recordThread(void *simple, const QString &outputPath)
     {
-        FILE *f = fopen(outputPath.toUtf8().constData(), "wb");
+        struct FileDeleter { void operator()(FILE *f) { if (f) fclose(f); } };
+        std::unique_ptr<FILE, FileDeleter> f(fopen(outputPath.toUtf8().constData(), "wb"));
         if (!f) {
             m_paFree(simple);
             m_recording.store(false);
             return;
         }
 
-        writeWavHeader(f, 0);
+        writeWavHeader(f.get(), 0);
 
         uint8_t buffer[BUFFER_SIZE];
         uint64_t totalBytes = 0;
@@ -241,7 +242,7 @@ private:
                 qWarning() << "[SpeechBridge] PulseAudio read error, code" << paErr;
                 break;
             }
-            if (fwrite(buffer, 1, BUFFER_SIZE, f) != static_cast<size_t>(BUFFER_SIZE))
+            if (fwrite(buffer, 1, BUFFER_SIZE, f.get()) != static_cast<size_t>(BUFFER_SIZE))
                 break;
             totalBytes += BUFFER_SIZE;
 
@@ -259,19 +260,20 @@ private:
                     sumSquares += norm * norm;
                 }
                 double rms = std::sqrt(sumSquares / sampleCount);
-                double boosted = std::min(rms * 4.5, 1.0);
+                constexpr double kRmsGainMultiplier = 4.5;
+                double boosted = std::min(rms * kRmsGainMultiplier, 1.0);
 
                 std::lock_guard<std::mutex> lk(m_levelMutex);
                 m_level = boosted;
                 m_peak  = std::min(static_cast<double>(peak) / 32768.0, 1.0);
-                if (m_history.size() >= 7) m_history.removeFirst();
+                constexpr int kWaveformHistorySize = 7;
+                if (m_history.size() >= kWaveformHistorySize) m_history.removeFirst();
                 m_history.append(boosted);
             }
         }
 
         m_paFree(simple);
-        finalizeWavHeader(f, static_cast<uint32_t>(totalBytes));
-        fclose(f);
+        finalizeWavHeader(f.get(), static_cast<uint32_t>(totalBytes));
     }
 
     /* dlopen handles */

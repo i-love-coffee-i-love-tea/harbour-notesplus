@@ -1,5 +1,6 @@
-import QtQuick 2.0
+import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../js/ThemeColors.js" as TC
 
 Column {
     id: diffRoot
@@ -59,7 +60,7 @@ Column {
                             font.family: "Monospace"
                             font.pixelSize: Theme.fontSizeExtraSmall
                             font.bold: true
-                            color: modelData.line_type === "Add" ? "#4cd964" : (modelData.line_type === "Remove" ? "#ff3b30" : Theme.secondaryColor)
+                            color: modelData.line_type === "Add" ? TC.kDiffAdd : (modelData.line_type === "Remove" ? TC.kDiffRemove : Theme.secondaryColor)
                         }
 
                         Label {
@@ -68,7 +69,7 @@ Column {
                             font.family: "Monospace"
                             font.pixelSize: Theme.fontSizeExtraSmall
                             font.strikeout: modelData.line_type === "Remove"
-                            color: modelData.line_type === "Add" ? "#4cd964" : (modelData.line_type === "Remove" ? "#ff3b30" : Theme.primaryColor)
+                            color: modelData.line_type === "Add" ? TC.kDiffAdd : (modelData.line_type === "Remove" ? TC.kDiffRemove : Theme.primaryColor)
                             wrapMode: Text.WrapAnywhere
                         }
                     }

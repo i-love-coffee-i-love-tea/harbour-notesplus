@@ -91,15 +91,14 @@ impl ParsedHttpRequest {
         };
         let mut headers = HashMap::new();
         for h in req.headers() {
-            headers.insert(h.field.to_string().to_ascii_lowercase(), h.value.to_string());
+            headers.insert(h.field.as_str().to_ascii_lowercase(), h.value.to_string());
         }
 
-        const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
         let body_len = req.body_length().unwrap_or(0);
-        if body_len > MAX_BODY_SIZE {
+        if body_len > crate::constants::MAX_BODY_SIZE {
             return Err(NotesError::Msg(format!(
                 "Request body too large: {} bytes (max {})",
-                body_len, MAX_BODY_SIZE
+                body_len, crate::constants::MAX_BODY_SIZE
             )));
         }
 
@@ -108,12 +107,12 @@ impl ParsedHttpRequest {
             body.reserve(body_len);
         }
         use std::io::Read;
-        let mut limited_reader = req.as_reader().take(MAX_BODY_SIZE as u64 + 1);
+        let mut limited_reader = req.as_reader().take(crate::constants::MAX_BODY_SIZE as u64 + 1);
         limited_reader.read_to_end(&mut body).map_err(|e| NotesError::Io(e))?;
-        if body.len() > MAX_BODY_SIZE {
+        if body.len() > crate::constants::MAX_BODY_SIZE {
             return Err(NotesError::Msg(format!(
                 "Request body too large (exceeds max {} bytes)",
-                MAX_BODY_SIZE
+                crate::constants::MAX_BODY_SIZE
             )));
         }
 
@@ -148,6 +147,11 @@ impl ParsedHttpRequest {
     pub fn json_body(&self) -> serde_json::Value {
         let body_str = String::from_utf8_lossy(&self.body);
         serde_json::from_str(&body_str).unwrap_or(serde_json::json!({}))
+    }
+
+    pub fn json_body_opt(&self) -> Option<serde_json::Value> {
+        let body_str = String::from_utf8_lossy(&self.body);
+        serde_json::from_str(&body_str).ok()
     }
 }
 
@@ -256,7 +260,7 @@ impl HttpResponse {
     }
 
     pub fn ok_json(data: &serde_json::Value) -> Self {
-        Self::new(200, "OK", MIME_JSON, data.to_string().into_bytes())
+        Self::new(200, "OK", MIME_JSON, serde_json::to_vec(data).unwrap_or_default())
     }
 
     pub fn ok_html(html: impl Into<Vec<u8>>) -> Self {
@@ -268,10 +272,10 @@ impl HttpResponse {
     }
 
     pub fn error(code: ApiErrorCode, msg: &str) -> Self {
-        let body = serde_json::json!({
+        let body = serde_json::to_vec(&serde_json::json!({
             "error": msg,
             "code": code.as_str()
-        }).to_string().into_bytes();
+        })).unwrap_or_default();
         Self::new(code.status_code(), code.reason(), MIME_JSON, body)
     }
 
@@ -327,7 +331,8 @@ pub fn send_response_full<W: Write>(
     let mut extra = String::new();
     for (k, v) in extra_headers {
         let sanitized = sanitize_header_value(v);
-        extra.push_str(&format!("{}: {}\r\n", k, sanitized));
+        use std::fmt::Write;
+        let _ = write!(extra, "{}: {}\r\n", k, sanitized);
     }
     let header = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
@@ -338,8 +343,14 @@ pub fn send_response_full<W: Write>(
         cors,
         extra
     );
-    let _ = stream.write_all(header.as_bytes());
-    let _ = stream.write_all(body);
+    if let Err(e) = stream.write_all(header.as_bytes()) {
+        log::debug!("Failed to write response header: {}", e);
+        return;
+    }
+    if let Err(e) = stream.write_all(body) {
+        log::debug!("Failed to write response body: {}", e);
+        return;
+    }
     let _ = stream.flush();
 }
 
@@ -355,13 +366,13 @@ pub fn send_response<W: Write>(
 }
 
 pub fn send_json_error<W: Write>(stream: &mut W, status_code: u16, reason: &str, msg: &str, cors_origin: &str) {
-    let body = serde_json::json!({ "error": msg }).to_string();
-    send_response(stream, status_code, reason, MIME_JSON, body.as_bytes(), cors_origin);
+    let body = serde_json::to_vec(&serde_json::json!({ "error": msg })).unwrap_or_default();
+    send_response(stream, status_code, reason, MIME_JSON, &body, cors_origin);
 }
 
 pub fn send_json_ok<W: Write>(stream: &mut W, data: &serde_json::Value, cors_origin: &str) {
-    let body = data.to_string();
-    send_response(stream, 200, "OK", MIME_JSON, body.as_bytes(), cors_origin);
+    let body = serde_json::to_vec(data).unwrap_or_default();
+    send_response(stream, 200, "OK", MIME_JSON, &body, cors_origin);
 }
 
 pub fn send_redirect<W: Write>(
@@ -524,7 +535,7 @@ pub fn url_decode(s: &str) -> String {
             let h1 = chars.next();
             let h2 = chars.next();
             if let (Some(c1), Some(c2)) = (h1, h2) {
-                let hex_str = format!("{}{}", c1, c2);
+                let hex_str: String = [c1, c2].iter().collect();
                 if let Ok(byte) = u8::from_str_radix(&hex_str, 16) {
                     result.push(byte);
                     continue;
@@ -534,7 +545,8 @@ pub fn url_decode(s: &str) -> String {
         } else if ch == '+' {
             result.push(b' ');
         } else {
-            result.extend_from_slice(ch.to_string().as_bytes());
+            let mut buf = [0u8; 4];
+            result.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         }
     }
     String::from_utf8_lossy(&result).into_owned()

@@ -44,8 +44,8 @@ pub extern "C" fn notes_core_agent_new(
     let backup = unsafe { cstr_to_path(backup_dir) };
     let cfg_str = unsafe { cstr_to_string(config_json) };
     let cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
-    let llm_config: LlmConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
-    let perm_config: PermissionConfig = serde_json::from_value(cfg).unwrap_or_default();
+    let perm_config: PermissionConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
+    let llm_config: LlmConfig = serde_json::from_value(cfg).unwrap_or_default();
 
     let client = LlmClient::new(llm_config);
     let perm_mgr = PermissionManager::new(perm_config);
@@ -88,6 +88,7 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
     callback: Option<FfiTokenCallback>,
     user_data: *mut std::os::raw::c_void,
 ) -> i32 {
+    if ffi.is_null() { return -1; }
     let ffi = &mut *ffi;
     let prompt = cstr_to_string(prompt);
 
@@ -120,7 +121,7 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
         let udata = user_data_addr as *mut std::os::raw::c_void;
 
         {
-            let mut sess = session.lock().unwrap();
+            let mut sess = session.lock().unwrap_or_else(|e| e.into_inner());
             let result = sess.send_prompt_streaming(&prompt, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
@@ -167,9 +168,10 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
 pub extern "C" fn notes_core_agent_poll_streaming(
     ffi: *mut FfiAgentSession,
 ) -> *mut c_char {
+    if ffi.is_null() { return std::ptr::null_mut(); }
     let ffi = unsafe { &*ffi };
-    let buf = ffi.streaming_buffer.lock().unwrap();
-    string_to_c(buf.clone())
+    let mut buf = ffi.streaming_buffer.lock().unwrap_or_else(|e| e.into_inner());
+    string_to_c(std::mem::take(&mut *buf))
 }
 
 /// Poll for agent result. Returns: 0 = still running, 1 = ready, -1 = error.
@@ -179,6 +181,7 @@ pub extern "C" fn notes_core_agent_poll(
     ffi: *mut FfiAgentSession,
     out_json: *mut *mut c_char,
 ) -> i32 {
+    if ffi.is_null() { return -1; }
     let ffi = unsafe { &*ffi };
     let has = ffi.result.lock().map(|g| g.is_some()).unwrap_or(false);
     if !has {
@@ -238,6 +241,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming(
     callback: Option<FfiTokenCallback>,
     user_data: *mut std::os::raw::c_void,
 ) -> i32 {
+    if ffi.is_null() { return -1; }
     let ffi = unsafe { &mut *ffi };
     let session = ffi.session.clone();
     let result_slot = ffi.result.clone();
@@ -267,7 +271,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming(
         let udata = user_data_addr as *mut std::os::raw::c_void;
 
         {
-            let mut sess = session.lock().unwrap();
+            let mut sess = session.lock().unwrap_or_else(|e| e.into_inner());
             let result = sess.confirm_pending_action_streaming(approved != 0, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
@@ -323,8 +327,9 @@ pub unsafe extern "C" fn notes_core_agent_confirm(
 pub extern "C" fn notes_core_agent_undo(
     ffi: *mut FfiAgentSession,
 ) -> *mut c_char {
+    if ffi.is_null() { return std::ptr::null_mut(); }
     let ffi = unsafe { &mut *ffi };
-    let mut sess = ffi.session.lock().unwrap();
+    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
     match sess.undo_last_action() {
         Ok(msg) => string_to_c(msg),
         Err(e) => ffi_err!(e),
@@ -337,15 +342,16 @@ pub extern "C" fn notes_core_agent_configure(
     ffi: *mut FfiAgentSession,
     config_json: *const c_char,
 ) {
+    if ffi.is_null() { return; }
     let ffi = unsafe { &mut *ffi };
     let cfg_str = unsafe { cstr_to_string(config_json) };
     let cfg: serde_json::Value = serde_json::from_str(&cfg_str).unwrap_or_default();
-    let llm_config: LlmConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
-    let perm_config: PermissionConfig = serde_json::from_value(cfg).unwrap_or_default();
+    let perm_config: PermissionConfig = serde_json::from_value(cfg.clone()).unwrap_or_default();
+    let llm_config: LlmConfig = serde_json::from_value(cfg).unwrap_or_default();
 
     let client = LlmClient::new(llm_config);
     let perm_mgr = PermissionManager::new(perm_config);
-    let mut sess = ffi.session.lock().unwrap();
+    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
     sess.update_config(perm_mgr, client);
 }
 
@@ -357,12 +363,13 @@ pub extern "C" fn notes_core_agent_reset_session(
     context_content: *const c_char,
     extra_context: *const c_char,
 ) {
+    if ffi.is_null() { return; }
     let ffi = unsafe { &mut *ffi };
     let fname = unsafe { cstr_to_string(context_filename) };
     let fcontent = unsafe { cstr_to_string(context_content) };
     let extra = unsafe { cstr_to_string(extra_context) };
 
-    let mut sess = ffi.session.lock().unwrap();
+    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
     let active = if fname.is_empty() {
         None
     } else {

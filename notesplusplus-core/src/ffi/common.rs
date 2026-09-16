@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString};
-use std::fmt::Write as FmtWrite;
+use std::fmt::Write;
 use std::os::raw::c_char;
 use std::path::PathBuf;
 
@@ -125,7 +125,7 @@ pub unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
     if ptr.is_null() {
         None
     } else {
-        unsafe { CStr::from_ptr(ptr).to_str().ok() }
+        CStr::from_ptr(ptr).to_str().ok()
     }
 }
 
@@ -134,7 +134,7 @@ pub unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
 /// # Safety
 /// If `ptr` is not null, it must point to a valid null-terminated C string.
 pub unsafe fn cstr_to_string(ptr: *const c_char) -> String {
-    unsafe { cstr_to_str(ptr).unwrap_or("").to_owned() }
+    cstr_to_str(ptr).unwrap_or("").to_owned()
 }
 
 /// Convert a C string pointer to a Path. Returns empty path if null.
@@ -142,7 +142,7 @@ pub unsafe fn cstr_to_string(ptr: *const c_char) -> String {
 /// # Safety
 /// If `ptr` is not null, it must point to a valid null-terminated C string.
 pub unsafe fn cstr_to_path(ptr: *const c_char) -> PathBuf {
-    PathBuf::from(unsafe { cstr_to_string(ptr) })
+    PathBuf::from(cstr_to_string(ptr))
 }
 
 /// Allocate a C string from a Rust String. Caller must free via notes_core_free_string.

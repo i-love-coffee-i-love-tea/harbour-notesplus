@@ -2,6 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../"
 import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../../js/ThemeColors.js" as TC
 
 Column {
     id: codeDelegate
@@ -35,7 +36,7 @@ Column {
     Rectangle {
         id: svgCard
         visible: isSvgbob && svgImg.status !== Image.Error
-        color: "#ffffff"
+        color: TC.kCodeCardBg
         border.color: Theme.rgba(Theme.primaryColor, 0.2)
         border.width: 1
         radius: Theme.paddingSmall / 2
@@ -129,7 +130,7 @@ Column {
 
     Rectangle {
         visible: !isSvgbob || svgImg.status === Image.Error
-        color: "#18181c"
+        color: TC.kCodeBlockBg
         border.color: Theme.rgba(Theme.primaryColor, 0.2)
         border.width: 1
         radius: 0
@@ -153,7 +154,7 @@ Column {
                 text: (blockData.language || "").toUpperCase()
                 font.family: "monospace"
                 font.pixelSize: Math.round(Theme.fontSizeExtraSmall * (typeof app !== "undefined" && app && app.codeFontScale ? app.codeFontScale : 1.0))
-                color: Theme.rgba("#f2f2f7", 0.6)
+                color: Theme.rgba(TC.kCodeLanguageLabel, 0.6)
             }
 
             Label {
@@ -178,7 +179,7 @@ Column {
                 }
                 font.family: "monospace"
                 font.pixelSize: Math.round(Theme.fontSizeSmall * (typeof app !== "undefined" && app && app.codeFontScale ? app.codeFontScale : 1.0))
-                color: "#f2f2f7"
+                color: TC.kCodeText
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
         }

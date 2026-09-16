@@ -129,7 +129,7 @@ pub fn handle_pages_api<W: Write>(
                 }
             }
         }
-        _ => {}
+        _ => { send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin); }
     }
 }
 
@@ -233,7 +233,7 @@ pub fn handle_page_detail_api<W: Write>(
                 }
             }
         }
-        _ => {}
+        _ => { send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin); }
     }
 }
 

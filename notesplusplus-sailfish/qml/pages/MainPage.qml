@@ -2,6 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../components"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../js/ThemeColors.js" as TC
 
 Page {
     id: mainPage
@@ -599,7 +600,7 @@ Page {
                             width: Theme.paddingSmall
                             height: Theme.paddingSmall
                             radius: width / 2
-                            color: "#4cd964"
+                            color: TC.kStatusGreen
                             anchors.verticalCenter: parent.verticalCenter
                         }
 

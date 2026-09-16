@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "."
+import "../js/ThemeColors.js" as TC
 
 Column {
     id: displaySettingsTab
@@ -259,7 +260,7 @@ Column {
 
             Rectangle {
                 width: parent.width
-                color: "#18181c"
+                color: TC.kCodeBlockBg
                 border.color: Theme.rgba(Theme.primaryColor, 0.2)
                 border.width: 1
                 radius: Theme.paddingSmall
@@ -279,7 +280,7 @@ Column {
                         text: "RUST"
                         font.family: "monospace"
                         font.pixelSize: Math.round(Theme.fontSizeExtraSmall * app.codeFontScale)
-                        color: Theme.rgba("#f2f2f7", 0.6)
+                        color: Theme.rgba(TC.kCodeLanguageLabel, 0.6)
                     }
 
                     Label {
@@ -287,7 +288,7 @@ Column {
                         text: "fn main() {\n    println!(\"Hello Notes Plus!\");\n}"
                         font.family: "monospace"
                         font.pixelSize: Math.round(Theme.fontSizeSmall * app.codeFontScale)
-                        color: "#f2f2f7"
+                        color: TC.kCodeText
                         wrapMode: Text.Wrap
                     }
                 }

@@ -17,9 +17,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
+
+static constexpr int kDefaultAiTimeoutSecs = 90;
+static constexpr int kPollIntervalMs = 100;
 
 /* ================================================================== */
 /* Constructor / Destructor                                           */
@@ -47,7 +47,7 @@ AgentBridge::AgentBridge(QObject *parent)
     m_providerType     = QStringLiteral("ollama");
     m_endpointUrl      = defaultEndpoint;
     m_modelName        = defaultModel;
-    m_timeoutSecs      = 90;
+    m_timeoutSecs      = kDefaultAiTimeoutSecs;
     m_autoAllowRead    = true;
     m_autoAllowCreate  = true;
     m_requireConfirmEdit = true;
@@ -73,7 +73,7 @@ AgentBridge::AgentBridge(QObject *parent)
     m_messagesJson = QStringLiteral("[]");
 
     /* ---- Set up polling timer (not started yet) ---- */
-    m_pollTimer->setInterval(100);
+    m_pollTimer->setInterval(kPollIntervalMs);
     m_pollTimer->setSingleShot(false);
     connect(m_pollTimer, &QTimer::timeout, this, [this]() { poll_worker(); });
 }
@@ -298,7 +298,7 @@ void AgentBridge::configure(QString provider, QString url, QString model,
     m_endpointUrl        = url;
     m_modelName          = model;
     m_internalApiKey     = key;
-    m_timeoutSecs        = (timeout > 0) ? timeout : 90;
+    m_timeoutSecs        = (timeout > 0) ? timeout : kDefaultAiTimeoutSecs;
     m_autoAllowRead      = auto_read;
     m_autoAllowCreate    = auto_create;
     m_requireConfirmEdit = require_edit;
@@ -530,21 +530,6 @@ void AgentBridge::read_local_file(QString file_path)
         }
 
         QString content = QString::fromUtf8(file.readAll());
-        file.close();
-
-        /* HTML detection (mirrors Rust: extension check + looks_like_html) */
-        bool isHtml = canonical.endsWith(QStringLiteral(".html"), Qt::CaseInsensitive)
-                   || canonical.endsWith(QStringLiteral(".htm"),  Qt::CaseInsensitive)
-                   || content.contains(QStringLiteral("<html"),  Qt::CaseInsensitive)
-                   || content.contains(QStringLiteral("<HTML"),  Qt::CaseInsensitive);
-
-        if (isHtml) {
-            // HTML preprocessing would ideally call the Rust preprocessor.
-            // The FFI does not currently expose a standalone HTML-preprocess
-            // function, so we pass the raw HTML through.
-            // TODO: add notes_core_preprocess_html() to FFI if needed.
-            Q_UNUSED(isHtml);
-        }
 
         QMutexLocker lock(&m_fetchMutex);
         m_fetchContent = content;

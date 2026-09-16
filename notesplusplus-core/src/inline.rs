@@ -618,7 +618,8 @@ fn parse_inline_recursive(text: &str, out: &mut Vec<InlineSpan>) {
         if rest.starts_with('\\') && rest.len() > 1 {
             let next_char = rest[1..].chars().next().unwrap();
             if next_char == '*' || next_char == '_' || next_char == '`' || next_char == '^' || next_char == '~' || next_char == '\\' {
-                push_text(out, &next_char.to_string());
+                let mut char_buf = [0u8; 4];
+                push_text(out, next_char.encode_utf8(&mut char_buf));
                 pos_idx += 2; // skip \ and the escaped char
                 continue;
             }

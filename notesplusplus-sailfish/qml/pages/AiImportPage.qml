@@ -1,7 +1,8 @@
-import QtQuick 2.0
+import QtQuick 2.6
 import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
 import "../components"
+import "../js/ThemeColors.js" as TC
 
 Page {
     id: aiImportPage
@@ -466,7 +467,7 @@ Page {
 
                     Label {
                         text: "✓"
-                        color: "#4cd964"
+                        color: TC.kStatusGreen
                         font.pixelSize: Theme.fontSizeLarge
                         font.bold: true
                         anchors.verticalCenter: parent.verticalCenter

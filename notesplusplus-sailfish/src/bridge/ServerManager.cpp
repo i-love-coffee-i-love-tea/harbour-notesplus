@@ -101,7 +101,7 @@ QString ServerManager::start_web_server()
 
     HttpServerHandle *handle = notes_core_server_start(
         notesDir.c_str(), dbP.c_str(), backupDir.c_str(),
-        8080, configStr.c_str());
+        notes_core_const_default_server_port(), configStr.c_str());
 
     if (!handle) {
         m_ctx.reportError(QStringLiteral("Failed to start web server"));
