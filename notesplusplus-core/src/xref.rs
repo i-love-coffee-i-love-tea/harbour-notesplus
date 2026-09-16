@@ -1,15 +1,17 @@
 //! AsciiDoc cross-reference rewriting for page moves and renames.
 
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use regex::Regex;
 
-static XREF_STD_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"xref:([^\s#\[]+)([#][^\]]*)?\[([^\]]*)\]").unwrap()
-});
+fn xref_std_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| Regex::new(r"xref:([^\s#\[]+)([#][^\]]*)?\[([^\]]*)\]").unwrap())
+}
 
-static XREF_ANGLE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<<([^\s#,>]+)([#][^,>]*)?(,[^>]*)?>>").unwrap()
-});
+fn xref_angle_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| Regex::new(r"<<([^\s#,>]+)([#][^,>]*)?(,[^>]*)?>>").unwrap())
+}
 
 /// Rewrites cross-references in AsciiDoc content from old_target to new_target.
 /// Handles:
@@ -31,7 +33,7 @@ pub fn rewrite_xrefs(content: &str, old_target: &str, new_target: &str) -> Strin
     let new_adoc = if new_clean.ends_with(".adoc") { new_clean.to_string() } else { format!("{}.adoc", new_clean) };
 
     // 1. Standard xref:target#anchor[label] or xref:target[label]
-    let result = XREF_STD_RE.replace_all(content, |caps: &regex::Captures| {
+    let result = xref_std_re().replace_all(content, |caps: &regex::Captures| {
         let target = &caps[1];
         let anchor = caps.get(2).map_or("", |m| m.as_str());
         let label = &caps[3];
@@ -44,7 +46,7 @@ pub fn rewrite_xrefs(content: &str, old_target: &str, new_target: &str) -> Strin
     });
 
     // 2. Shorthand <<target#anchor,label>> or <<target>>
-    let result = XREF_ANGLE_RE.replace_all(&result, |caps: &regex::Captures| {
+    let result = xref_angle_re().replace_all(&result, |caps: &regex::Captures| {
         let target = &caps[1];
         let anchor = caps.get(2).map_or("", |m| m.as_str());
         let label = caps.get(3).map_or("", |m| m.as_str());

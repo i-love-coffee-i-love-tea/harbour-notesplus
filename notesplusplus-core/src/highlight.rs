@@ -1,18 +1,25 @@
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::html::{styled_line_to_highlighted_html, IncludeBackground};
 use syntect::parsing::SyntaxSet;
 use crate::escape::escape_html;
 
-static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
-static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
+fn syntax_set() -> &'static SyntaxSet {
+    static CELL: OnceLock<SyntaxSet> = OnceLock::new();
+    CELL.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme_set() -> &'static ThemeSet {
+    static CELL: OnceLock<ThemeSet> = OnceLock::new();
+    CELL.get_or_init(ThemeSet::load_defaults)
+}
 
 /// Highlight code with syntax coloring and return HTML with inline `<span>` elements.
 /// Falls back to escaped plain text if the language is unknown.
 pub fn highlight_code(code: &str, language: &str) -> String {
-    let ss = &*SYNTAX_SET;
-    let ts = &*THEME_SET;
+    let ss = syntax_set();
+    let ts = theme_set();
     let syntax = ss
         .find_syntax_by_token(language)
         .unwrap_or_else(|| ss.find_syntax_plain_text());

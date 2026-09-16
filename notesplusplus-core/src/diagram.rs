@@ -1,24 +1,27 @@
-use std::sync::LazyLock;
+use std::sync::OnceLock;
 use regex::Regex;
 
-static TREE_LINE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"^(\s*(?:[|`+\\]\s*)*[+`|\\]--?\s+)(.*)$"#).unwrap()
-});
+fn tree_line_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| Regex::new(r#"^(\s*(?:[|`+\\]\s*)*[+`|\\]--?\s+)(.*)$"#).unwrap())
+}
 
-static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(concat!(
+fn token_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| Regex::new(concat!(
         r#"(?P<paren>\([^\)\r\n]*[a-zA-Z][^\)\r\n]*\))|"#,
         r#"(?P<slash_phrase>\b[a-zA-Z0-9_]+\s+/\s+[a-zA-Z0-9_]+\b)|"#,
         r#"(?P<path>[~a-zA-Z0-9_.+-]+/[a-zA-Z0-9_.+/+-]*)|"#,
         r#"(?P<plusplus>\b[a-zA-Z0-9_]+\+\+/?)|"#,
         r#"(?P<hyphen_file>\b[a-zA-Z0-9_]+-[a-zA-Z0-9_.-]+)|"#,
         r#"(?P<csv_file>\b[a-zA-Z0-9_.-]+\.[a-zA-Z0-9_-]*[vV]\b)"#
-    )).unwrap()
-});
+    )).unwrap())
+}
 
-static TAG_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<([a-zA-Z]+)([^>]*)>").unwrap()
-});
+fn tag_re() -> &'static Regex {
+    static CELL: OnceLock<Regex> = OnceLock::new();
+    CELL.get_or_init(|| Regex::new(r"<([a-zA-Z]+)([^>]*)>").unwrap())
+}
 
 /// Preprocesses ASCII art source to quote text labels, annotations, file paths,
 /// and filenames that contain characters svgbob would otherwise parse as drawing primitives
@@ -42,7 +45,7 @@ pub fn preprocess_svgbob(source: &str) -> String {
         }
 
         // 1. Check if line is a tree branch line (e.g. `+-- meeting-notes.adoc` or `|   +-- mockup.png`)
-        if let Some(caps) = TREE_LINE_RE.captures(line) {
+        if let Some(caps) = tree_line_re().captures(line) {
             let prefix = &caps[1];
             let rest = &caps[2];
             let mut processed_rest = String::new();
@@ -56,7 +59,7 @@ pub fn preprocess_svgbob(source: &str) -> String {
                     processed_rest.push('"');
                 } else {
                     let mut unquoted = part.to_string();
-                    unquoted = TOKEN_RE.replace_all(&unquoted, |c: &regex::Captures| {
+                    unquoted = token_re().replace_all(&unquoted, |c: &regex::Captures| {
                         let matched = c.get(0).unwrap().as_str();
                         if matched.chars().any(|ch| ch.is_alphabetic()) {
                             format!("\"{}\"", matched)
@@ -93,7 +96,7 @@ pub fn preprocess_svgbob(source: &str) -> String {
                 out.push_str(part);
                 out.push('"');
             } else {
-                let unquoted = TOKEN_RE.replace_all(part, |c: &regex::Captures| {
+                let unquoted = token_re().replace_all(part, |c: &regex::Captures| {
                     let matched = c.get(0).unwrap().as_str();
                     if matched.chars().any(|ch| ch.is_alphabetic()) {
                         format!("\"{}\"", matched)
@@ -148,7 +151,7 @@ fn extract_class(attrs: &str) -> Option<&str> {
 /// SVG Tiny renderers like Qt's QSvgRenderer can display svgbob diagrams without
 /// relying on CSS stylesheet classes.
 pub fn inline_svg_styles(svg: &str) -> String {
-    TAG_RE.replace_all(svg, |caps: &regex::Captures| {
+    tag_re().replace_all(svg, |caps: &regex::Captures| {
         let tag_name = &caps[1];
         let raw_attrs = &caps[2];
         let self_closing = raw_attrs.trim_end().ends_with('/');
