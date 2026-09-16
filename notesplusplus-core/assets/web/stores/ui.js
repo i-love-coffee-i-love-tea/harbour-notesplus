@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
 import { apiFetch, apiJson, apiText } from './api.js';
-import { extractSlides, consumeSseStream } from '/composables/utils.js';
+import { extractSlides, consumeSseStream, parseBlocksFromText, slugify, titleFromPath, isExternalUrlStr, computeFilenameFromQuery, buildLinkPreview } from '/composables/utils.js';
 
 // Cached module references for cross-store access
 let _notesMod = null, _aiMod = null;
@@ -148,19 +148,12 @@ export const useUiStore = defineStore('ui', () => {
   const linkSearchInputRef = ref(null);
   const linkPagesListRef = ref(null);
 
-  const isExternalUrl = computed(() => /^(https?:\/\/|mailto:|ftp:\/\/)/i.test((linkSearchQuery.value || '').trim()));
+  const isExternalUrl = computed(() => isExternalUrlStr(linkSearchQuery.value));
 
-  const computedCustomFilename = computed(() => {
-    const q = (linkSearchQuery.value || '').trim();
-    if (!q) return '';
-    if (isExternalUrl.value) return q;
-    if (q.toLowerCase().endsWith('.adoc')) return q;
-    return (q.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled') + '.adoc';
-  });
+  const computedCustomFilename = computed(() => computeFilenameFromQuery(linkSearchQuery.value));
 
   const filteredLinkPages = computed(() => {
     const q = (linkSearchQuery.value || '').trim().toLowerCase();
-    // Access notesList reactively — will recompute when notesList changes
     const nl = _cachedNotesList || [];
     if (!q) return nl;
     return nl.filter(n =>
@@ -179,19 +172,14 @@ export const useUiStore = defineStore('ui', () => {
     );
   });
 
-  const formattedLinkPreview = computed(() => {
-    if (selectedLinkFilename.value) {
-      const text = (linkDisplayText.value || '').trim() || selectedLinkTitle.value || selectedLinkFilename.value;
-      return `xref:${selectedLinkFilename.value}[${text}]`;
-    }
-    const q = (linkSearchQuery.value || '').trim();
-    if (q) {
-      const text = (linkDisplayText.value || '').trim() || q;
-      if (isExternalUrl.value) return `${q}[${text}]`;
-      return `xref:${computedCustomFilename.value}[${text}]`;
-    }
-    return '';
-  });
+  const formattedLinkPreview = computed(() => buildLinkPreview({
+    filename: selectedLinkFilename.value,
+    title: selectedLinkTitle.value,
+    displayText: linkDisplayText.value,
+    query: linkSearchQuery.value,
+    isExternal: isExternalUrl.value,
+    customFilename: computedCustomFilename.value,
+  }));
 
   // Cached notesList reference for filteredLinkPages computed
   let _cachedNotesList = [];
@@ -239,14 +227,8 @@ export const useUiStore = defineStore('ui', () => {
       if (data.ok) {
         importSourceText.value = data.content || '';
         if (!importTitle.value.trim()) {
-          try {
-            const parsedUrl = new URL(url.startsWith('http') ? url : `https://${url}`);
-            const parts = parsedUrl.pathname.split('/').filter(p => p.length > 0);
-            if (parts.length > 0) {
-              const last = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-              if (last.length > 2) importTitle.value = last.charAt(0).toUpperCase() + last.slice(1);
-            } else if (parsedUrl.hostname) importTitle.value = parsedUrl.hostname;
-          } catch (_) {}
+          const t = titleFromPath(url.startsWith('http') ? url : `https://${url}`);
+          if (t) importTitle.value = t;
         }
         showUrlInput.value = false;
       } else { urlFetchError.value = data.error || 'Failed to fetch URL'; }
@@ -266,9 +248,8 @@ export const useUiStore = defineStore('ui', () => {
       if (data.ok) {
         importSourceText.value = data.content || '';
         if (!importTitle.value.trim()) {
-          const parts = path.split(/[\/\\]/);
-          const last = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-          if (last.length > 0) importTitle.value = last.charAt(0).toUpperCase() + last.slice(1);
+          const t = titleFromPath(path);
+          if (t) importTitle.value = t;
         }
         showFileInput.value = false;
       } else { fileFetchError.value = data.error || 'Failed to read server file'; }
@@ -293,8 +274,8 @@ export const useUiStore = defineStore('ui', () => {
       }
       importSourceText.value = text;
       if (!importTitle.value.trim()) {
-        const clean = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
-        if (clean.length > 0) importTitle.value = clean.charAt(0).toUpperCase() + clean.slice(1);
+        const t = titleFromPath(file.name);
+        if (t) importTitle.value = t;
       }
       showFileInput.value = false;
     };
@@ -340,7 +321,7 @@ export const useUiStore = defineStore('ui', () => {
         body: JSON.stringify({
           template_id: 'import_convert',
           content: importSourceText.value,
-          context_filename: importTitle.value ? importTitle.value.replace(/\s+/g, '-').toLowerCase() + '.adoc' : 'imported-note.adoc',
+          context_filename: importTitle.value ? slugify(importTitle.value) + '.adoc' : 'imported-note.adoc',
           target_title: importTitle.value || undefined,
           mode: importMode.value,
           custom_instruction: importCustomInstruction.value || undefined
@@ -381,28 +362,6 @@ export const useUiStore = defineStore('ui', () => {
   }
 
   // ─── In-Place Block Editor ───────────────────────────────
-  function parseBlocksFromText(text) {
-    if (!text || !text.trim()) return [''];
-    const rawBlocks = text.split(/\n\s*\n/);
-    const blocks = [];
-    let currentAcc = '';
-    for (const raw of rawBlocks) {
-      const b = raw.trim();
-      if (!b) continue;
-      if (currentAcc) {
-        currentAcc += '\n\n' + raw;
-        const dm = currentAcc.match(/^(=|--|-|\*|\.|_){4,}|^\|===/gm);
-        if (dm && dm.length % 2 === 0) { blocks.push(currentAcc); currentAcc = ''; }
-      } else {
-        const dm = b.match(/^(=|--|-|\*|\.|_){4,}|^\|===/gm);
-        if (dm && dm.length % 2 === 1) currentAcc = raw;
-        else blocks.push(raw);
-      }
-    }
-    if (currentAcc) blocks.push(currentAcc);
-    return blocks.length > 0 ? blocks : [text];
-  }
-
   async function loadInPlaceBlocks(text) {
     const notesStore = await getNotesStore();
     const content = text !== undefined ? text : notesStore.rawContent;
@@ -642,10 +601,7 @@ export const useUiStore = defineStore('ui', () => {
   return {
     viewMode, showExportMenu, showAccountMenu,
     openNewNoteModal, newNoteTitle, newNoteTemplate,
-    computedNewFilename: computed(() => {
-      const slug = (newNoteTitle.value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      return (slug || 'untitled') + '.adoc';
-    }),
+    computedNewFilename: computed(() => slugify(newNoteTitle.value) + '.adoc'),
     inPlaceBlocks, editingBlockIndex, activeBlockText,
     loadInPlaceBlocks, switchToInPlaceMode, editBlock, saveBlockEdit, cancelBlockEdit,
     insertBlockAfter, deleteBlock, addBlockAtEnd,

@@ -170,3 +170,109 @@ export async function consumeSseStream(response, onToken, onPayload) {
     }
   }
 }
+
+// Slugify a string for use in filenames (e.g. "Hello World!" → "hello-world")
+export function slugify(str) {
+  return (str || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+}
+
+// Extract a human-readable title from a file path or URL
+export function titleFromPath(path) {
+  if (!path) return '';
+  try {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      const parsedUrl = new URL(path);
+      const parts = parsedUrl.pathname.split('/').filter(p => p.length > 0);
+      if (parts.length > 0) {
+        const last = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
+        if (last.length > 2) return last.charAt(0).toUpperCase() + last.slice(1);
+      }
+      if (parsedUrl.hostname) return parsedUrl.hostname;
+      return '';
+    }
+  } catch (_) {}
+  const parts = path.split(/[\/\\]/);
+  const last = parts[parts.length - 1].replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ');
+  return last.length > 0 ? last.charAt(0).toUpperCase() + last.slice(1) : '';
+}
+
+// Check if a string is an external URL (http, https, mailto, ftp)
+export function isExternalUrlStr(str) {
+  return /^(https?:\/\/|mailto:|ftp:\/\/)/i.test((str || '').trim());
+}
+
+// Compute an .adoc filename from a search query string
+export function computeFilenameFromQuery(query) {
+  const q = (query || '').trim();
+  if (!q) return '';
+  if (isExternalUrlStr(q)) return q;
+  if (q.toLowerCase().endsWith('.adoc')) return q;
+  return slugify(q) + '.adoc';
+}
+
+// Build a formatted link preview string (xref: or URL)
+export function buildLinkPreview({ filename, title, displayText, query, isExternal, customFilename }) {
+  if (filename) {
+    const text = (displayText || '').trim() || title || filename;
+    return `xref:${filename}[${text}]`;
+  }
+  const q = (query || '').trim();
+  if (q) {
+    const text = (displayText || '').trim() || q;
+    if (isExternal) return `${q}[${text}]`;
+    const fn = customFilename || computeFilenameFromQuery(q);
+    return `xref:${fn}[${text}]`;
+  }
+  return '';
+}
+
+// Split AsciiDoc text into blocks respecting delimiters (====, ----, ****, etc.)
+export function parseBlocksFromText(text) {
+  if (!text || !text.trim()) return [''];
+  const rawBlocks = text.split(/\n\s*\n/);
+  const blocks = [];
+  let currentAcc = '';
+  for (const raw of rawBlocks) {
+    const b = raw.trim();
+    if (!b) continue;
+    if (currentAcc) {
+      currentAcc += '\n\n' + raw;
+      const dm = currentAcc.match(/^(=|--|-|\*|\.|_){4,}|^\|===/gm);
+      if (dm && dm.length % 2 === 0) { blocks.push(currentAcc); currentAcc = ''; }
+    } else {
+      const dm = b.match(/^(=|--|-|\*|\.|_){4,}|^\|===/gm);
+      if (dm && dm.length % 2 === 1) currentAcc = raw;
+      else blocks.push(raw);
+    }
+  }
+  if (currentAcc) blocks.push(currentAcc);
+  return blocks.length > 0 ? blocks : [text];
+}
+
+// Format session remaining time as compact string (e.g. "1h 1m")
+export function formatSessionRemaining(seconds) {
+  if (seconds <= 0) return 'Expired';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  if (days >= 1) return `${days}d ${hours}h`;
+  if (hours >= 1) return `${hours}h ${minutes}m`;
+  if (minutes >= 1) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+}
+
+// Format session remaining time as verbose string (e.g. "1 hr 2 min")
+export function formatSessionRemainingFull(seconds) {
+  if (seconds <= 0) return 'Expired';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
+  if (hours > 0) parts.push(`${hours} hr${hours > 1 ? 's' : ''}`);
+  if (minutes > 0) parts.push(`${minutes} min`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs} sec`);
+  return parts.join(' ');
+}

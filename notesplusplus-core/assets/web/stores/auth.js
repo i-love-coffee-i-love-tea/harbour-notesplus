@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { apiFetch, apiJson } from './api.js';
+import { formatSessionRemaining, formatSessionRemainingFull } from '/composables/utils.js';
 
 export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = ref(false);
@@ -16,32 +17,6 @@ export const useAuthStore = defineStore('auth', () => {
   const sessionRemainingText = ref('');
   const sessionRemainingFullText = ref('');
   let sessionCountdownTimer = null;
-
-  function formatSessionRemaining(seconds) {
-    if (seconds <= 0) return 'Expired';
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    if (days >= 1) return `${days}d ${hours}h`;
-    if (hours >= 1) return `${hours}h ${minutes}m`;
-    if (minutes >= 1) return `${minutes}m ${secs}s`;
-    return `${secs}s`;
-  }
-
-  function formatSessionRemainingFull(seconds) {
-    if (seconds <= 0) return 'Expired';
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const parts = [];
-    if (days > 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
-    if (hours > 0) parts.push(`${hours} hr${hours > 1 ? 's' : ''}`);
-    if (minutes > 0) parts.push(`${minutes} min`);
-    if (secs > 0 || parts.length === 0) parts.push(`${secs} sec`);
-    return parts.join(' ');
-  }
 
   function updateSessionCountdown() {
     if (!isAuthenticated.value || !sessionExpiresAt.value) {
