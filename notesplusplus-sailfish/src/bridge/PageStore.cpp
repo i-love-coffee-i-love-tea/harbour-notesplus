@@ -1,5 +1,6 @@
-/* PageStore.cpp — Page CRUD, block editing, journal operations, and current
- * page state for Notes++.
+/* PageStore.cpp — Page CRUD and current page state for Notes++.
+ *
+ * Block editing has been extracted to BlockEditor.
  *
  * All FFI calls are copied verbatim from NotesBridge.cpp, substituting
  * m_ctx.rawConn() for rawConn(), m_ctx.notesPath for m_notesPath, etc.
@@ -20,9 +21,6 @@
 /*  Static helpers                                                     */
 /* ================================================================== */
 
-/// Parse a JSON array string into a QVariantList where each element is a
-/// compact JSON object string.  Matches the Rust bridge behaviour of
-/// pushing each block as a QString-encoded JSON object into QVariantList.
 QVariantList PageStore::jsonArrayToQStringVariantList(const QString &jsonStr)
 {
     QVariantList list;
@@ -37,15 +35,6 @@ QVariantList PageStore::jsonArrayToQStringVariantList(const QString &jsonStr)
     return list;
 }
 
-/// Extract a title from a file path or name (strip directory + .adoc suffix).
-QString PageStore::extractTitle(const QString &name)
-{
-    QString t = name.section(QLatin1Char('/'), -1);
-    if (t.endsWith(QLatin1String(".adoc")))
-        t.chop(5);
-    return t;
-}
-
 /* ================================================================== */
 /*  Constructor                                                        */
 /* ================================================================== */
@@ -53,63 +42,8 @@ QString PageStore::extractTitle(const QString &name)
 PageStore::PageStore(const BridgeContext &ctx, BlockListModel *model)
     : m_ctx(ctx)
     , m_blockListModel(model)
+    , m_pathResolver(ctx.notesPath)
 {
-}
-
-/* ================================================================== */
-/*  Path resolution                                                    */
-/* ================================================================== */
-
-QString PageStore::resolvePagePath(const QString &name)
-{
-    if (name.compare(QLatin1String("journal.adoc"), Qt::CaseInsensitive) == 0
-        || name.compare(QLatin1String("Journal"), Qt::CaseInsensitive) == 0)
-        return QStringLiteral("journal.adoc");
-
-    /* If it already contains a slash, assume it is a relative path */
-    if (name.contains(QLatin1Char('/'))) {
-        if (!name.endsWith(QLatin1String(".adoc")))
-            return name + QLatin1String(".adoc");
-        return name;
-    }
-
-    /* Try scoped under current group */
-    if (!m_currentPageGroupPath.isEmpty()) {
-        QString scoped = m_currentPageGroupPath + QLatin1Char('/') + name;
-        if (!scoped.endsWith(QLatin1String(".adoc")))
-            scoped += QLatin1String(".adoc");
-        /* Verify file exists */
-        QString absPath = m_ctx.notesPath + QLatin1Char('/') + scoped;
-        if (QFile::exists(absPath))
-            return scoped;
-    }
-
-    /* Fallback: name at root */
-    if (!name.endsWith(QLatin1String(".adoc")))
-        return name + QLatin1String(".adoc");
-    return name;
-}
-
-QString PageStore::currentPageRelativePath()
-{
-    if (m_isJournalPage
-        || m_currentPageName.compare(QLatin1String("Journal"),
-                                     Qt::CaseInsensitive) == 0)
-        return QStringLiteral("journal.adoc");
-    if (!m_currentPageFullPath.isEmpty())
-        return m_currentPageFullPath;
-    if (!m_currentPageGroupPath.isEmpty() && !m_currentPageName.isEmpty()) {
-        QString p = m_currentPageGroupPath + QLatin1Char('/') + m_currentPageName;
-        if (!p.endsWith(QLatin1String(".adoc")))
-            p += QLatin1String(".adoc");
-        return p;
-    }
-    if (!m_currentPageName.isEmpty()) {
-        if (!m_currentPageName.endsWith(QLatin1String(".adoc")))
-            return m_currentPageName + QLatin1String(".adoc");
-        return m_currentPageName;
-    }
-    return QString();
 }
 
 /* ================================================================== */
@@ -118,10 +52,8 @@ QString PageStore::currentPageRelativePath()
 
 void PageStore::load_page(const QString &name, QObject *signalTarget)
 {
-    /* Resolve page path */
-    QString fullPath = resolvePagePath(name);
+    QString fullPath = m_pathResolver.resolve(name, m_currentPageGroupPath);
 
-    /* Derive metadata from the resolved path */
     int lastSlash = fullPath.lastIndexOf(QLatin1Char('/'));
     QString groupName, pageName;
     if (lastSlash >= 0) {
@@ -131,12 +63,11 @@ void PageStore::load_page(const QString &name, QObject *signalTarget)
         pageName = fullPath;
     }
 
-    /* Extract a human-readable title */
     char *titleRaw = notes_core_page_extract_title(
         qstrToFFI(pageName), qstrToFFI(pageName));
     QString title = ffiStringToQString(titleRaw);
     if (title.isEmpty())
-        title = extractTitle(pageName);
+        title = PagePathResolver::extractTitle(pageName);
 
     m_currentPageName      = title;
     m_currentPageGroupPath = groupName;
@@ -144,7 +75,6 @@ void PageStore::load_page(const QString &name, QObject *signalTarget)
     m_currentPageFilePath  = fullPath;
     m_isJournalPage        = (fullPath == QLatin1String("journal.adoc"));
 
-    /* Background: read source + parse blocks */
     m_loading = true;
 
     const std::string notesDir = m_ctx.notesPath.toStdString();
@@ -166,7 +96,6 @@ void PageStore::load_page(const QString &name, QObject *signalTarget)
             result.error = QStringLiteral("Page '%1' not found")
                                .arg(QString::fromStdString(path));
         } else {
-            /* Parse and render blocks */
             char *blocks = notes_core_page_parse_and_render_blocks_json(
                 content.toUtf8().constData(),
                 notesDir.c_str(),
@@ -186,55 +115,6 @@ void PageStore::load_page(const QString &name, QObject *signalTarget)
         QMetaObject::invokeMethod(signalTarget, "poll_results",
                                   Qt::QueuedConnection);
     });
-}
-
-void PageStore::save_block(int index, const QString &raw_text)
-{
-    save_block_range(index, 1, raw_text, nullptr);
-}
-
-void PageStore::save_block_range(int start_index, int count,
-                                 const QString &raw_text,
-                                 QObject *signalTarget)
-{
-    if (start_index < 0 || count < 0) return;
-
-    const QString pagePath = currentPageRelativePath();
-    if (pagePath.isEmpty()) return;
-
-    int rc = notes_core_page_save_block(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(pagePath),
-        start_index, count, qstrToFFI(raw_text),
-        m_ctx.dropComments() ? 1 : 0);
-
-    if (rc < 0) {
-        m_ctx.reportError(QStringLiteral("Failed to save block"));
-        return;
-    }
-
-    /* Optimistic update: read back, parse, update UI immediately */
-    char *source = notes_core_page_get_source(
-        qstrToFFI(m_ctx.notesPath), qstrToFFI(pagePath));
-    QString content = ffiStringToQString(source);
-    if (!content.isEmpty()) {
-        char *blocks = notes_core_page_parse_and_render_blocks_json(
-            content.toUtf8().constData(),
-            qstrToFFI(m_ctx.notesPath),
-            m_ctx.dropComments() ? 1 : 0,
-            m_ctx.themeColorsJson().isEmpty() ? nullptr
-                                              : qstrToFFI(m_ctx.themeColorsJson()),
-            qstrToFFI(m_ctx.buildOptionsJson()));
-        m_currentBlocks = jsonArrayToQStringVariantList(
-            ffiStringToQString(blocks));
-        if (m_blockListModel) {
-            m_blockListModel->setBlocks(m_currentBlocks);
-        }
-        m_blocksVersion++;
-    }
-
-    /* Background reload for full refresh */
-    if (signalTarget)
-        load_page(pagePath, signalTarget);
 }
 
 void PageStore::append_to_current_page(const QString &text, bool is_task,
@@ -258,8 +138,9 @@ void PageStore::append_to_current_page(const QString &text, bool is_task,
         return;
     }
 
-    /* Regular page: read, append, save */
-    const QString fullP = currentPageRelativePath();
+    const QString fullP = m_pathResolver.currentRelative(
+        m_currentPageName, m_currentPageGroupPath,
+        m_currentPageFullPath, m_isJournalPage);
     char *src = notes_core_page_get_source(
         qstrToFFI(m_ctx.notesPath), qstrToFFI(fullP));
     QString content = ffiStringToQString(src);
@@ -279,61 +160,9 @@ void PageStore::append_to_current_page(const QString &text, bool is_task,
     load_page(fullP, signalTarget);
 }
 
-void PageStore::save_journal_block(int index, const QString &raw_text)
-{
-    if (index < 0) return;
-
-    int rc = notes_core_page_save_block(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), "journal.adoc",
-        index, 1, qstrToFFI(raw_text), m_ctx.dropComments() ? 1 : 0);
-
-    if (rc < 0) {
-        m_ctx.reportError(QStringLiteral("Failed to save journal block"));
-        return;
-    }
-
-    if (m_rebuildTreeCallback)
-        m_rebuildTreeCallback();
-}
-
-void PageStore::toggle_journal_checkbox(int block_index,
-                                        const QString &item_path)
-{
-    if (block_index < 0) return;
-
-    int rc = notes_core_page_toggle_checkbox(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), "journal.adoc",
-        block_index, qstrToFFI(item_path));
-
-    if (rc < 0) {
-        m_ctx.reportError(QStringLiteral("Failed to toggle journal checkbox"));
-        return;
-    }
-
-    if (m_rebuildTreeCallback)
-        m_rebuildTreeCallback();
-}
-
-void PageStore::append_to_journal(const QString &text, bool is_task)
-{
-    const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty()) return;
-
-    int rc = notes_core_journal_append(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath),
-        qstrToFFI(trimmed), is_task ? 1 : 0);
-    if (rc < 0) {
-        m_ctx.reportError(QStringLiteral("Failed to append to journal"));
-        return;
-    }
-
-    if (m_rebuildTreeCallback)
-        m_rebuildTreeCallback();
-}
-
 QString PageStore::get_page_source(const QString &name)
 {
-    const QString fullPath = resolvePagePath(name);
+    const QString fullPath = m_pathResolver.resolve(name, m_currentPageGroupPath);
     char *src = notes_core_page_get_source(
         qstrToFFI(m_ctx.notesPath), qstrToFFI(fullPath));
     return ffiStringToQString(src);
@@ -342,7 +171,7 @@ QString PageStore::get_page_source(const QString &name)
 void PageStore::save_page_source(const QString &name, const QString &content,
                                  QObject *signalTarget)
 {
-    const QString fullPath = resolvePagePath(name);
+    const QString fullPath = m_pathResolver.resolve(name, m_currentPageGroupPath);
 
     int rc = notes_core_page_save_source(
         m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(fullPath),
@@ -366,7 +195,6 @@ void PageStore::create_page(const QString &name, QObject *signalTarget)
     if (m_rebuildTreeCallback)
         m_rebuildTreeCallback();
 
-    /* Navigate to the new page */
     QString fullPath = name;
     if (!fullPath.endsWith(QLatin1String(".adoc")))
         fullPath += QLatin1String(".adoc");
@@ -375,8 +203,7 @@ void PageStore::create_page(const QString &name, QObject *signalTarget)
 
 void PageStore::delete_page(const QString &name, QObject * /*signalTarget*/)
 {
-    /* Determine if the page being deleted is the currently-viewed one */
-    const QString fullPath = resolvePagePath(name);
+    const QString fullPath = m_pathResolver.resolve(name, m_currentPageGroupPath);
     const bool isCurrent =
         (m_currentPageName == name)
         || (m_currentPageFullPath == name)
@@ -393,12 +220,13 @@ void PageStore::delete_page(const QString &name, QObject * /*signalTarget*/)
         m_currentPageName.clear();
         m_currentPageGroupPath.clear();
         m_currentPageFullPath.clear();
-        m_currentBlocks.clear();
-        if (m_blockListModel) {
-            m_blockListModel->clear();
-        }
-        m_isJournalPage = false;
         m_currentPageFilePath.clear();
+        m_currentBlocks.clear();
+        m_isJournalPage = false;
+        m_blocksVersion = 0;
+        m_loading = false;
+        if (m_blockListModel)
+            m_blockListModel->clear();
     }
 
     if (m_rebuildTreeCallback)
@@ -418,8 +246,7 @@ bool PageStore::rename_page(const QString &old_path,
         return false;
     }
 
-    /* If the renamed page is currently loaded, reload it */
-    const QString fullPath = resolvePagePath(old_path);
+    const QString fullPath = m_pathResolver.resolve(old_path, m_currentPageGroupPath);
     if (m_currentPageFullPath == fullPath || m_currentPageName == old_path) {
         load_page(new_title, signalTarget);
     }
@@ -432,71 +259,6 @@ bool PageStore::rename_page(const QString &old_path,
 void PageStore::navigate_to_page(const QString &name, QObject *signalTarget)
 {
     load_page(name, signalTarget);
-}
-
-void PageStore::insert_link_at_cursor(int block_idx, int /*cursor_pos*/,
-                                      const QString &target,
-                                      QObject *signalTarget)
-{
-    if (block_idx < 0) return;
-
-    const QString pagePath = currentPageRelativePath();
-    if (pagePath.isEmpty()) return;
-
-    /* Read current source */
-    char *src = notes_core_page_get_source(
-        qstrToFFI(m_ctx.notesPath), qstrToFFI(pagePath));
-    QString content = ffiStringToQString(src);
-    if (content.isEmpty()) return;
-
-    /* Parse blocks to find the target block */
-    char *blocksJson = notes_core_parse_blocks_json(
-        qstrToFFI(content), m_ctx.dropComments() ? 1 : 0);
-    QJsonDocument doc = QJsonDocument::fromJson(
-        ffiStringToQString(blocksJson).toUtf8());
-    QJsonArray arr = doc.array();
-
-    if (block_idx >= arr.size()) return;
-
-    /* Build xref link */
-    const QString xref = QStringLiteral("xref:%1.adoc[%1]").arg(target);
-
-    /* Get block's text and append the link */
-    QJsonObject blockObj = arr[block_idx].toObject();
-    QString existingText = blockObj[QStringLiteral("text")].toString();
-    if (existingText.isEmpty())
-        existingText = blockObj[QStringLiteral("raw")].toString();
-    QString newRaw = existingText + QLatin1Char(' ') + xref;
-
-    /* Replace the block */
-    int rc = notes_core_page_save_block(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(pagePath),
-        block_idx, 1, qstrToFFI(newRaw), m_ctx.dropComments() ? 1 : 0);
-
-    if (rc >= 0)
-        load_page(pagePath, signalTarget);
-}
-
-void PageStore::toggle_checkbox(int block_index, const QString &item_path,
-                                QObject *signalTarget)
-{
-    if (block_index < 0) return;
-
-    const QString pagePath = currentPageRelativePath();
-    if (pagePath.isEmpty()) return;
-
-    int rc = notes_core_page_toggle_checkbox(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(pagePath),
-        block_index, qstrToFFI(item_path));
-
-    if (rc < 0) {
-        m_ctx.reportError(QStringLiteral("Failed to toggle checkbox"));
-        return;
-    }
-    if (m_blockListModel) {
-        m_blockListModel->toggleCheckbox(block_index, item_path);
-    }
-    load_page(pagePath, signalTarget);
 }
 
 /* ================================================================== */
@@ -518,6 +280,19 @@ QString PageStore::rebuild_index()
     if (m_rebuildTreeCallback)
         m_rebuildTreeCallback();
     return QStringLiteral("Index rebuilt");
+}
+
+/* ================================================================== */
+/*  Path update (used by move_page_to_group)                           */
+/* ================================================================== */
+
+void PageStore::updatePagePaths(const QString &groupPath,
+                                const QString &fullPath,
+                                const QString &filePath)
+{
+    m_currentPageGroupPath = groupPath;
+    m_currentPageFullPath  = fullPath;
+    m_currentPageFilePath  = filePath;
 }
 
 /* ================================================================== */
@@ -549,9 +324,8 @@ PollResult PageStore::poll_results()
     }
 
     m_currentBlocks = result.blocks;
-    if (m_blockListModel) {
-        m_blockListModel->setBlocks(m_currentBlocks);
-    }
     m_blocksVersion++;
+    if (m_blockListModel)
+        m_blockListModel->setBlocks(m_currentBlocks);
     return result;
 }

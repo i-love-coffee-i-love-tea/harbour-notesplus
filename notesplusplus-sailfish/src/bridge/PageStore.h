@@ -1,5 +1,7 @@
-/* PageStore.h — Page CRUD, block editing, journal operations, and current
- * page state for Notes++.
+/* PageStore.h — Page CRUD and current page state for Notes++.
+ *
+ * Block editing (save_block, save_block_range, insert_link_at_cursor,
+ * toggle_checkbox) has been extracted to BlockEditor.
  *
  * Extracted from NotesBridge as a non-QObject domain class.  The facade
  * (NotesBridge) owns the PageStore, ensures DB init, and handles signal
@@ -20,6 +22,7 @@
 
 #include "BlockListModel.h"
 #include "BridgeContext.h"
+#include "PagePathResolver.h"
 
 /* Result returned by poll_results() so the facade knows what happened. */
 struct PollResult {
@@ -33,17 +36,11 @@ class PageStore
 public:
     explicit PageStore(const BridgeContext &ctx, BlockListModel *model);
 
-    /* ---- Page operations (16) ---- */
+    /* ---- Page operations ---- */
 
     void    load_page(const QString &name, QObject *signalTarget);
-    void    save_block(int index, const QString &raw_text);
-    void    save_block_range(int start_index, int count,
-                             const QString &raw_text, QObject *signalTarget);
     void    append_to_current_page(const QString &text, bool is_task,
                                    QObject *signalTarget);
-    void    save_journal_block(int index, const QString &raw_text);
-    void    toggle_journal_checkbox(int block_index, const QString &item_path);
-    void    append_to_journal(const QString &text, bool is_task);
     QString get_page_source(const QString &name);
     void    save_page_source(const QString &name, const QString &content,
                              QObject *signalTarget);
@@ -52,22 +49,17 @@ public:
     bool    rename_page(const QString &old_path, const QString &new_title,
                         QObject *signalTarget);
     void    navigate_to_page(const QString &name, QObject *signalTarget);
-    void    insert_link_at_cursor(int block_idx, int cursor_pos,
-                                  const QString &target, QObject *signalTarget);
-    void    toggle_checkbox(int block_index, const QString &item_path,
-                            QObject *signalTarget);
     QString rebuild_index();
 
-    /* ---- Path helpers ---- */
+    /* ---- Path resolver ---- */
 
-    QString resolvePagePath(const QString &name);
-    QString currentPageRelativePath();
+    const PagePathResolver &pathResolver() const { return m_pathResolver; }
 
     /* ---- Async poll ---- */
 
     PollResult poll_results();
 
-    /* ---- Accessors for facade ---- */
+    /* ---- Current page state ---- */
 
     QString      currentPageName()      const { return m_currentPageName; }
     QString      currentPageGroupPath() const { return m_currentPageGroupPath; }
@@ -78,19 +70,22 @@ public:
     int          blocksVersion()        const { return m_blocksVersion; }
     bool         isLoading()            const { return m_loading; }
 
-    /* ---- Callback (set after construction) ---- */
+    void updatePagePaths(const QString &groupPath, const QString &fullPath,
+                         const QString &filePath);
+
+    /* ---- Callback ---- */
 
     void setRebuildTreeCallback(std::function<void()> cb)
     { m_rebuildTreeCallback = std::move(cb); }
 
     /* ---- Static helpers ---- */
 
-    static QString      extractTitle(const QString &name);
     static QVariantList jsonArrayToQStringVariantList(const QString &jsonStr);
 
 private:
     const BridgeContext &m_ctx;
     BlockListModel      *m_blockListModel = nullptr;
+    PagePathResolver     m_pathResolver;
 
     /* ---- Current page state ---- */
     QString      m_currentPageName;
@@ -100,9 +95,7 @@ private:
     QVariantList m_currentBlocks;
     bool         m_isJournalPage = false;
     int          m_blocksVersion = 0;
-
-    /* ---- Loading state ---- */
-    bool m_loading = false;
+    bool         m_loading = false;
 
     /* ---- Pending page-load result (background -> poll_results) ---- */
     struct PendingPageResult {

@@ -1,3 +1,5 @@
+#![feature(lazy_cell)]
+
 pub mod block;
 pub mod constants;
 pub mod db;

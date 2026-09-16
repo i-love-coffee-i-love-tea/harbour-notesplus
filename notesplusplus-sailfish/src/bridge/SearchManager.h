@@ -25,10 +25,13 @@
 #include <mutex>
 #include <optional>
 #include <atomic>
+#include <memory>
 #include <thread>
 #include <chrono>
 
 #include "BridgeContext.h"
+
+class SearchPreviewGenerator;
 
 /* ---- Result structs returned by poll methods ---- */
 
@@ -57,6 +60,7 @@ class SearchManager
 {
 public:
     explicit SearchManager(const BridgeContext &ctx);
+    ~SearchManager();
 
     /* ---- Search operations ---- */
 
@@ -101,13 +105,8 @@ private:
     QString                            m_pendingSearchError;
     std::atomic<int>                   m_searchGeneration{0};
 
-    /* ---- Pending search previews (background -> poll_search_previews) ---- */
-    std::mutex                               m_pendingPreviewMutex;
-    std::optional<QMap<QString, QString>>    m_pendingPreviews;
-
-    /* ---- Search state for preview matching ---- */
-    QStringList m_currentSearchFilenames;
-    QStringList m_currentSearchJsons;
+    /* ---- Background preview generation ---- */
+    std::unique_ptr<SearchPreviewGenerator> m_previewGen;
 
     Q_DISABLE_COPY(SearchManager)
 };

@@ -2,8 +2,6 @@
 
 #include "ServerManager.h"
 
-#include <QDir>
-#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -32,22 +30,22 @@ static QString dbPathFor(const QString &dataDir)
 
 ServerManager::ServerManager(const BridgeContext &ctx)
     : m_ctx(ctx)
-    , m_bindAddress(QStringLiteral("0.0.0.0"))
+    , m_tlsManager(ctx)
 {
 }
 
 /* ================================================================== */
-/*  Callbacks                                                          */
+/*  Callbacks (delegated to SettingsManager)                           */
 /* ================================================================== */
 
 void ServerManager::set_on_page_reload_needed(std::function<void()> cb)
 {
-    m_onPageReloadNeeded = std::move(cb);
+    m_settings.setOnPageReloadNeeded(std::move(cb));
 }
 
 void ServerManager::set_on_tree_rebuild_needed(std::function<void()> cb)
 {
-    m_onTreeRebuildNeeded = std::move(cb);
+    m_settings.setOnTreeRebuildNeeded(std::move(cb));
 }
 
 /* ================================================================== */
@@ -68,8 +66,8 @@ QString ServerManager::start_web_server()
 
     /* Build config JSON for the FFI server start */
     QJsonObject config;
-    config[QStringLiteral("bind_address")]          = m_bindAddress;
-    config[QStringLiteral("reject_public_networks")] = m_rejectPublicNetworks;
+    config[QStringLiteral("bind_address")]          = m_settings.bindAddress();
+    config[QStringLiteral("reject_public_networks")] = m_settings.rejectPublicNetworks();
     config[QStringLiteral("enable_tls")]             = true;
     config[QStringLiteral("tls_cert_path")] =
         QString::fromStdString(certDir) + QStringLiteral("/server.crt");
@@ -77,23 +75,23 @@ QString ServerManager::start_web_server()
         QString::fromStdString(certDir) + QStringLiteral("/server.key");
 
     QJsonObject llm;
-    llm[QStringLiteral("provider")]        = m_llmProvider;
-    llm[QStringLiteral("endpoint_url")]    = m_llmEndpointUrl;
-    llm[QStringLiteral("model")]           = m_llmModel;
-    llm[QStringLiteral("api_key")]         = m_llmApiKey;
-    llm[QStringLiteral("timeout_secs")]    = m_llmTimeoutSecs;
-    llm[QStringLiteral("allow_self_signed")] = m_allowSelfSigned;
+    llm[QStringLiteral("provider")]        = m_aiConfig.provider;
+    llm[QStringLiteral("endpoint_url")]    = m_aiConfig.endpointUrl;
+    llm[QStringLiteral("model")]           = m_aiConfig.model;
+    llm[QStringLiteral("api_key")]         = m_aiConfig.apiKey;
+    llm[QStringLiteral("timeout_secs")]    = m_aiConfig.timeoutSecs;
+    llm[QStringLiteral("allow_self_signed")] = m_aiConfig.allowSelfSigned;
     config[QStringLiteral("llm")]          = llm;
 
     QJsonObject perms;
-    perms[QStringLiteral("auto_allow_read")]      = m_autoAllowRead;
-    perms[QStringLiteral("auto_allow_create")]    = m_autoAllowCreate;
-    perms[QStringLiteral("require_confirm_edit")] = m_requireConfirmEdit;
-    perms[QStringLiteral("allow_fetch_url")]      = m_allowFetchUrl;
+    perms[QStringLiteral("auto_allow_read")]      = m_aiConfig.autoAllowRead;
+    perms[QStringLiteral("auto_allow_create")]    = m_aiConfig.autoAllowCreate;
+    perms[QStringLiteral("require_confirm_edit")] = m_aiConfig.requireConfirmEdit;
+    perms[QStringLiteral("allow_fetch_url")]      = m_aiConfig.allowFetchUrl;
     config[QStringLiteral("permissions")]         = perms;
 
     QJsonObject auth;
-    auth[QStringLiteral("session_expiry_secs")]   = m_sessionExpirySecs;
+    auth[QStringLiteral("session_expiry_secs")]   = m_settings.sessionExpirySecs();
     config[QStringLiteral("auth")]                = auth;
 
     const std::string configStr = QString::fromUtf8(
@@ -160,41 +158,21 @@ void ServerManager::configure_ai(const QString &provider, const QString &url,
                                   bool require_edit, bool allow_self_signed,
                                   bool allow_fetch)
 {
-    m_llmProvider        = provider;
-    m_llmEndpointUrl     = url.trimmed();
-    m_llmModel           = model.trimmed();
-    m_llmApiKey          = key.trimmed();
-    m_llmTimeoutSecs     = (timeout > 0) ? timeout : 90;
-    m_autoAllowRead      = auto_read;
-    m_autoAllowCreate    = auto_create;
-    m_requireConfirmEdit = require_edit;
-    m_allowSelfSigned    = allow_self_signed;
-    m_allowFetchUrl      = allow_fetch;
+    m_aiConfig.configure(provider, url, model, key,
+                         timeout, auto_read, auto_create,
+                         require_edit, allow_self_signed, allow_fetch);
 }
 
 /* ================================================================== */
-/*  TLS                                                                */
+/*  TLS (delegated to TlsManager)                                      */
 /* ================================================================== */
 
 QString ServerManager::install_tls_certificate(const QString &cert_pem_or_path,
                                                 const QString &key_pem_or_path)
 {
-    const QString certPath = m_ctx.dataDir + QStringLiteral("/tls/server.crt");
-    const QString keyPath  = m_ctx.dataDir + QStringLiteral("/tls/server.key");
-
-    /* Ensure TLS directory exists */
-    QDir().mkpath(m_ctx.dataDir + QStringLiteral("/tls"));
-
-    char *err = notes_core_server_tls_install(
-        qstrToFFI(certPath), qstrToFFI(keyPath),
-        qstrToFFI(cert_pem_or_path), qstrToFFI(key_pem_or_path));
-
-    QString error = ffiStringToQString(err);
-    if (!error.isEmpty()) {
-        m_ctx.reportError(QStringLiteral("Failed to install SSL certificate: ")
-                          + error);
+    QString error = m_tlsManager.install(cert_pem_or_path, key_pem_or_path);
+    if (!error.isEmpty())
         return error;
-    }
 
     /* Restart server if running to pick up new cert */
     if (m_webServerRunning) {
@@ -206,18 +184,9 @@ QString ServerManager::install_tls_certificate(const QString &cert_pem_or_path,
 
 QString ServerManager::reset_tls_certificate()
 {
-    const QString certPath = m_ctx.dataDir + QStringLiteral("/tls/server.crt");
-    const QString keyPath  = m_ctx.dataDir + QStringLiteral("/tls/server.key");
-
-    char *err = notes_core_server_tls_reset(
-        qstrToFFI(certPath), qstrToFFI(keyPath));
-
-    QString error = ffiStringToQString(err);
-    if (!error.isEmpty()) {
-        m_ctx.reportError(QStringLiteral("Failed to reset SSL certificate: ")
-                          + error);
+    QString error = m_tlsManager.reset();
+    if (!error.isEmpty())
         return error;
-    }
 
     if (m_webServerRunning) {
         stop_web_server();
@@ -228,72 +197,46 @@ QString ServerManager::reset_tls_certificate()
 
 bool ServerManager::is_custom_tls_certificate()
 {
-    const QString certPath = m_ctx.dataDir + QStringLiteral("/tls/server.crt");
-    return notes_core_server_tls_is_custom(qstrToFFI(certPath)) != 0;
+    return m_tlsManager.isCustom();
 }
 
 QString ServerManager::get_tls_certificate_info_json()
 {
-    const QString certPath = m_ctx.dataDir + QStringLiteral("/tls/server.crt");
-    const QString keyPath  = m_ctx.dataDir + QStringLiteral("/tls/server.key");
-    const bool isCustom =
-        notes_core_server_tls_is_custom(qstrToFFI(certPath)) != 0;
-
-    QJsonObject info;
-    info[QStringLiteral("is_custom")] = isCustom;
-    info[QStringLiteral("cert_path")] = certPath;
-    info[QStringLiteral("key_path")]  = keyPath;
-    info[QStringLiteral("exists")]    =
-        QFile::exists(certPath) && QFile::exists(keyPath);
-
-    return QString::fromUtf8(
-        QJsonDocument(info).toJson(QJsonDocument::Compact));
+    return m_tlsManager.getInfoJson();
 }
 
 /* ================================================================== */
-/*  Settings                                                           */
+/*  Settings (delegated to SettingsManager)                            */
 /* ================================================================== */
 
 SettingsChangedResult ServerManager::set_drop_comments(bool drop)
 {
-    SettingsChangedResult result;
-    if (m_dropComments != drop) {
-        m_dropComments = drop;
-        result.dropCommentsChanged = true;
-        if (m_onPageReloadNeeded)
-            m_onPageReloadNeeded();
-        if (m_onTreeRebuildNeeded)
-            m_onTreeRebuildNeeded();
-    }
-    return result;
+    return m_settings.set_drop_comments(drop);
 }
 
 void ServerManager::set_reject_public_networks(bool reject)
 {
-    m_rejectPublicNetworks = reject;
+    m_settings.set_reject_public_networks(reject);
 }
 
 void ServerManager::set_bind_address(const QString &addr)
 {
-    m_bindAddress = addr;
+    m_settings.set_bind_address(addr);
 }
 
 QString ServerManager::get_network_interfaces_json()
 {
-    char *json = notes_core_get_network_interfaces_json();
-    return ffiStringToQString(json);
+    return m_settings.get_network_interfaces_json();
 }
 
 void ServerManager::set_theme(const QString &colors_json)
 {
-    Q_UNUSED(colors_json);
-    /* Value stored by the Facade (for the BridgeContext callback).
-     * ServerManager only needs to know the theme is refreshed. */
+    m_settings.set_theme(colors_json);
 }
 
 void ServerManager::set_session_expiry_hours(int hours)
 {
-    m_sessionExpirySecs = (hours > 0 ? hours : 1) * 3600;
+    m_settings.set_session_expiry_hours(hours);
 }
 
 /* ================================================================== */
@@ -302,21 +245,15 @@ void ServerManager::set_session_expiry_hours(int hours)
 
 bool ServerManager::check_auth_challenge()
 {
-    return m_authChallengePending;
+    return m_authManager.check_auth_challenge();
 }
 
 void ServerManager::approve_auth_challenge(const QString &challenge_id)
 {
-    Q_UNUSED(challenge_id);
-    m_authChallengePending = false;
-    m_authChallengeId.clear();
-    m_authVerificationCode.clear();
+    m_authManager.approve_auth_challenge(challenge_id);
 }
 
 void ServerManager::deny_auth_challenge(const QString &challenge_id)
 {
-    Q_UNUSED(challenge_id);
-    m_authChallengePending = false;
-    m_authChallengeId.clear();
-    m_authVerificationCode.clear();
+    m_authManager.deny_auth_challenge(challenge_id);
 }

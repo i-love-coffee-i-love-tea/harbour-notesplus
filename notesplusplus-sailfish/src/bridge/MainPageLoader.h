@@ -16,7 +16,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QtConcurrent>
+#include <QtConcurrent/QtConcurrent>
 #include <mutex>
 #include <optional>
 

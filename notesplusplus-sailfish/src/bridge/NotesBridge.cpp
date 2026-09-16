@@ -50,51 +50,60 @@ NotesBridge::NotesBridge(QObject *parent)
 
     /* Default property values (mirror Rust Default::default()) */
     m_notesDir        = m_notesPath;
-    m_groupedTreeJson = QStringLiteral("[]");
-    m_bindAddress     = QStringLiteral("0.0.0.0");
 
-    /* Construct BridgeContext for domain classes. */
-    BridgeContext ctx{
+    /* Construct BridgeContext (must be a member so domain class refs survive). */
+    m_ctx = BridgeContext{
         [this]() -> void* { return conn_.get(); },
         m_notesPath,
         m_dataDir,
         m_alive,
-        [this]() -> bool { return m_dropComments; },
+        [this]() -> bool { return m_serverManager->dropComments(); },
         [this]() -> QString { return m_themeColorsJson; },
         [this](const QString &msg) { reportError(msg); },
         [this]() -> QString { return buildOptionsJson(); }
     };
 
     /* Domain classes */
-    m_pageStore = std::make_unique<PageStore>(ctx, m_blockListModel);
+    m_pageStore = std::make_unique<PageStore>(m_ctx, m_blockListModel);
     m_pageStore->setRebuildTreeCallback([this]() {
         if (m_mainPageLoader) m_mainPageLoader->rebuildTreeInBackground(this);
     });
 
-    m_groupManager = std::make_unique<GroupManager>(ctx);
-    m_groupManager->setRebuildTreeCallback([this]() {
+    m_blockEditor = std::make_unique<BlockEditor>(
+        m_ctx, m_blockListModel, m_pageStore->pathResolver());
+
+    m_journalStore = std::make_unique<JournalStore>(m_ctx);
+    m_journalStore->setRebuildCallback([this]() {
+        if (m_mainPageLoader) m_mainPageLoader->rebuildTreeInBackground(this);
+    });
+    m_journalStore->setReloadCallback([this]() {
+        if (m_mainPageLoader) m_mainPageLoader->loadMainPageDataSync();
+    });
+
+    m_groupManager = std::make_unique<GroupManager>(m_ctx);
+    m_groupManager->set_rebuild_tree_callback([this]() {
         if (m_mainPageLoader) m_mainPageLoader->rebuildTreeInBackground(this);
     });
 
-    m_mainPageLoader = std::make_unique<MainPageLoader>(ctx);
+    m_mainPageLoader = std::make_unique<MainPageLoader>(m_ctx);
 
-    m_searchManager = std::make_unique<SearchManager>(ctx);
+    m_searchManager = std::make_unique<SearchManager>(m_ctx);
 
-    m_serverManager = std::make_unique<ServerManager>(ctx);
-    m_serverManager->setOnPageReloadNeeded([this]() {
-        if (!m_currentPageName.isEmpty())
-            m_pageStore->load_page(m_currentPageName, this);
+    m_serverManager = std::make_unique<ServerManager>(m_ctx);
+    m_serverManager->set_on_page_reload_needed([this]() {
+        if (!m_pageStore->currentPageName().isEmpty())
+            m_pageStore->load_page(m_pageStore->currentPageName(), this);
     });
-    m_serverManager->setOnTreeRebuildNeeded([this]() {
+    m_serverManager->set_on_tree_rebuild_needed([this]() {
         if (m_mainPageLoader) m_mainPageLoader->rebuildTreeInBackground(this);
     });
 
-    m_renderHelper = std::make_unique<RenderHelper>(ctx);
+    m_renderHelper = std::make_unique<RenderHelper>(m_ctx);
 
     m_exportHelper = std::make_unique<ExportHelper>(
-        ctx,
-        [this]() -> bool { return m_webServerRunning; },
-        [this]() -> QString { return m_webServerUrl; },
+        m_ctx,
+        [this]() -> bool { return m_serverManager->isRunning(); },
+        [this]() -> QString { return m_serverManager->primaryUrl(); },
         [this](const QString &name) -> QString { return resolvePagePath(name); }
     );
 
@@ -216,12 +225,14 @@ bool NotesBridge::ensureInitBlocking()
 
 QString NotesBridge::resolvePagePath(const QString &name)
 {
-    return m_pageStore->resolvePagePath(name);
+    return m_pageStore->pathResolver().resolve(name, m_pageStore->currentPageGroupPath());
 }
 
 QString NotesBridge::currentPageRelativePath()
 {
-    return m_pageStore->currentPageRelativePath();
+    return m_pageStore->pathResolver().currentRelative(
+        m_pageStore->currentPageName(), m_pageStore->currentPageGroupPath(),
+        m_pageStore->currentPageFullPath(), m_pageStore->isJournalPage());
 }
 
 /* ================================================================== */
@@ -241,16 +252,9 @@ void NotesBridge::load_page(QString name)
 {
     if (!ensureInitBlocking()) return;
     m_pageStore->load_page(name, this);
-    m_isLoading = m_pageStore->isLoading();
     emit loading_changed();
-    /* Sync facade properties from PageStore */
-    m_currentPageName      = m_pageStore->currentPageName();
-    m_currentPageGroupPath = m_pageStore->currentPageGroupPath();
     emit current_page_group_path_changed();
-    m_currentPageFullPath  = m_pageStore->currentPageFullPath();
     emit current_page_full_path_changed();
-    m_currentPageFilePath  = m_pageStore->currentPageFilePath();
-    m_isJournalPage        = m_pageStore->isJournalPage();
     emit page_changed();
 }
 
@@ -262,10 +266,8 @@ void NotesBridge::save_block(int index, QString raw_text)
 void NotesBridge::save_block_range(int start_index, int count, QString raw_text)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->save_block_range(start_index, count, raw_text, this);
-    m_currentBlocks = m_pageStore->currentBlocks();
-    m_blocksVersion = m_pageStore->blocksVersion();
-    if (m_blockListModel) m_blockListModel->setBlocks(m_currentBlocks);
+    m_blockEditor->save_block_range(start_index, count, raw_text, this,
+                                    m_pageStore.get());
     emit page_changed();
 }
 
@@ -278,7 +280,7 @@ void NotesBridge::append_to_current_page(QString text, bool is_task)
 void NotesBridge::save_journal_block(int index, QString raw_text)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->save_journal_block(index, raw_text);
+    m_journalStore->save_journal_block(index, raw_text);
     m_mainPageLoader->loadMainPageDataSync();
     m_mainPageLoader->rebuildTreeInBackground(this);
 }
@@ -286,7 +288,7 @@ void NotesBridge::save_journal_block(int index, QString raw_text)
 void NotesBridge::toggle_journal_checkbox(int block_index, QString item_path)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->toggle_journal_checkbox(block_index, item_path);
+    m_journalStore->toggle_journal_checkbox(block_index, item_path);
     m_mainPageLoader->loadMainPageDataSync();
     m_mainPageLoader->rebuildTreeInBackground(this);
 }
@@ -294,7 +296,7 @@ void NotesBridge::toggle_journal_checkbox(int block_index, QString item_path)
 void NotesBridge::append_to_journal(QString text, bool is_task)
 {
     ensureInit();
-    m_pageStore->append_to_journal(text, is_task);
+    m_journalStore->append_to_journal(text, is_task);
     m_mainPageLoader->loadMainPageDataSync();
     m_mainPageLoader->rebuildTreeInBackground(this);
 }
@@ -321,16 +323,8 @@ void NotesBridge::delete_page(QString name)
 {
     if (!ensureInitBlocking()) return;
     m_pageStore->delete_page(name, this);
-    /* Sync facade state after delete */
-    m_currentPageName      = m_pageStore->currentPageName();
-    m_currentPageGroupPath = m_pageStore->currentPageGroupPath();
     emit current_page_group_path_changed();
-    m_currentPageFullPath  = m_pageStore->currentPageFullPath();
     emit current_page_full_path_changed();
-    m_currentPageFilePath  = m_pageStore->currentPageFilePath();
-    m_currentBlocks        = m_pageStore->currentBlocks();
-    if (m_blockListModel) m_blockListModel->clear();
-    m_isJournalPage        = m_pageStore->isJournalPage();
     emit page_changed();
 }
 
@@ -349,13 +343,15 @@ void NotesBridge::insert_link_at_cursor(int block_idx, int cursor_pos,
                                         QString target)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->insert_link_at_cursor(block_idx, cursor_pos, target, this);
+    m_blockEditor->insert_link_at_cursor(block_idx, cursor_pos, target, this,
+                                         m_pageStore.get());
 }
 
 void NotesBridge::toggle_checkbox(int block_index, QString item_path)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->toggle_checkbox(block_index, item_path, this);
+    m_blockEditor->toggle_checkbox(block_index, item_path, this,
+                                   m_pageStore.get());
 }
 
 /* ================================================================== */
@@ -385,15 +381,15 @@ bool NotesBridge::move_page_to_group(QString page_full_path,
 {
     if (!ensureInitBlocking()) return false;
     auto result = m_groupManager->move_page_to_group(
-        page_full_path, target_group, m_currentPageFullPath);
+        page_full_path, target_group, m_pageStore->currentPageFullPath());
     if (!result.success) return false;
 
     if (result.currentPageMoved) {
-        m_currentPageGroupPath = result.newGroupPath;
+        m_pageStore->updatePagePaths(result.newGroupPath,
+                                     result.newFullPath,
+                                     result.newFilePath);
         emit current_page_group_path_changed();
-        m_currentPageFullPath  = result.newFullPath;
         emit current_page_full_path_changed();
-        m_currentPageFilePath  = result.newFilePath;
         emit page_changed();
     }
     return true;
@@ -402,7 +398,6 @@ bool NotesBridge::move_page_to_group(QString page_full_path,
 void NotesBridge::set_group_display_depth(int depth)
 {
     if (m_groupManager->set_group_display_depth(depth)) {
-        m_groupDisplayDepth = depth;
         emit group_depth_changed();
         m_mainPageLoader->setGroupDisplayDepth(depth);
         m_mainPageLoader->rebuildTreeInBackground(this);
@@ -451,20 +446,14 @@ QString NotesBridge::rebuild_index()
 void NotesBridge::do_search(QString query)
 {
     ensureInit();
-    m_searchQuery = query;
     m_searchManager->do_search(query, this);
-    m_searchResults = m_searchManager->searchResults();
-    m_searchLoading = m_searchManager->searchLoading();
     emit search_results_changed();
     emit loading_changed();
 }
 
 void NotesBridge::search(QString query)
 {
-    m_searchQuery = query;
     m_searchManager->search(query);
-    m_searchResults.clear();
-    m_searchLoading = false;
     emit search_results_changed();
     emit loading_changed();
 }
@@ -474,7 +463,6 @@ bool NotesBridge::poll_search()
     auto result = m_searchManager->poll_search();
     if (!result.hasResult) return false;
 
-    m_searchLoading = result.loading;
     emit loading_changed();
 
     if (!result.error.isEmpty()) {
@@ -482,7 +470,6 @@ bool NotesBridge::poll_search()
         return true;
     }
 
-    m_searchResults = result.results;
     emit search_results_changed();
     return true;
 }
@@ -493,7 +480,6 @@ bool NotesBridge::poll_search_previews()
     if (!result.hasResult) return false;
 
     if (!result.results.isEmpty()) {
-        m_searchResults = result.results;
         emit search_results_changed();
     }
     return true;
@@ -512,10 +498,6 @@ QString NotesBridge::get_linkable_pages_json(QString query)
 void NotesBridge::loadMainPageDataSync()
 {
     m_mainPageLoader->loadMainPageDataSync();
-    m_recentPages          = m_mainPageLoader->recentPages();
-    m_groupedTreeJson      = m_mainPageLoader->groupedTreeJson();
-    m_recentJournalLines   = m_mainPageLoader->recentJournalLines();
-    m_journalBlocks        = m_mainPageLoader->journalBlocks();
     emit data_refreshed();
 }
 
@@ -525,10 +507,6 @@ void NotesBridge::load_main_page_data()
     if (!pollInit()) return;
 
     m_mainPageLoader->loadMainPageDataSync();
-    m_recentPages          = m_mainPageLoader->recentPages();
-    m_groupedTreeJson      = m_mainPageLoader->groupedTreeJson();
-    m_recentJournalLines   = m_mainPageLoader->recentJournalLines();
-    m_journalBlocks        = m_mainPageLoader->journalBlocks();
     emit data_refreshed();
 
     m_mainPageLoader->rebuildTreeInBackground(this);
@@ -546,8 +524,6 @@ bool NotesBridge::poll_main_page_data()
     if (!result.hasResult)
         return false;
 
-    m_recentPages     = result.recentPages;
-    m_groupedTreeJson = result.groupedTreeJson;
     emit data_refreshed();
     return true;
 }
@@ -558,7 +534,6 @@ bool NotesBridge::poll_results()
     if (!result.hasResult)
         return false;
 
-    m_isLoading = false;
     emit loading_changed();
 
     if (!result.error.isEmpty()) {
@@ -566,11 +541,6 @@ bool NotesBridge::poll_results()
         return true;
     }
 
-    m_currentBlocks = result.blocks;
-    if (m_blockListModel) {
-        m_blockListModel->setBlocks(m_currentBlocks);
-    }
-    m_blocksVersion++;
     emit page_changed();
     return true;
 }
@@ -582,7 +552,7 @@ bool NotesBridge::poll_results()
 QString NotesBridge::export_html(QString page_name)
 {
     ensureInit();
-    return m_exportHelper->export_html(page_name, m_isJournalPage);
+    return m_exportHelper->export_html(page_name, m_pageStore->isJournalPage());
 }
 
 QString NotesBridge::export_all_html()
@@ -593,7 +563,7 @@ QString NotesBridge::export_all_html()
 
 QString NotesBridge::open_in_browser(QString page_name)
 {
-    return m_exportHelper->open_in_browser(page_name, m_isJournalPage);
+    return m_exportHelper->open_in_browser(page_name, m_pageStore->isJournalPage());
 }
 
 /* ================================================================== */
@@ -609,8 +579,6 @@ QString NotesBridge::start_web_server()
 {
     ensureInit();
     QString url = m_serverManager->start_web_server();
-    m_webServerRunning = m_serverManager->isRunning();
-    m_webServerUrl     = m_serverManager->primaryUrl();
     emit web_server_status_changed();
     return url;
 }
@@ -618,16 +586,12 @@ QString NotesBridge::start_web_server()
 void NotesBridge::stop_web_server()
 {
     m_serverManager->stop_web_server();
-    m_webServerRunning = false;
-    m_webServerUrl.clear();
     emit web_server_status_changed();
 }
 
 bool NotesBridge::toggle_web_server()
 {
     bool running = m_serverManager->toggle_web_server();
-    m_webServerRunning = m_serverManager->isRunning();
-    m_webServerUrl     = m_serverManager->primaryUrl();
     emit web_server_status_changed();
     return running;
 }
@@ -652,8 +616,6 @@ QString NotesBridge::install_tls_certificate(QString cert_pem_or_path,
     ensureInit();
     QString err = m_serverManager->install_tls_certificate(
         cert_pem_or_path, key_pem_or_path);
-    m_webServerRunning = m_serverManager->isRunning();
-    m_webServerUrl     = m_serverManager->primaryUrl();
     emit web_server_status_changed();
     return err;
 }
@@ -662,8 +624,6 @@ QString NotesBridge::reset_tls_certificate()
 {
     ensureInit();
     QString err = m_serverManager->reset_tls_certificate();
-    m_webServerRunning = m_serverManager->isRunning();
-    m_webServerUrl     = m_serverManager->primaryUrl();
     emit web_server_status_changed();
     return err;
 }
@@ -686,28 +646,20 @@ void NotesBridge::set_drop_comments(bool drop)
 {
     auto result = m_serverManager->set_drop_comments(drop);
     if (result.dropCommentsChanged) {
-        m_dropComments = drop;
         emit drop_comments_changed();
-        if (!m_currentPageName.isEmpty())
-            m_pageStore->load_page(m_currentPageName, this);
-        if (m_mainPageLoader) m_mainPageLoader->rebuildTreeInBackground(this);
     }
 }
 
 void NotesBridge::set_reject_public_networks(bool reject)
 {
-    if (m_serverManager->set_reject_public_networks(reject)) {
-        m_rejectPublicNetworks = reject;
-        emit reject_public_networks_changed();
-    }
+    m_serverManager->set_reject_public_networks(reject);
+    emit reject_public_networks_changed();
 }
 
 void NotesBridge::set_bind_address(QString addr)
 {
-    if (m_serverManager->set_bind_address(addr)) {
-        m_bindAddress = addr;
-        emit bind_address_changed();
-    }
+    m_serverManager->set_bind_address(addr);
+    emit bind_address_changed();
 }
 
 QString NotesBridge::get_network_interfaces_json()
@@ -738,18 +690,12 @@ bool NotesBridge::check_auth_challenge()
 void NotesBridge::approve_auth_challenge(QString challenge_id)
 {
     m_serverManager->approve_auth_challenge(challenge_id);
-    m_authChallengePending = false;
-    m_authChallengeId.clear();
-    m_authVerificationCode.clear();
     emit auth_challenge_changed();
 }
 
 void NotesBridge::deny_auth_challenge(QString challenge_id)
 {
     m_serverManager->deny_auth_challenge(challenge_id);
-    m_authChallengePending = false;
-    m_authChallengeId.clear();
-    m_authVerificationCode.clear();
     emit auth_challenge_changed();
 }
 

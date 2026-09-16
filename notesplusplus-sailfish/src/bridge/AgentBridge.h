@@ -51,6 +51,9 @@ public:
     explicit AgentBridge(QObject *parent = nullptr);
     ~AgentBridge();
 
+    /* ---- Public helpers (called from FFI callbacks) ---- */
+    void appendStreamingToken(const QString &token);
+
     /* ---- Property getters ---- */
     bool    agentBusy()         const { return m_agentBusy; }
     QString messagesJson()      const { return m_messagesJson; }
@@ -183,7 +186,6 @@ private:
 
     /* ---- Helpers ---- */
     void reportError(const QString &msg);
-    void appendStreamingToken(const QString &token);
     void startPolling();
     void maybeStopPolling();
     void sendInBackground(const QString &prompt);

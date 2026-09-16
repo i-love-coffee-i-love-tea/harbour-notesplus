@@ -13,6 +13,8 @@
 
 #include "AgentBridge.h"
 
+#include <QTimer>
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -132,14 +134,14 @@ static void agentStreamingTokenCallback(void *userData, const char *token, int i
 
     if (token) {
         QString tokenStr = QString::fromUtf8(token);
-        QMetaObject::invokeMethod(bridge, [bridge, tokenStr]() {
+        QTimer::singleShot(0, bridge, [bridge, tokenStr]() {
             bridge->appendStreamingToken(tokenStr);
-        }, Qt::QueuedConnection);
+        });
     }
     if (isDone) {
-        QMetaObject::invokeMethod(bridge, [bridge]() {
+        QTimer::singleShot(0, bridge, [bridge]() {
             bridge->poll_worker();
-        }, Qt::QueuedConnection);
+        });
     }
 }
 
@@ -452,9 +454,9 @@ void AgentBridge::fetch_url_content(QString url)
         }
         m_fetchReady = true;
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
             this->poll_worker();
-        }, Qt::QueuedConnection);
+        });
     });
 
     startPolling();
@@ -536,9 +538,9 @@ void AgentBridge::read_local_file(QString file_path)
         m_fetchSuccess = true;
         m_fetchReady   = true;
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
             this->poll_worker();
-        }, Qt::QueuedConnection);
+        });
     });
 
     startPolling();
@@ -597,9 +599,9 @@ void AgentBridge::undo_last_action()
         }
         m_undoReady = true;
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
             this->poll_worker();
-        }, Qt::QueuedConnection);
+        });
     });
 
     startPolling();
@@ -765,9 +767,9 @@ void AgentBridge::fetch_models()
         }
         m_modelsReady = true;
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
             this->poll_models();
-        }, Qt::QueuedConnection);
+        });
     });
 }
 

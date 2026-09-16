@@ -6,6 +6,7 @@
 #include "SpeechBridge.h"
 
 #include <QCoreApplication>
+#include <QTimer>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -611,9 +612,9 @@ void SpeechBridge::beginTranscription(const QString &path)
         }
         m_transcribeDone.store(true);
 
-        QMetaObject::invokeMethod(this, [this]() {
+        QTimer::singleShot(0, this, [this]() {
             this->poll_worker();
-        }, Qt::QueuedConnection);
+        });
     });
 
     // Keep poll timer running while transcribing

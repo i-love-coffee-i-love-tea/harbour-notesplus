@@ -25,6 +25,8 @@
 #include "RenderHelper.h"
 #include "ExportHelper.h"
 #include "PageStore.h"
+#include "BlockEditor.h"
+#include "JournalStore.h"
 #include "GroupManager.h"
 #include "MainPageLoader.h"
 #include "SearchManager.h"
@@ -38,40 +40,66 @@ class NotesBridge : public QObject
     Q_OBJECT
 
     /* ---- Properties (28) — exact names match Rust bridge ---- */
-    Q_PROPERTY(QString     current_page_name         MEMBER m_currentPageName         NOTIFY page_changed)
-    Q_PROPERTY(QString     current_page_group_path   MEMBER m_currentPageGroupPath    NOTIFY current_page_group_path_changed)
-    Q_PROPERTY(QString     current_page_full_path    MEMBER m_currentPageFullPath     NOTIFY current_page_full_path_changed)
-    Q_PROPERTY(QString     current_page_file_path    MEMBER m_currentPageFilePath     NOTIFY page_changed)
-    Q_PROPERTY(QVariantList current_blocks           MEMBER m_currentBlocks           NOTIFY page_changed)
-    Q_PROPERTY(BlockListModel* block_model           READ   blockModel                CONSTANT)
-    Q_PROPERTY(bool        is_journal_page           MEMBER m_isJournalPage           NOTIFY page_changed)
-    Q_PROPERTY(int         blocks_version            MEMBER m_blocksVersion           NOTIFY page_changed)
-    Q_PROPERTY(QString     notes_dir                 MEMBER m_notesDir                NOTIFY page_changed)
-    Q_PROPERTY(QString     search_query              MEMBER m_searchQuery             NOTIFY search_results_changed)
-    Q_PROPERTY(QVariantList search_results           MEMBER m_searchResults           NOTIFY search_results_changed)
-    Q_PROPERTY(bool        search_loading            MEMBER m_searchLoading           NOTIFY loading_changed)
-    Q_PROPERTY(QVariantList recent_pages             MEMBER m_recentPages             NOTIFY data_refreshed)
-    Q_PROPERTY(QString     grouped_tree_json         MEMBER m_groupedTreeJson         NOTIFY data_refreshed)
-    Q_PROPERTY(int         group_display_depth       MEMBER m_groupDisplayDepth       NOTIFY group_depth_changed)
-    Q_PROPERTY(QVariantList recent_journal_lines     MEMBER m_recentJournalLines      NOTIFY data_refreshed)
-    Q_PROPERTY(QVariantList journal_blocks           MEMBER m_journalBlocks           NOTIFY data_refreshed)
-    Q_PROPERTY(bool        is_loading                MEMBER m_isLoading               NOTIFY loading_changed)
-    Q_PROPERTY(bool        drop_comments             MEMBER m_dropComments            NOTIFY drop_comments_changed)
-    Q_PROPERTY(bool        reject_public_networks    MEMBER m_rejectPublicNetworks    NOTIFY reject_public_networks_changed)
-    Q_PROPERTY(QString     bind_address              MEMBER m_bindAddress             NOTIFY bind_address_changed)
-    Q_PROPERTY(bool        web_server_running        MEMBER m_webServerRunning        NOTIFY web_server_status_changed)
-    Q_PROPERTY(QString     web_server_url            MEMBER m_webServerUrl            NOTIFY web_server_status_changed)
-    Q_PROPERTY(QString     error_message             MEMBER m_errorMessage            NOTIFY error_occurred)
-    Q_PROPERTY(bool        initialized               MEMBER m_initialized             NOTIFY initialized_changed)
-    Q_PROPERTY(bool        auth_challenge_pending    MEMBER m_authChallengePending    NOTIFY auth_challenge_changed)
-    Q_PROPERTY(QString     auth_challenge_id         MEMBER m_authChallengeId         NOTIFY auth_challenge_changed)
-    Q_PROPERTY(QString     auth_verification_code    MEMBER m_authVerificationCode    NOTIFY auth_challenge_changed)
+    Q_PROPERTY(QString     current_page_name         READ currentPageName            NOTIFY page_changed)
+    Q_PROPERTY(QString     current_page_group_path   READ currentPageGroupPath       NOTIFY current_page_group_path_changed)
+    Q_PROPERTY(QString     current_page_full_path    READ currentPageFullPath        NOTIFY current_page_full_path_changed)
+    Q_PROPERTY(QString     current_page_file_path    READ currentPageFilePath        NOTIFY page_changed)
+    Q_PROPERTY(QVariantList current_blocks           READ currentBlocks              NOTIFY page_changed)
+    Q_PROPERTY(BlockListModel* block_model           READ blockModel                 CONSTANT)
+    Q_PROPERTY(bool        is_journal_page           READ isJournalPage              NOTIFY page_changed)
+    Q_PROPERTY(int         blocks_version            READ blocksVersion              NOTIFY page_changed)
+    Q_PROPERTY(QString     notes_dir                 MEMBER m_notesDir               NOTIFY page_changed)
+    Q_PROPERTY(QString     search_query              READ searchQuery                NOTIFY search_results_changed)
+    Q_PROPERTY(QVariantList search_results           READ searchResults              NOTIFY search_results_changed)
+    Q_PROPERTY(bool        search_loading            READ searchLoading              NOTIFY loading_changed)
+    Q_PROPERTY(QVariantList recent_pages             READ recentPages                NOTIFY data_refreshed)
+    Q_PROPERTY(QString     grouped_tree_json         READ groupedTreeJson            NOTIFY data_refreshed)
+    Q_PROPERTY(int         group_display_depth       READ groupDisplayDepth          NOTIFY group_depth_changed)
+    Q_PROPERTY(QVariantList recent_journal_lines     READ recentJournalLines         NOTIFY data_refreshed)
+    Q_PROPERTY(QVariantList journal_blocks           READ journalBlocks              NOTIFY data_refreshed)
+    Q_PROPERTY(bool        is_loading                READ isLoading                  NOTIFY loading_changed)
+    Q_PROPERTY(bool        drop_comments             READ dropComments               NOTIFY drop_comments_changed)
+    Q_PROPERTY(bool        reject_public_networks    READ rejectPublicNetworks       NOTIFY reject_public_networks_changed)
+    Q_PROPERTY(QString     bind_address              READ bindAddress                NOTIFY bind_address_changed)
+    Q_PROPERTY(bool        web_server_running        READ webServerRunning           NOTIFY web_server_status_changed)
+    Q_PROPERTY(QString     web_server_url            READ webServerUrl               NOTIFY web_server_status_changed)
+    Q_PROPERTY(QString     error_message             MEMBER m_errorMessage           NOTIFY error_occurred)
+    Q_PROPERTY(bool        initialized               MEMBER m_initialized            NOTIFY initialized_changed)
+    Q_PROPERTY(bool        auth_challenge_pending    READ authChallengePending       NOTIFY auth_challenge_changed)
+    Q_PROPERTY(QString     auth_challenge_id         READ authChallengeId            NOTIFY auth_challenge_changed)
+    Q_PROPERTY(QString     auth_verification_code    READ authVerificationCode       NOTIFY auth_challenge_changed)
 
 public:
     explicit NotesBridge(QObject *parent = nullptr);
     ~NotesBridge() override;
 
     BlockListModel* blockModel() const { return m_blockListModel; }
+
+    /* ---- Delegating READ accessors ---- */
+    QString      currentPageName()      const { return m_pageStore->currentPageName(); }
+    QString      currentPageGroupPath() const { return m_pageStore->currentPageGroupPath(); }
+    QString      currentPageFullPath()  const { return m_pageStore->currentPageFullPath(); }
+    QString      currentPageFilePath()  const { return m_pageStore->currentPageFilePath(); }
+    QVariantList currentBlocks()        const { return m_pageStore->currentBlocks(); }
+    bool         isJournalPage()        const { return m_pageStore->isJournalPage(); }
+    int          blocksVersion()        const { return m_pageStore->blocksVersion(); }
+    bool         isLoading()            const { return m_pageStore->isLoading(); }
+    QString      searchQuery()          const { return m_searchManager->searchQuery(); }
+    QVariantList searchResults()        const { return m_searchManager->searchResults(); }
+    bool         searchLoading()        const { return m_searchManager->searchLoading(); }
+    QVariantList recentPages()          const { return m_mainPageLoader->recentPages(); }
+    QString      groupedTreeJson()      const { return m_mainPageLoader->groupedTreeJson(); }
+    QVariantList recentJournalLines()   const { return m_mainPageLoader->recentJournalLines(); }
+    QVariantList journalBlocks()        const { return m_mainPageLoader->journalBlocks(); }
+    int          groupDisplayDepth()    const { return m_groupManager->group_display_depth(); }
+    bool         dropComments()         const { return m_serverManager->dropComments(); }
+    bool         rejectPublicNetworks() const { return m_serverManager->rejectPublicNetworks(); }
+    QString      bindAddress()          const { return m_serverManager->bindAddress(); }
+    bool         webServerRunning()     const { return m_serverManager->isRunning(); }
+    QString      webServerUrl()         const { return m_serverManager->primaryUrl(); }
+    bool         authChallengePending() const { return m_serverManager->authChallengePending(); }
+    QString      authChallengeId()      const { return m_serverManager->authChallengeId(); }
+    QString      authVerificationCode() const { return m_serverManager->authVerificationCode(); }
 
     /* ---- Q_INVOKABLE methods (54) — exact names match Rust bridge ---- */
 
@@ -206,38 +234,19 @@ private:
     /* ---- Theme / options cache ---- */
     QString m_themeColorsJson;
 
-    /* ---- Property storage (28) ---- */
-    QString      m_currentPageName;
-    QString      m_currentPageGroupPath;
-    QString      m_currentPageFullPath;
-    QString      m_currentPageFilePath;
-    QVariantList m_currentBlocks;
+    /* ---- Property storage (4 owned by NotesBridge) ---- */
     BlockListModel* m_blockListModel = nullptr;
-    bool         m_isJournalPage       = false;
-    int          m_blocksVersion       = 0;
     QString      m_notesDir;
-    QString      m_searchQuery;
-    QVariantList m_searchResults;
-    bool         m_searchLoading       = false;
-    QVariantList m_recentPages;
-    QString      m_groupedTreeJson;
-    int          m_groupDisplayDepth   = 2;
-    QVariantList m_recentJournalLines;
-    QVariantList m_journalBlocks;
-    bool         m_isLoading           = false;
-    bool         m_dropComments        = true;
-    bool         m_rejectPublicNetworks = true;
-    QString      m_bindAddress;
-    bool         m_webServerRunning    = false;
-    QString      m_webServerUrl;
     QString      m_errorMessage;
     bool         m_initialized         = false;
-    bool         m_authChallengePending = false;
-    QString      m_authChallengeId;
-    QString      m_authVerificationCode;
+
+    /* ---- Shared context (must outlive domain classes) ---- */
+    BridgeContext m_ctx;
 
     /* ---- Domain classes (delegation targets) ---- */
     std::unique_ptr<PageStore>       m_pageStore;
+    std::unique_ptr<BlockEditor>     m_blockEditor;
+    std::unique_ptr<JournalStore>    m_journalStore;
     std::unique_ptr<GroupManager>    m_groupManager;
     std::unique_ptr<MainPageLoader>  m_mainPageLoader;
     std::unique_ptr<SearchManager>   m_searchManager;

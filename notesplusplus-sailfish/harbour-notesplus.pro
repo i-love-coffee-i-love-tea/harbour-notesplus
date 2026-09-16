@@ -6,7 +6,7 @@
 TEMPLATE = app
 TARGET = harbour-notesplus
 CONFIG += sailfishapp link_pkgconfig
-QT += quick qml network multimedia
+QT += quick qml network multimedia concurrent
 
 # C++ standard
 CONFIG += c++17
@@ -23,9 +23,15 @@ SOURCES += \
     src/bridge/ExportHelper.cpp \
     src/bridge/MainPageLoader.cpp \
     src/bridge/PageStore.cpp \
+    src/bridge/BlockEditor.cpp \
+    src/bridge/JournalStore.cpp \
+    src/bridge/PagePathResolver.cpp \
     src/bridge/GroupManager.cpp \
     src/bridge/SearchManager.cpp \
-    src/bridge/ServerManager.cpp
+    src/bridge/SearchPreviewGenerator.cpp \
+    src/bridge/ServerManager.cpp \
+    src/bridge/SettingsManager.cpp \
+    src/bridge/TlsManager.cpp
 
 HEADERS += \
     src/ffi/notesplusplus_core.h \
@@ -39,9 +45,17 @@ HEADERS += \
     src/bridge/ExportHelper.h \
     src/bridge/MainPageLoader.h \
     src/bridge/PageStore.h \
+    src/bridge/BlockEditor.h \
+    src/bridge/JournalStore.h \
+    src/bridge/PagePathResolver.h \
     src/bridge/GroupManager.h \
     src/bridge/SearchManager.h \
-    src/bridge/ServerManager.h
+    src/bridge/SearchPreviewGenerator.h \
+    src/bridge/ServerManager.h \
+    src/bridge/AiConfig.h \
+    src/bridge/AuthManager.h \
+    src/bridge/SettingsManager.h \
+    src/bridge/TlsManager.h
 
 # Include path for FFI headers
 INCLUDEPATH += src/ffi

@@ -9,6 +9,7 @@
  */
 
 #include "SearchManager.h"
+#include "SearchPreviewGenerator.h"
 
 #include <QDir>
 #include <QFile>
@@ -31,8 +32,11 @@ QString SearchManager::dbPathFor(const QString &dataDir)
 
 SearchManager::SearchManager(const BridgeContext &ctx)
     : m_ctx(ctx)
+    , m_previewGen(std::make_unique<SearchPreviewGenerator>(ctx))
 {
 }
+
+SearchManager::~SearchManager() = default;
 
 /* ================================================================== */
 /*  search() — clear state (synchronous)                               */
@@ -65,10 +69,7 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
         m_pendingSearchHits.reset();
         m_pendingSearchError.clear();
     }
-    {
-        std::lock_guard<std::mutex> lk(m_pendingPreviewMutex);
-        m_pendingPreviews.reset();
-    }
+    m_previewGen->clear();
 
     m_searchLoading = true;
 
@@ -77,9 +78,8 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
     const std::string q   = query.toStdString();
 
     auto alive = m_ctx.alive;
-    auto &ctx  = m_ctx;
 
-    QtConcurrent::run([this, alive, dbP, q, gen, signalTarget, &ctx]() {
+    QtConcurrent::run([this, alive, dbP, q, gen, signalTarget]() {
         /* Create a fresh search engine for this query */
         FfiSearchEngine *engine = notes_core_search_new();
         int rc = notes_core_search_start(engine, dbP.c_str(), q.c_str());
@@ -134,55 +134,15 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
 
             if (!alive->load(std::memory_order_acquire)) return;
 
+            /* Kick off background preview generation (copies hits) */
+            m_previewGen->generatePreviews(hits, gen, signalTarget);
+
             {
                 std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
                 m_pendingSearchHits = std::move(hits);
             }
 
             QMetaObject::invokeMethod(signalTarget, "poll_search", Qt::QueuedConnection);
-
-            /* Kick off background preview generation */
-            auto alive2 = ctx.alive;
-            auto notesPath = ctx.notesPath;
-            auto dropCommentsFn = ctx.dropComments;
-
-            QtConcurrent::run([this, alive2, gen, signalTarget,
-                               notesPath, dropCommentsFn]() {
-                if (gen != m_searchGeneration.load()) return;
-                if (!alive2->load(std::memory_order_acquire)) return;
-
-                QList<SearchHit> snapshot;
-                {
-                    std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
-                    if (!m_pendingSearchHits.has_value()) return;
-                    snapshot = *m_pendingSearchHits;
-                }
-
-                const std::string nd = notesPath.toStdString();
-                const bool drop = dropCommentsFn();
-
-                QMap<QString, QString> previewMap;
-                for (const SearchHit &h : snapshot) {
-                    if (gen != m_searchGeneration.load()) return;
-                    const std::string fp = h.fullPath.toStdString();
-                    char *src = notes_core_page_get_source(nd.c_str(), fp.c_str());
-                    QString content = ffiStringToQString(src);
-                    if (content.isEmpty()) continue;
-
-                    char *blocks = notes_core_parse_blocks_json(
-                        content.toUtf8().constData(), drop ? 1 : 0);
-                    previewMap[h.fullPath] = ffiStringToQString(blocks);
-                }
-
-                if (gen != m_searchGeneration.load()) return;
-                {
-                    std::lock_guard<std::mutex> lk(m_pendingPreviewMutex);
-                    m_pendingPreviews = std::move(previewMap);
-                }
-
-                QMetaObject::invokeMethod(signalTarget, "poll_search_previews",
-                                          Qt::QueuedConnection);
-            }).detach();
 
         } else {
             if (!alive->load(std::memory_order_acquire)) return;
@@ -194,7 +154,7 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
         }
 
         notes_core_search_free(engine);
-    }).detach();
+    });
 }
 
 /* ================================================================== */
@@ -237,12 +197,12 @@ SearchPollResult SearchManager::poll_search()
     }
 
     /* Store paths and JSON for preview matching */
-    m_currentSearchFilenames.clear();
-    m_currentSearchJsons.clear();
+    QStringList filenames;
+    QStringList jsons;
 
     QVariantList resultList;
     for (const SearchHit &h : hits) {
-        m_currentSearchFilenames.append(h.fullPath);
+        filenames.append(h.fullPath);
 
         QJsonObject map;
         map[QStringLiteral("name")]               = h.title;
@@ -258,9 +218,11 @@ SearchPollResult SearchManager::poll_search()
 
         QString jsonStr = QString::fromUtf8(
             QJsonDocument(map).toJson(QJsonDocument::Compact));
-        m_currentSearchJsons.append(jsonStr);
+        jsons.append(jsonStr);
         resultList.append(jsonStr);
     }
+
+    m_previewGen->storeSearchContext(filenames, jsons);
 
     m_searchResults = resultList;
     result.results  = resultList;
@@ -273,46 +235,9 @@ SearchPollResult SearchManager::poll_search()
 
 SearchPreviewPollResult SearchManager::poll_search_previews()
 {
-    SearchPreviewPollResult result;
-
-    QMap<QString, QString> previews;
-    bool hasPreviews = false;
-
-    {
-        std::lock_guard<std::mutex> lk(m_pendingPreviewMutex);
-        if (m_pendingPreviews.has_value()) {
-            previews = std::move(*m_pendingPreviews);
-            m_pendingPreviews.reset();
-            hasPreviews = true;
-        }
-    }
-
-    if (!hasPreviews) {
-        result.hasResult = false;
-        return result;
-    }
-
-    /* Rebuild search results with preview data */
-    QVariantList list;
-    for (int i = 0; i < m_currentSearchFilenames.size(); ++i) {
-        const QString &filename = m_currentSearchFilenames[i];
-        if (i >= m_currentSearchJsons.size()) continue;
-
-        QString jsonStr = m_currentSearchJsons[i];
-        if (previews.contains(filename)) {
-            QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8())
-                                  .object();
-            obj[QStringLiteral("preview_blocks_json")] = previews[filename];
-            jsonStr = QString::fromUtf8(
-                QJsonDocument(obj).toJson(QJsonDocument::Compact));
-        }
-        list.append(jsonStr);
-    }
-
-    if (!list.isEmpty()) {
-        m_searchResults = list;
-        result.hasResult = true;
-        result.results   = list;
+    SearchPreviewPollResult result = m_previewGen->poll_previews();
+    if (result.hasResult && !result.results.isEmpty()) {
+        m_searchResults = result.results;
     }
     return result;
 }
