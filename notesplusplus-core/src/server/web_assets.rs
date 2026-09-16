@@ -16,6 +16,10 @@ pub const STORES_THEME_JS: &str = include_str!("../../assets/web/stores/theme.js
 pub const STORES_HEALTH_JS: &str = include_str!("../../assets/web/stores/health.js");
 pub const STORES_AI_JS: &str = include_str!("../../assets/web/stores/ai.js");
 pub const STORES_UI_JS: &str = include_str!("../../assets/web/stores/ui.js");
+pub const STORES_PRESENTATION_STORE_JS: &str = include_str!("../../assets/web/stores/presentationStore.js");
+pub const STORES_IMPORT_STORE_JS: &str = include_str!("../../assets/web/stores/importStore.js");
+pub const STORES_LINK_STORE_JS: &str = include_str!("../../assets/web/stores/linkStore.js");
+pub const STORES_EDITOR_STORE_JS: &str = include_str!("../../assets/web/stores/editorStore.js");
 
 // Shared utilities (still used by stores)
 pub const COMPOSABLE_UTILS_JS: &str = include_str!("../../assets/web/composables/utils.js");

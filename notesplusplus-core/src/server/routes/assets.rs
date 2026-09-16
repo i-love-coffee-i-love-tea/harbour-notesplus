@@ -7,6 +7,8 @@ use crate::server::web_assets::{
     APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, PINIA_JS,
     STORES_INDEX_JS, STORES_API_JS, STORES_NOTES_JS, STORES_AUTH_JS,
     STORES_THEME_JS, STORES_HEALTH_JS, STORES_AI_JS, STORES_UI_JS,
+    STORES_PRESENTATION_STORE_JS, STORES_IMPORT_STORE_JS,
+    STORES_LINK_STORE_JS, STORES_EDITOR_STORE_JS,
     COMPOSABLE_UTILS_JS,
 };
 use crate::server::ServerContext;
@@ -63,6 +65,10 @@ pub fn handle_static_asset<W: Write>(
         "stores/health.js" => Some(STORES_HEALTH_JS),
         "stores/ai.js" => Some(STORES_AI_JS),
         "stores/ui.js" => Some(STORES_UI_JS),
+        "stores/presentationStore.js" => Some(STORES_PRESENTATION_STORE_JS),
+        "stores/importStore.js" => Some(STORES_IMPORT_STORE_JS),
+        "stores/linkStore.js" => Some(STORES_LINK_STORE_JS),
+        "stores/editorStore.js" => Some(STORES_EDITOR_STORE_JS),
         "composables/utils.js" => Some(COMPOSABLE_UTILS_JS),
         _ => None,
     };

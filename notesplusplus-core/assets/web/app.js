@@ -8,6 +8,10 @@ import { useThemeStore } from '/stores/theme.js';
 import { useHealthStore } from '/stores/health.js';
 import { useAiStore } from '/stores/ai.js';
 import { useUiStore } from '/stores/ui.js';
+import { usePresentationStore } from '/stores/presentationStore.js';
+import { useImportStore } from '/stores/importStore.js';
+import { useLinkStore } from '/stores/linkStore.js';
+import { useEditorStore } from '/stores/editorStore.js';
 
 const app = createApp({
   setup() {
@@ -17,6 +21,10 @@ const app = createApp({
     const health = useHealthStore();
     const ai = useAiStore();
     const ui = useUiStore();
+    const pres = usePresentationStore();
+    const imp = useImportStore();
+    const link = useLinkStore();
+    const editor = useEditorStore();
 
     // Wire API health callbacks
     setHealthCallbacks(
@@ -30,40 +38,40 @@ const app = createApp({
       clearTimeout(renderTimer);
       renderTimer = setTimeout(() => {
         notes.updateRenderedHtml(newVal);
-        if (ui.viewMode === 'present') ui.prepareSlides(newVal);
+        if (ui.viewMode === 'present') pres.prepareSlides(newVal);
       }, 80);
     }, { immediate: true });
 
-    // Keep ui store's cached notesList in sync
-    watch(() => notes.notesList, (list) => ui.setCachedNotesList(list), { immediate: true });
+    // Keep link store's cached notesList in sync
+    watch(() => notes.notesList, (list) => link.setCachedNotesList(list), { immediate: true });
 
     // Global keyboard shortcuts
     function handleGlobalKeyDown(e) {
-      if (ui.openLinkModal) {
-        if (e.key === 'Escape') { e.preventDefault(); ui.openLinkModal = false; }
+      if (link.openLinkModal) {
+        if (e.key === 'Escape') { e.preventDefault(); link.openLinkModal = false; }
         return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
         e.preventDefault(); notes.saveCurrentNote(); return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault(); ui.openLinkDialog(); return;
+        e.preventDefault(); link.openLinkDialog(); return;
       }
       if (ui.viewMode === 'present') {
         if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
         switch (e.key) {
           case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': case 'Enter': case 'l': case 'L': case 'j': case 'J':
-            e.preventDefault(); ui.nextSlide(); break;
+            e.preventDefault(); pres.nextSlide(); break;
           case 'ArrowLeft': case 'ArrowUp': case 'PageUp': case 'Backspace': case 'h': case 'H': case 'k': case 'K':
-            e.preventDefault(); ui.prevSlide(); break;
-          case 'Home': e.preventDefault(); ui.goToSlide(0); break;
-          case 'End': e.preventDefault(); ui.goToSlide(ui.slides.length - 1); break;
-          case 'f': case 'F': case 'F11': e.preventDefault(); ui.togglePresentationFullscreen(); break;
-          case 'o': case 'O': case 'g': case 'G': e.preventDefault(); ui.showSlideOverview = !ui.showSlideOverview; break;
+            e.preventDefault(); pres.prevSlide(); break;
+          case 'Home': e.preventDefault(); pres.goToSlide(0); break;
+          case 'End': e.preventDefault(); pres.goToSlide(pres.slides.length - 1); break;
+          case 'f': case 'F': case 'F11': e.preventDefault(); pres.togglePresentationFullscreen(); break;
+          case 'o': case 'O': case 'g': case 'G': e.preventDefault(); pres.showSlideOverview = !pres.showSlideOverview; break;
           case 'Escape':
             e.preventDefault();
-            if (ui.showSlideOverview) ui.showSlideOverview = false;
-            else ui.exitPresentationMode();
+            if (pres.showSlideOverview) pres.showSlideOverview = false;
+            else pres.exitPresentationMode();
             break;
         }
       }
@@ -88,8 +96,8 @@ const app = createApp({
 
     onMounted(async () => {
       window.addEventListener('keydown', handleGlobalKeyDown);
-      document.addEventListener('fullscreenchange', ui.onFullscreenChange);
-      document.addEventListener('webkitfullscreenchange', ui.onFullscreenChange);
+      document.addEventListener('fullscreenchange', pres.onFullscreenChange);
+      document.addEventListener('webkitfullscreenchange', pres.onFullscreenChange);
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.export-dropdown')) ui.showExportMenu = false;
         if (!e.target.closest('.account-dropdown-wrapper')) ui.showAccountMenu = false;
@@ -120,6 +128,10 @@ const app = createApp({
         if (prop in health) return health[prop];
         if (prop in ai) return ai[prop];
         if (prop in ui) return ui[prop];
+        if (prop in pres) return pres[prop];
+        if (prop in imp) return imp[prop];
+        if (prop in link) return link[prop];
+        if (prop in editor) return editor[prop];
         if (prop === 'formatMessageContent') return (content) => formatMarkdown(content);
         if (prop === 'createNote') return () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate);
         return undefined;
