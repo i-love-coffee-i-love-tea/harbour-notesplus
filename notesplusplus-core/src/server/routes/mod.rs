@@ -133,11 +133,14 @@ fn is_public_path(p: &str) -> bool {
         || p == "app.js"
         || p == "vue.esm-browser.prod.js"
         || p == "vue.js"
+        || p == "pinia.esm-browser.prod.js"
+        || p == "pinia.js"
         || p == "style.css"
         || p == "icon.png"
         || p == "favicon.ico"
         || p.starts_with("assets/")
         || p.starts_with("composables/")
+        || p.starts_with("stores/")
         || p.starts_with(API_ROUTE_AUTH_PREFIX)
 }
 
