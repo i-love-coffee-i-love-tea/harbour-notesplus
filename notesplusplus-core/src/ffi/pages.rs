@@ -6,7 +6,8 @@ use crate::html::qt_html::QtThemeColors;
 use crate::page;
 use crate::parser;
 use super::common::{
-    blocks_to_json_with_html, cstr_to_path, cstr_to_string, parse_qt_render_options, string_to_c,
+    blocks_to_json_with_html, cstr_to_path, cstr_to_string, ffi_err, parse_qt_render_options,
+    string_to_c,
 };
 
 /// Get page source content. Returns allocated string (caller frees).
@@ -19,7 +20,7 @@ pub extern "C" fn notes_core_page_get_source(
     let name = unsafe { cstr_to_string(name) };
     match page::read_page(&dir, &name) {
         Ok(content) => string_to_c(content),
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 
@@ -31,7 +32,10 @@ pub extern "C" fn notes_core_page_save_source(
     name: *const c_char,
     content: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
     let content = unsafe { cstr_to_string(content) };
@@ -48,7 +52,10 @@ pub extern "C" fn notes_core_page_create(
     notes_dir: *const c_char,
     name: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
     match page::create_page(conn, &dir, &name, false) {
@@ -64,7 +71,10 @@ pub extern "C" fn notes_core_page_delete(
     notes_dir: *const c_char,
     name: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
     match page::delete_page(conn, &dir, &name) {
@@ -81,7 +91,10 @@ pub extern "C" fn notes_core_page_rename(
     name: *const c_char,
     new_title: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
     let new_title = unsafe { cstr_to_string(new_title) };
@@ -99,7 +112,10 @@ pub extern "C" fn notes_core_page_move(
     source_name: *const c_char,
     target_group: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let source = unsafe { cstr_to_string(source_name) };
     let target = unsafe { cstr_to_string(target_group) };
@@ -126,7 +142,10 @@ pub extern "C" fn notes_core_rebuild_index(
     conn: *mut rusqlite::Connection,
     notes_dir: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     match page::rebuild_index(conn, &dir) {
         Ok(_) => 0,
@@ -140,8 +159,11 @@ pub extern "C" fn notes_core_recent_pages_json(
     conn: *mut rusqlite::Connection,
     limit: i32,
 ) -> *mut c_char {
-    let conn = unsafe { &*conn };
-    let limit = if limit > 0 { limit as usize } else { 20 };
+    let conn = match unsafe { conn.as_ref() } {
+        Some(c) => c,
+        None => return ffi_err!("null connection"),
+    };
+    let limit = if limit > 0 { limit as usize } else { crate::constants::DEFAULT_RECENT_PAGES_LIMIT };
     match page::recent_pages(conn, limit) {
         Ok(pages) => {
             let values: Vec<serde_json::Value> = pages.iter().map(|p| p.to_json_value()).collect();
@@ -236,7 +258,10 @@ pub extern "C" fn notes_core_page_save_block(
     raw_text: *const c_char,
     drop_comments: i32,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let path = unsafe { cstr_to_string(page_path) };
     let text = unsafe { cstr_to_string(raw_text) };
@@ -277,7 +302,10 @@ pub extern "C" fn notes_core_page_toggle_checkbox(
     block_index: i32,
     item_path: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let path = unsafe { cstr_to_string(page_path) };
     let ipath = unsafe { cstr_to_string(item_path) };

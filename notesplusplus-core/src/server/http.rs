@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Write;
 
 use crate::constants::{SESSION_COOKIE_NAME, MIME_EVENT_STREAM, MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
-use crate::error::ApiErrorCode;
+use crate::error::{ApiErrorCode, NotesError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HttpMethod {
@@ -82,7 +82,7 @@ pub struct ParsedHttpRequest {
 }
 
 impl ParsedHttpRequest {
-    pub fn from_tiny_http(req: &mut tiny_http::Request) -> Result<Self, String> {
+    pub fn from_tiny_http(req: &mut tiny_http::Request) -> Result<Self, NotesError> {
         let method = HttpMethod::from(req.method().as_str());
         let raw_url = req.url();
         let (path, query) = match raw_url.split_once('?') {
@@ -97,17 +97,25 @@ impl ParsedHttpRequest {
         const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
         let body_len = req.body_length().unwrap_or(0);
         if body_len > MAX_BODY_SIZE {
-            return Err(format!(
+            return Err(NotesError::Msg(format!(
                 "Request body too large: {} bytes (max {})",
                 body_len, MAX_BODY_SIZE
-            ));
+            )));
         }
 
         let mut body = Vec::new();
         if body_len > 0 {
             body.reserve(body_len);
         }
-        let _ = req.as_reader().read_to_end(&mut body);
+        use std::io::Read;
+        let mut limited_reader = req.as_reader().take(MAX_BODY_SIZE as u64 + 1);
+        limited_reader.read_to_end(&mut body).map_err(|e| NotesError::Io(e))?;
+        if body.len() > MAX_BODY_SIZE {
+            return Err(NotesError::Msg(format!(
+                "Request body too large (exceeds max {} bytes)",
+                MAX_BODY_SIZE
+            )));
+        }
 
         let client_ip = req.remote_addr().map(|a| a.ip().to_string());
 
@@ -123,6 +131,12 @@ impl ParsedHttpRequest {
 
     pub fn client_ip(&self) -> &str {
         if let Some(ref ip) = self.client_ip {
+            // Only trust X-Forwarded-For if direct peer is loopback
+            if ip == "127.0.0.1" || ip == "::1" {
+                if let Some(hdr) = self.headers.get("x-forwarded-for") {
+                    return hdr.split(',').next().map(|s| s.trim()).unwrap_or(ip.as_str());
+                }
+            }
             ip.as_str()
         } else if let Some(hdr) = self.headers.get("x-forwarded-for") {
             hdr.split(',').next().map(|s| s.trim()).unwrap_or("127.0.0.1")
@@ -141,24 +155,30 @@ pub fn sanitize_header_value(s: &str) -> String {
     s.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect()
 }
 
+/// Helper to extract host from Origin or URL header.
+fn extract_origin_host(origin: &str) -> &str {
+    let without_scheme = origin.split("://").nth(1).unwrap_or(origin);
+    let path_stripped = without_scheme.split('/').next().unwrap_or("");
+    if path_stripped.starts_with('[') {
+        if let Some(closing) = path_stripped.find(']') {
+            return &path_stripped[1..closing];
+        }
+    }
+    path_stripped.split(':').next().unwrap_or("")
+}
+
 /// Validate CORS origin against localhost variants and known LAN IPs.
 pub fn validate_cors_origin(origin: Option<&str>, allowed_ips: &[String]) -> String {
     let origin = match origin {
-        Some(o) => o,
+        Some(o) => o.trim(),
         None => return String::new(),
     };
 
-    let host = origin
-        .split("://")
-        .nth(1)
-        .unwrap_or(origin)
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    if origin.is_empty() {
+        return String::new();
+    }
+
+    let host = extract_origin_host(origin).to_ascii_lowercase();
 
     // Allow localhost variants
     if host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1" {
@@ -170,19 +190,10 @@ pub fn validate_cors_origin(origin: Option<&str>, allowed_ips: &[String]) -> Str
         return origin.to_string();
     }
 
-    // Allow private LAN ranges
-    if host.starts_with("192.168.") || host.starts_with("10.") {
-        return origin.to_string();
-    }
-    // 172.16.0.0/12
-    if host.starts_with("172.") {
-        let parts: Vec<&str> = host.split('.').collect();
-        if parts.len() >= 2 {
-            if let Ok(second) = parts[1].parse::<u8>() {
-                if (16..=31).contains(&second) {
-                    return origin.to_string();
-                }
-            }
+    // Allow private LAN ranges using canonical IP classification
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if crate::net::is_private_or_local_ip(&ip) {
+            return origin.to_string();
         }
     }
 

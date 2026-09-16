@@ -4,6 +4,7 @@ use std::net::ToSocketAddrs;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::error::NotesError;
 pub use crate::net::{is_blocked_ip, parse_direct_ip};
 
 /// Canonical tool name constants — use these everywhere instead of string literals.
@@ -162,7 +163,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
 }
 
 /// Parses target host, port, and scheme from an HTTP/HTTPS URL string.
-pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), String> {
+pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), NotesError> {
     let trimmed = url_str.trim();
     let (scheme, rest) = if let Some(s) = trimmed.strip_prefix("http://") {
         ("http", s)
@@ -171,12 +172,12 @@ pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), St
     } else if !trimmed.contains("://") {
         ("https", trimmed)
     } else {
-        return Err(format!("Unsupported URL scheme in '{}'", trimmed));
+        return Err(NotesError::Msg(format!("Unsupported URL scheme in '{}'", trimmed)));
     };
 
     let host_port_part = rest.split(['/', '?', '#']).next().unwrap_or("");
     if host_port_part.is_empty() {
-        return Err("Missing host in URL".to_string());
+        return Err(NotesError::Msg("Missing host in URL".to_string()));
     }
 
     let default_port = if scheme == "https" { 443 } else { 80 };
@@ -186,18 +187,18 @@ pub fn parse_target_host_port(url_str: &str) -> Result<(String, u16, String), St
             let ip6_str = &host_port_part[1..closing_bracket];
             let after_bracket = &host_port_part[closing_bracket + 1..];
             let port = if let Some(colon) = after_bracket.strip_prefix(':') {
-                colon.parse::<u16>().map_err(|_| "Invalid port".to_string())?
+                colon.parse::<u16>().map_err(|_| NotesError::Msg("Invalid port".to_string()))?
             } else {
                 default_port
             };
             return Ok((ip6_str.to_string(), port, scheme.to_string()));
         } else {
-            return Err("Malformed IPv6 host literal".to_string());
+            return Err(NotesError::Msg("Malformed IPv6 host literal".to_string()));
         }
     }
 
     let (host, port) = if let Some((h, p)) = host_port_part.split_once(':') {
-        let parsed_port = p.parse::<u16>().map_err(|_| "Invalid port".to_string())?;
+        let parsed_port = p.parse::<u16>().map_err(|_| NotesError::Msg("Invalid port".to_string()))?;
         (h, parsed_port)
     } else {
         (host_port_part, default_port)
@@ -252,7 +253,7 @@ pub fn is_allowed_host(url: &str) -> bool {
 }
 
 /// Helper to download web text from an HTTP/HTTPS URL with SSRF mitigation and secure redirect re-checking.
-pub fn fetch_url(url: &str) -> Result<String, String> {
+pub fn fetch_url(url: &str) -> Result<String, NotesError> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
         return Ok(String::new());
@@ -273,10 +274,10 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
 
     let resp = loop {
         if !is_allowed_host(&current_url) {
-            return Err(format!(
+            return Err(NotesError::Http(format!(
                 "URL '{}' blocked: only verified public hosts are allowed",
                 current_url
-            ));
+            )));
         }
 
         match agent.get(&current_url).call() {
@@ -296,22 +297,27 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
                             format!("{}://{}:{}{}", scheme, host, port, location)
                         }
                     } else {
-                        return Err(format!("Unsupported relative redirect to '{}'", location));
+                        return Err(NotesError::Http(format!("Unsupported relative redirect to '{}'", location)));
                     };
 
                     current_url = next_url;
                     redirects_followed += 1;
                     continue;
                 } else {
-                    return Err(format!("Redirect status {} with missing Location header", code));
+                    return Err(NotesError::Http(format!("Redirect status {} with missing Location header", code)));
                 }
             }
-            Err(e) => return Err(format!("Failed to fetch URL '{}': {}", current_url, e)),
+            Err(e) => return Err(NotesError::Http(format!("Failed to fetch URL '{}': {}", current_url, e))),
         }
     };
 
     let content_type = resp.header("Content-Type").unwrap_or("").to_lowercase();
-    let raw_text = resp.into_string().unwrap_or_default();
+    use std::io::Read;
+    const MAX_RAW_FETCH_BYTES: u64 = 2 * 1024 * 1024; // 2 MB limit to prevent memory exhaustion
+    let mut raw_bytes = Vec::new();
+    let mut reader = resp.into_reader().take(MAX_RAW_FETCH_BYTES);
+    let _ = reader.read_to_end(&mut raw_bytes);
+    let raw_text = String::from_utf8_lossy(&raw_bytes).into_owned();
 
     let processed = if content_type.contains("html") || crate::html::preprocess::looks_like_html(&raw_text) {
         crate::html::preprocess_html(&raw_text)
@@ -326,7 +332,7 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
             end -= 1;
         }
         if let Some(last_nl) = processed[..end].rfind('\n') {
-            if last_nl > MAX_FETCH_CHARS - 5000 {
+            if last_nl > MAX_FETCH_CHARS - crate::constants::FETCH_URL_TAIL_RESERVED {
                 end = last_nl;
             }
         }

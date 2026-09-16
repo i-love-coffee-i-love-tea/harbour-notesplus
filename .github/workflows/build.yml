@@ -71,11 +71,11 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           release: ${{ matrix.release }}
-          output-dir: ./RPMS
+          output-dir: ./rpms
 
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v4
         with:
           name: harbour-notesplus-${{ matrix.arch }}-rpm
-          path: ./RPMS/*.rpm
+          path: ./rpms/*.rpm
           if-no-files-found: error

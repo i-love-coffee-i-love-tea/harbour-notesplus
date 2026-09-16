@@ -24,6 +24,6 @@ pub mod highlight;
 pub mod search_index;
 
 pub use constants::*;
-pub use error::CoreError;
+pub use error::NotesError;
 pub use paths::AppPaths;
 pub use stt::*;

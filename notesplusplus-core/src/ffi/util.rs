@@ -2,7 +2,7 @@ use std::os::raw::c_char;
 
 use crate::agent;
 use crate::server;
-use super::common::{cstr_to_string, string_to_c};
+use super::common::{cstr_to_string, ffi_err, string_to_c};
 
 /// Get network interfaces as JSON. Returns allocated string.
 #[no_mangle]
@@ -17,6 +17,6 @@ pub extern "C" fn notes_core_fetch_url(url: *const c_char) -> *mut c_char {
     let url = unsafe { cstr_to_string(url) };
     match agent::fetch_url(&url) {
         Ok(content) => string_to_c(content),
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }

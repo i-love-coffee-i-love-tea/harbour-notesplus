@@ -1,4 +1,4 @@
-use crate::CoreError;
+use crate::NotesError;
 use rusqlite::Connection;
 
 use crate::page::PageInfo;
@@ -10,7 +10,7 @@ pub struct SearchResult {
 }
 
 /// Search pages via FTS5 with query sanitization and fallback. Returns matching pages with snippets.
-pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, CoreError> {
+pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, NotesError> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -52,7 +52,7 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
         let title: String = row.get(3)?;
         if snip.trim().is_empty() || snip == "..." {
             let first_line = content.lines().find(|l| !l.trim().is_empty()).unwrap_or(&title);
-            snip = first_line.chars().take(80).collect();
+            snip = first_line.chars().take(crate::constants::SEARCH_SNIPPET_MAX_CHARS).collect();
         }
         Ok(SearchResult {
             page: PageInfo::from_row(row)?,
@@ -83,7 +83,7 @@ fn escape_like_pattern(s: &str) -> String {
     s.replace('%', "\\%").replace('_', "\\_")
 }
 
-fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, CoreError> {
+fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchResult>, NotesError> {
     let escaped = escape_like_pattern(query);
     let pattern = format!("%{}%", escaped);
     let mut stmt = conn.prepare(

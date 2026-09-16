@@ -37,13 +37,12 @@ sfdk -c target="$TARGET" build
 
 echo "=== Copying RPM to rpms/ ==="
 mkdir -p "$SCRIPT_DIR/rpms"
-if [ -d "$SCRIPT_DIR/RPMS" ]; then
-    if ! cp -u "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null; then
-        if ! cp "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/" 2>/dev/null; then
-            echo "ERROR: Failed to copy RPMs from RPMS/ to rpms/" >&2
-            exit 1
-        fi
-    fi
+# sfdk always outputs to RPMS/; move to canonical rpms/ directory
+if ls "$SCRIPT_DIR"/RPMS/*.rpm >/dev/null 2>&1; then
+    mv "$SCRIPT_DIR"/RPMS/*.rpm "$SCRIPT_DIR/rpms/"
+    rmdir "$SCRIPT_DIR/RPMS" 2>/dev/null || true
+else
+    echo "WARNING: No RPMs found in RPMS/" >&2
 fi
 
 echo "=== Done ==="

@@ -4,12 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use std::io::Write;
-
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::ServerConfig as RustlsServerConfig;
 use serde::{Deserialize, Serialize};
 
+use crate::error::NotesError;
 pub use super::cert_gen::generate_self_signed_cert;
 
 /// Holds the generated or loaded certificate and private key in PEM and DER formats.
@@ -55,32 +54,9 @@ impl Default for TlsOptions {
     }
 }
 
-/// Atomic file write: writes to a temp file then renames, so kill -9 can't corrupt the target.
-fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(data)?;
-        f.sync_all()?;
-    }
-    fs::rename(&tmp, path)
-}
-
-/// Clean up stale .tmp files left behind by a killed process mid atomic_write.
-fn cleanup_stale_tmp(dir: &Path) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.extension().map_or(false, |e| e == "tmp") {
-                let _ = fs::remove_file(&p);
-            }
-        }
-    }
-}
-
 /// Helper to parse certificate chain from PEM string.
-pub fn pem_to_cert_chain(pem_str: &str) -> Result<Vec<CertificateDer<'static>>, String> {
-    let pems = pem::parse_many(pem_str).map_err(|e| format!("Failed to parse certificate PEM: {}", e))?;
+pub fn pem_to_cert_chain(pem_str: &str) -> Result<Vec<CertificateDer<'static>>, NotesError> {
+    let pems = pem::parse_many(pem_str).map_err(|e| NotesError::Tls(format!("Failed to parse certificate PEM: {}", e)))?;
     let mut certs = Vec::new();
     for p in pems {
         let tag = p.tag();
@@ -89,14 +65,14 @@ pub fn pem_to_cert_chain(pem_str: &str) -> Result<Vec<CertificateDer<'static>>, 
         }
     }
     if certs.is_empty() {
-        return Err("No certificate blocks found in PEM data".to_string());
+        return Err(NotesError::Tls("No certificate blocks found in PEM data".to_string()));
     }
     Ok(certs)
 }
 
 /// Helper to parse private key from PEM string (supports PKCS#8, PKCS#1 RSA, and SEC1 EC keys).
-pub fn pem_to_private_key(pem_str: &str) -> Result<PrivateKeyDer<'static>, String> {
-    let pems = pem::parse_many(pem_str).map_err(|e| format!("Failed to parse private key PEM: {}", e))?;
+pub fn pem_to_private_key(pem_str: &str) -> Result<PrivateKeyDer<'static>, NotesError> {
+    let pems = pem::parse_many(pem_str).map_err(|e| NotesError::Tls(format!("Failed to parse private key PEM: {}", e)))?;
     for p in pems {
         let tag = p.tag();
         let contents = p.contents().to_vec();
@@ -108,11 +84,11 @@ pub fn pem_to_private_key(pem_str: &str) -> Result<PrivateKeyDer<'static>, Strin
             return Ok(PrivateKeyDer::Sec1(rustls::pki_types::PrivateSec1KeyDer::from(contents)));
         }
     }
-    Err("No valid private key found in PEM (must be PKCS#8, RSA, or EC private key)".to_string())
+    Err(NotesError::Tls("No valid private key found in PEM (must be PKCS#8, RSA, or EC private key)".to_string()))
 }
 
 /// Validates that the provided certificate and key PEM strings form a valid, matching pair.
-pub fn validate_tls_pair(cert_pem: &str, key_pem: &str) -> Result<TlsCertificate, String> {
+pub fn validate_tls_pair(cert_pem: &str, key_pem: &str) -> Result<TlsCertificate, NotesError> {
     let cert_ders = pem_to_cert_chain(cert_pem)?;
     let key_der = pem_to_private_key(key_pem)?;
 
@@ -123,7 +99,7 @@ pub fn validate_tls_pair(cert_pem: &str, key_pem: &str) -> Result<TlsCertificate
     let _ = RustlsServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_ders.clone(), key_der.clone_key())
-        .map_err(|e| format!("Certificate and private key validation failed: {}", e))?;
+        .map_err(|e| NotesError::Tls(format!("Certificate and private key validation failed: {}", e)))?;
 
     let raw_cert_ders = cert_ders.into_iter().map(|c| c.to_vec()).collect();
     let raw_key_der = match key_der {
@@ -158,27 +134,27 @@ pub fn install_custom_tls_cert(
     key_source: &str,
     target_cert_path: &Path,
     target_key_path: &Path,
-) -> Result<TlsCertificate, String> {
+) -> Result<TlsCertificate, NotesError> {
     let cert_pem = if let Ok(p) = Path::new(cert_source).canonicalize() {
         if p.is_file() {
-            fs::read_to_string(p).map_err(|e| format!("Failed to read cert file: {}", e))?
+            fs::read_to_string(p).map_err(|e| NotesError::Io(e))?
         } else {
             cert_source.to_string()
         }
     } else if Path::new(cert_source).is_file() {
-        fs::read_to_string(cert_source).map_err(|e| format!("Failed to read cert file: {}", e))?
+        fs::read_to_string(cert_source).map_err(|e| NotesError::Io(e))?
     } else {
         cert_source.to_string()
     };
 
     let key_pem = if let Ok(p) = Path::new(key_source).canonicalize() {
         if p.is_file() {
-            fs::read_to_string(p).map_err(|e| format!("Failed to read key file: {}", e))?
+            fs::read_to_string(p).map_err(|e| NotesError::Io(e))?
         } else {
             key_source.to_string()
         }
     } else if Path::new(key_source).is_file() {
-        fs::read_to_string(key_source).map_err(|e| format!("Failed to read key file: {}", e))?
+        fs::read_to_string(key_source).map_err(|e| NotesError::Io(e))?
     } else {
         key_source.to_string()
     };
@@ -192,10 +168,10 @@ pub fn install_custom_tls_cert(
         let _ = fs::create_dir_all(parent);
     }
 
-    fs::write(target_cert_path, &cert.cert_pem)
-        .map_err(|e| format!("Failed to write certificate file: {}", e))?;
-    fs::write(target_key_path, &cert.key_pem)
-        .map_err(|e| format!("Failed to write private key file: {}", e))?;
+    crate::page::atomic_write(target_cert_path, cert.cert_pem.as_bytes())
+        .map_err(|e| NotesError::Io(e))?;
+    crate::page::atomic_write(target_key_path, cert.key_pem.as_bytes())
+        .map_err(|e| NotesError::Io(e))?;
 
     // Mark as custom certificate
     let _ = fs::write(custom_cert_marker_path(target_cert_path), "custom");
@@ -208,7 +184,7 @@ pub fn reset_to_self_signed_cert(
     cert_path: &Path,
     key_path: &Path,
     options: Option<TlsOptions>,
-) -> Result<TlsCertificate, String> {
+) -> Result<TlsCertificate, NotesError> {
     let opts = options.unwrap_or_default();
     let cert = generate_self_signed_cert(&opts)?;
 
@@ -219,10 +195,10 @@ pub fn reset_to_self_signed_cert(
         let _ = fs::create_dir_all(parent);
     }
 
-    atomic_write(cert_path, cert.cert_pem.as_bytes())
-        .map_err(|e| format!("Failed to write cert file: {}", e))?;
-    atomic_write(key_path, cert.key_pem.as_bytes())
-        .map_err(|e| format!("Failed to write key file: {}", e))?;
+    crate::page::atomic_write(cert_path, cert.cert_pem.as_bytes())
+        .map_err(|e| NotesError::Io(e))?;
+    crate::page::atomic_write(key_path, cert.key_pem.as_bytes())
+        .map_err(|e| NotesError::Io(e))?;
 
     // Remove custom marker if present
     let marker = custom_cert_marker_path(cert_path);
@@ -238,11 +214,10 @@ pub fn get_or_create_tls_cert(
     cert_path: &Path,
     key_path: &Path,
     options: Option<TlsOptions>,
-) -> Result<TlsCertificate, String> {
-    // Ensure parent directory exists and clean up stale temp files
+) -> Result<TlsCertificate, NotesError> {
+    // Ensure parent directory exists
     if let Some(dir) = cert_path.parent() {
         let _ = fs::create_dir_all(dir);
-        cleanup_stale_tmp(dir);
     }
 
     if cert_path.is_file() && key_path.is_file() {
@@ -257,7 +232,7 @@ pub fn get_or_create_tls_cert(
 }
 
 /// Builds a rustls `ServerConfig` from a `TlsCertificate`.
-pub fn create_rustls_server_config(cert: &TlsCertificate) -> Result<Arc<RustlsServerConfig>, String> {
+pub fn create_rustls_server_config(cert: &TlsCertificate) -> Result<Arc<RustlsServerConfig>, NotesError> {
     // Ensure ring crypto provider is set for rustls 0.23
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -270,7 +245,7 @@ pub fn create_rustls_server_config(cert: &TlsCertificate) -> Result<Arc<RustlsSe
     let key_der: PrivateKeyDer<'static> = if !cert.key_der.is_empty() {
         PrivateKeyDer::try_from(cert.key_der.clone())
             .or_else(|_| pem_to_private_key(&cert.key_pem))
-            .map_err(|e| format!("Invalid private key DER: {:?}", e))?
+            .map_err(|e| NotesError::Tls(format!("Invalid private key DER: {:?}", e)))?
     } else {
         pem_to_private_key(&cert.key_pem)?
     };
@@ -278,7 +253,7 @@ pub fn create_rustls_server_config(cert: &TlsCertificate) -> Result<Arc<RustlsSe
     let server_config = RustlsServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_ders, key_der)
-        .map_err(|e| format!("Failed to create TLS server config: {}", e))?;
+        .map_err(|e| NotesError::Tls(format!("Failed to create TLS server config: {}", e)))?;
 
     Ok(Arc::new(server_config))
 }

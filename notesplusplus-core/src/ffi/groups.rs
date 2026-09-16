@@ -5,20 +5,26 @@ use crate::group;
 use crate::html::qt_html::QtThemeColors;
 use crate::page;
 use crate::tree;
-use super::common::{cstr_to_path, cstr_to_string, parse_qt_render_options, string_to_c};
+use super::common::{cstr_to_path, cstr_to_string, ffi_err, parse_qt_render_options, string_to_c};
 
 /// Get flat group list as JSON. Returns allocated string.
 #[no_mangle]
 pub extern "C" fn notes_core_groups_flat_json(
     conn: *mut rusqlite::Connection,
 ) -> *mut c_char {
-    let conn = unsafe { &*conn };
+    let conn = match unsafe { conn.as_ref() } {
+        Some(c) => c,
+        None => return ffi_err!("null connection"),
+    };
     match group::get_groups_flat(conn) {
         Ok(groups) => {
             let json = serde_json::to_string(&groups).unwrap_or_else(|_| "[]".to_string());
             string_to_c(json)
         }
-        Err(_) => string_to_c("[]".to_string()),
+        Err(e) => {
+            eprintln!("notes_core_groups_flat_json: {}", e);
+            string_to_c("[]".to_string())
+        }
     }
 }
 
@@ -30,7 +36,10 @@ pub extern "C" fn notes_core_group_create(
     parent: *const c_char,
     name: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let parent = unsafe { cstr_to_string(parent) };
     let name = unsafe { cstr_to_string(name) };
@@ -48,7 +57,10 @@ pub extern "C" fn notes_core_group_rename(
     old_path: *const c_char,
     new_name: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let old = unsafe { cstr_to_string(old_path) };
     let new = unsafe { cstr_to_string(new_name) };
@@ -66,7 +78,10 @@ pub extern "C" fn notes_core_group_delete(
     path: *const c_char,
     recursive: i32,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let path = unsafe { cstr_to_string(path) };
     match group::delete_group(conn, &dir, &path, recursive != 0) {
@@ -81,7 +96,10 @@ pub extern "C" fn notes_core_group_toggle_collapsed(
     conn: *mut rusqlite::Connection,
     path: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let path = unsafe { cstr_to_string(path) };
     match group::toggle_group_collapsed(conn, &path) {
         Ok(collapsed) => if collapsed { 1 } else { 0 },
@@ -96,7 +114,10 @@ pub extern "C" fn notes_core_group_set_note_sort(
     path: *const c_char,
     sort_order: i32,
 ) -> i32 {
-    let conn = unsafe { &mut *conn };
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let path = unsafe { cstr_to_string(path) };
     let sort = match sort_order {
         0 => group::NoteSortOrder::NewestFirst,
@@ -114,7 +135,10 @@ pub extern "C" fn notes_core_group_get_note_sort(
     conn: *mut rusqlite::Connection,
     path: *const c_char,
 ) -> i32 {
-    let conn = unsafe { &*conn };
+    let conn = match unsafe { conn.as_ref() } {
+        Some(c) => c,
+        None => return -1,
+    };
     let path = unsafe { cstr_to_string(path) };
     match group::get_group_note_sort(conn, &path) {
         Ok(group::NoteSortOrder::NewestFirst) => 0,
@@ -133,13 +157,28 @@ pub extern "C" fn notes_core_build_group_tree_json(
     theme_json: *const c_char,
     options_json: *const c_char,
 ) -> *mut c_char {
-    let conn = unsafe { &*conn };
+    let conn = match unsafe { conn.as_ref() } {
+        Some(c) => c,
+        None => return ffi_err!("null connection"),
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let theme_str = unsafe { cstr_to_string(theme_json) };
     let opts_str = unsafe { cstr_to_string(options_json) };
 
-    let pages = page::list_pages(conn).unwrap_or_default();
-    let groups = group::get_groups_flat(conn).unwrap_or_default();
+    let pages = match page::list_pages(conn) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("notes_core_build_group_tree_json list_pages: {}", e);
+            Vec::new()
+        }
+    };
+    let groups = match group::get_groups_flat(conn) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("notes_core_build_group_tree_json get_groups_flat: {}", e);
+            Vec::new()
+        }
+    };
 
     let theme: HashMap<String, String> =
         serde_json::from_str(&theme_str).unwrap_or_default();
@@ -170,10 +209,19 @@ pub extern "C" fn notes_core_load_main_page_data_json(
     depth: i32,
     drop_comments: i32,
 ) -> *mut c_char {
-    let conn = unsafe { &*conn };
+    let conn = match unsafe { conn.as_ref() } {
+        Some(c) => c,
+        None => return ffi_err!("null connection"),
+    };
     let dir = unsafe { cstr_to_path(notes_dir) };
 
-    let recent = page::recent_pages(conn, 20).unwrap_or_default();
+    let recent = match page::recent_pages(conn, crate::constants::DEFAULT_RECENT_PAGES_LIMIT) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("notes_core_load_main_page_data_json recent_pages: {}", e);
+            Vec::new()
+        }
+    };
     let recent_jsons: Vec<String> = recent
         .iter()
         .map(|p| {

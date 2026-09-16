@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use crate::agent::{
     AgentSession, LlmClient, LlmConfig, PermissionConfig, PermissionManager,
 };
+use crate::error::NotesError;
 
 /// Server configuration holding paths, networking, security, and AI client parameters.
 #[derive(Clone, Debug)]
@@ -58,7 +59,7 @@ impl ServerConfig {
             db_path: paths.db_path,
             backup_dir,
             port: crate::constants::DEFAULT_SERVER_PORT,
-            bind_address: "0.0.0.0".to_string(),
+            bind_address: crate::constants::DEFAULT_BIND_ADDRESS.to_string(),
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth::AuthConfig::default(),
@@ -313,7 +314,7 @@ impl HttpServerHandle {
     pub fn stop(&self) {
         self.is_running.store(false, Ordering::SeqCst);
         self.server.unblock();
-        let connect_addr = if self.bind_address == "0.0.0.0" { "127.0.0.1" } else { self.bind_address.as_str() };
+        let connect_addr = if self.bind_address == crate::constants::DEFAULT_BIND_ADDRESS { "127.0.0.1" } else { self.bind_address.as_str() };
         let _ = TcpStream::connect(format!("{}:{}", connect_addr, self.port));
     }
 }
@@ -326,7 +327,7 @@ pub fn start_server_full(
     requested_port: u16,
     llm_config: Option<LlmConfig>,
     permission_config: Option<PermissionConfig>,
-) -> Result<HttpServerHandle, String> {
+) -> Result<HttpServerHandle, NotesError> {
     let assets_dir = notes_dir.parent().unwrap_or(&notes_dir).join(crate::constants::ASSETS_DIR_NAME);
     let config = ServerConfig {
         notes_dir,
@@ -334,7 +335,7 @@ pub fn start_server_full(
         db_path,
         backup_dir,
         port: requested_port,
-        bind_address: "0.0.0.0".to_string(),
+        bind_address: crate::constants::DEFAULT_BIND_ADDRESS.to_string(),
         llm_config: llm_config.unwrap_or_default(),
         permission_config: permission_config.unwrap_or_default(),
         auth_config: auth::AuthConfig::default(),
@@ -347,7 +348,7 @@ pub fn start_server_full(
 }
 
 /// Start the embedded documentation HTTP server with a `ServerConfig`.
-pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle, String> {
+pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle, NotesError> {
     let port = if config.port == 0 { crate::constants::DEFAULT_SERVER_PORT } else { config.port };
     let mut listener = None;
 
@@ -361,14 +362,14 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
 
     let (listener, actual_port) = match listener {
         Some(res) => res,
-        None => return Err(format!("Failed to bind to port {} or nearby ports", port)),
+        None => return Err(NotesError::Bind(format!("Failed to bind to port {} or nearby ports", port))),
     };
 
     let scheme = if config.enable_tls { "https" } else { "http" };
     let local_ips = get_local_ip_addresses();
     let mut local_urls = Vec::new();
-    if bind_addr == "0.0.0.0" {
-        local_urls.push(format!("{}://0.0.0.0:{}", scheme, actual_port));
+    if bind_addr == crate::constants::DEFAULT_BIND_ADDRESS {
+        local_urls.push(format!("{}://{}:{}", scheme, crate::constants::DEFAULT_BIND_ADDRESS, actual_port));
     }
     for ip in &local_ips {
         local_urls.push(format!("{}://{}:{}", scheme, ip, actual_port));
@@ -439,7 +440,7 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
     }
 
     let server = tiny_http::Server::from_listener(listener, tiny_ssl)
-        .map_err(|e| format!("Failed to create HTTP server: {}", e))?;
+        .map_err(|e| NotesError::Bind(format!("Failed to create HTTP server: {}", e)))?;
     let server = Arc::new(server);
 
     let context_clone = context.clone();

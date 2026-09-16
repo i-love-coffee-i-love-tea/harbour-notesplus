@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::block::Block;
+use crate::error::NotesError;
 use crate::parser;
 use crate::escape::escape_html;
 
@@ -102,21 +103,21 @@ pub fn export_page_to_html5(
     assets_dir: &Path,
     filename: &str,
     output_path: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, NotesError> {
     let adoc_path = notes_dir.join(filename);
     let content = std::fs::read_to_string(&adoc_path)
-        .map_err(|e| format!("Failed to read {}: {}", adoc_path.display(), e))?;
+        .map_err(|e| NotesError::Io(e))?;
 
     let title = filename.strip_suffix(".adoc").unwrap_or(filename);
     let html = adoc_to_html5(&content, title, Some(assets_dir));
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create output dir {}: {}", parent.display(), e))?;
+            .map_err(|e| NotesError::Io(e))?;
     }
 
     std::fs::write(output_path, html.as_bytes())
-        .map_err(|e| format!("Failed to write HTML to {}: {}", output_path.display(), e))?;
+        .map_err(|e| NotesError::Io(e))?;
 
     Ok(output_path.to_path_buf())
 }
@@ -127,10 +128,10 @@ pub fn export_all_pages_to_html5(
     notes_dir: &Path,
     assets_dir: &Path,
     output_dir: &Path,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<Vec<PathBuf>, NotesError> {
     let mut exported = Vec::new();
     let entries = std::fs::read_dir(notes_dir)
-        .map_err(|e| format!("Failed to read notes directory: {}", e))?;
+        .map_err(|e| NotesError::Io(e))?;
 
     for entry in entries.flatten() {
         let path = entry.path();

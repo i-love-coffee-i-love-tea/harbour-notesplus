@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::stt;
-use super::common::{cstr_to_path, cstr_to_string, string_to_c};
+use super::common::{cstr_to_path, cstr_to_string, ffi_err, string_to_c};
 
 /// Transcribe a WAV file. Returns allocated text or error string.
 #[no_mangle]
@@ -18,9 +18,9 @@ pub extern "C" fn notes_core_stt_transcribe(
     match stt::WhisperEngine::load(&mp) {
         Ok(engine) => match engine.transcribe_wav_file(&wp) {
             Ok(text) => string_to_c(text),
-            Err(e) => string_to_c(format!("ERROR: {}", e)),
+            Err(e) => ffi_err!(e),
         },
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 

@@ -18,6 +18,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QThread>
+#include <QtConcurrent>
 #include <QStandardPaths>
 #include <cstdlib>
 
@@ -71,6 +72,7 @@ NotesBridge::NotesBridge(QObject *parent)
     : QObject(parent)
     , paths_(notes_core_app_paths_new())
     , m_blockListModel(new BlockListModel(this))
+    , m_alive(std::make_shared<std::atomic<bool>>(true))
 {
     m_notesPath = ffiStringToQString(
         notes_core_app_paths_notes_dir(paths_.get()));
@@ -86,7 +88,10 @@ NotesBridge::NotesBridge(QObject *parent)
     ensureInit();
 }
 
-NotesBridge::~NotesBridge() = default;
+NotesBridge::~NotesBridge()
+{
+    m_alive->store(false, std::memory_order_release);
+}
 
 /* ================================================================== */
 /*  Internal helpers                                                   */
@@ -126,7 +131,8 @@ void NotesBridge::ensureInit()
     const std::string notesDir = m_notesPath.toStdString();
     const std::string dbPath   = dbPathFor(m_dataDir).toStdString();
 
-    std::thread([this, dataDir, notesDir, dbPath]() {
+    auto alive = m_alive;
+    QtConcurrent::run([this, alive, dataDir, notesDir, dbPath]() {
         /* Create directories */
         QDir().mkpath(QString::fromStdString(notesDir));
         QDir().mkpath(QString::fromStdString(dataDir) + QStringLiteral("/exports"));
@@ -138,6 +144,7 @@ void NotesBridge::ensureInit()
             notes_core_rebuild_index(raw, notesDir.c_str());
         }
 
+        if (!alive->load(std::memory_order_acquire)) return;
         {
             std::lock_guard<std::mutex> lk(m_initMutex);
             m_initResult = raw;
@@ -145,12 +152,15 @@ void NotesBridge::ensureInit()
         }
         m_initCv.notify_one();
 
-        QMetaObject::invokeMethod(this, [this]() {
-            if (this->pollInit()) {
-                this->load_main_page_data();
-            }
-        }, Qt::QueuedConnection);
-    }).detach();
+        QMetaObject::invokeMethod(this, "poll_init_and_load", Qt::QueuedConnection);
+    });
+}
+
+void NotesBridge::poll_init_and_load()
+{
+    if (pollInit()) {
+        load_main_page_data();
+    }
 }
 
 bool NotesBridge::pollInit()
@@ -260,7 +270,8 @@ void NotesBridge::rebuildTreeInBackground()
      * only reads from it, and conn_ lives for the entire app lifetime. */
     void *conn = rawConn();
 
-    std::thread([this, conn, notesDir, depth, dropComments,
+    auto alive = m_alive;
+    QtConcurrent::run([this, alive, conn, notesDir, depth, dropComments,
                  themeJson, optsJson]() {
         char *tree = notes_core_build_group_tree_json(
             conn, notesDir.c_str(), depth,
@@ -282,6 +293,7 @@ void NotesBridge::rebuildTreeInBackground()
             }
         }
 
+        if (!alive->load(std::memory_order_acquire)) return;
         MainPageData data;
         data.recentPageJsons = pageJsons;
         data.groupedTreeJson = treeJson;
@@ -291,10 +303,8 @@ void NotesBridge::rebuildTreeInBackground()
             m_pendingMainPage = std::move(data);
         }
 
-        QMetaObject::invokeMethod(this, [this]() {
-            this->poll_main_page_data();
-        }, Qt::QueuedConnection);
-    }).detach();
+        QMetaObject::invokeMethod(this, "poll_main_page_data", Qt::QueuedConnection);
+    });
 }
 
 /* ================================================================== */
@@ -345,7 +355,8 @@ void NotesBridge::load_page(QString name)
     const std::string theme    = m_themeColorsJson.toStdString();
     const std::string opts     = buildOptionsJson().toStdString();
 
-    std::thread([this, notesDir, path, drop, theme, opts]() {
+    auto alive = m_alive;
+    QtConcurrent::run([this, alive, notesDir, path, drop, theme, opts]() {
         PendingPageResult result;
 
         char *source = notes_core_page_get_source(
@@ -367,15 +378,14 @@ void NotesBridge::load_page(QString name)
                 ffiStringToQString(blocks));
         }
 
+        if (!alive->load(std::memory_order_acquire)) return;
         {
             std::lock_guard<std::mutex> lk(m_pendingMutex);
             m_pendingPage = std::move(result);
         }
 
-        QMetaObject::invokeMethod(this, [this]() {
-            this->poll_results();
-        }, Qt::QueuedConnection);
-    }).detach();
+        QMetaObject::invokeMethod(this, "poll_results", Qt::QueuedConnection);
+    });
 }
 
 void NotesBridge::save_block(int index, QString raw_text)
@@ -595,6 +605,26 @@ void NotesBridge::delete_page(QString name)
         emit page_changed();
     }
     rebuildTreeInBackground();
+}
+
+bool NotesBridge::rename_page(QString old_path, QString new_title)
+{
+    if (!ensureInitBlocking()) return false;
+
+    int rc = notes_core_page_rename(
+        rawConn(), qstrToFFI(m_notesPath), qstrToFFI(old_path), qstrToFFI(new_title));
+    if (rc < 0) {
+        reportError(QStringLiteral("Failed to rename page: %1").arg(old_path));
+        return false;
+    }
+
+    /* If the renamed page is currently loaded, reload it */
+    const QString fullPath = resolvePagePath(old_path);
+    if (m_currentPageFullPath == fullPath || m_currentPageName == old_path) {
+        load_page(new_title);
+    }
+    rebuildTreeInBackground();
+    return true;
 }
 
 void NotesBridge::navigate_to_page(QString name)
@@ -871,7 +901,8 @@ void NotesBridge::do_search(QString query)
     const std::string dbP = dbPathFor(m_dataDir).toStdString();
     const std::string q   = query.toStdString();
 
-    std::thread([this, dbP, q, gen]() {
+    auto alive = m_alive;
+    QtConcurrent::run([this, alive, dbP, q, gen]() {
         /* Create a fresh search engine for this query */
         FfiSearchEngine *engine = notes_core_search_new();
         int rc = notes_core_search_start(engine, dbP.c_str(), q.c_str());
@@ -879,6 +910,7 @@ void NotesBridge::do_search(QString query)
         if (rc < 0) {
             notes_core_search_free(engine);
             if (gen != m_searchGeneration.load()) return;
+            if (!alive->load(std::memory_order_acquire)) return;
             std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
             m_pendingSearchError = QStringLiteral("Search failed to start");
             m_pendingSearchHits  = QList<SearchHit>();
@@ -923,18 +955,20 @@ void NotesBridge::do_search(QString query)
                 }
             }
 
+            if (!alive->load(std::memory_order_acquire)) return;
+
             {
                 std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
                 m_pendingSearchHits = std::move(hits);
             }
 
-            QMetaObject::invokeMethod(this, [this]() {
-                this->poll_search();
-            }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(this, "poll_search", Qt::QueuedConnection);
 
             /* Kick off background preview generation */
-            std::thread([this, gen]() {
+            auto alive2 = m_alive;
+            QtConcurrent::run([this, alive2, gen]() {
                 if (gen != m_searchGeneration.load()) return;
+                if (!alive2->load(std::memory_order_acquire)) return;
 
                 QList<SearchHit> snapshot;
                 {
@@ -965,19 +999,16 @@ void NotesBridge::do_search(QString query)
                     m_pendingPreviews = std::move(previewMap);
                 }
 
-                QMetaObject::invokeMethod(this, [this]() {
-                    this->poll_search_previews();
-                }, Qt::QueuedConnection);
-            }).detach();
+                QMetaObject::invokeMethod(this, "poll_search_previews", Qt::QueuedConnection);
+            });
 
         } else {
+            if (!alive->load(std::memory_order_acquire)) return;
             std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
             m_pendingSearchError = QStringLiteral("Search failed");
             m_pendingSearchHits  = QList<SearchHit>();
 
-            QMetaObject::invokeMethod(this, [this]() {
-                this->poll_search();
-            }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(this, "poll_search", Qt::QueuedConnection);
         }
 
         notes_core_search_free(engine);

@@ -1,4 +1,4 @@
-use crate::CoreError;
+use crate::NotesError;
 use std::path::Path;
 
 use chrono::Local;
@@ -130,7 +130,7 @@ pub fn clean_journal_content(content: &str, today: &str) -> String {
 }
 
 /// Initialize the journal for today.
-pub fn init_journal(notes_dir: &Path) -> Result<(), CoreError> {
+pub fn init_journal(notes_dir: &Path) -> Result<(), NotesError> {
     let path = notes_dir.join(JOURNAL_FILENAME);
     let today = Local::now().format("%Y-%m-%d").to_string();
 
@@ -194,7 +194,7 @@ pub fn remove_empty_day_headings(blocks: &mut Vec<Block>, today: &str) {
 }
 
 /// Get the last N non-empty lines from the journal for preview.
-pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String>, CoreError> {
+pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String>, NotesError> {
     let path = notes_dir.join(JOURNAL_FILENAME);
     if !path.exists() {
         return Ok(Vec::new());
@@ -211,7 +211,7 @@ pub fn recent_journal_lines(notes_dir: &Path, limit: usize) -> Result<Vec<String
 }
 
 /// Append a line (task or note) directly under today's date heading in journal.adoc.
-pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), CoreError> {
+pub fn append_to_journal_today(notes_dir: &Path, line: &str) -> Result<(), NotesError> {
     init_journal(notes_dir)?;
     let path = notes_dir.join(JOURNAL_FILENAME);
     let content = std::fs::read_to_string(&path)?;

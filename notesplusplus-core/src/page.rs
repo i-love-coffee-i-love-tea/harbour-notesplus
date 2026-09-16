@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use crate::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
-use crate::CoreError;
+use crate::NotesError;
 use crate::db;
 use crate::xref::rewrite_xrefs;
 
@@ -60,7 +60,7 @@ impl PageInfo {
 }
 
 /// Create a new page: write .adoc file + insert into SQLite.
-pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: bool) -> Result<PageInfo, CoreError> {
+pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: bool) -> Result<PageInfo, NotesError> {
     let (group_path, filename) = if is_journal {
         ("".to_string(), JOURNAL_FILENAME.to_string())
     } else {
@@ -73,7 +73,7 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
         safe_note_path(notes_dir, name)
     };
     if path.exists() && !is_journal {
-        return Err(CoreError::Msg(format!("Page '{}' already exists", name)));
+        return Err(NotesError::Msg(format!("Page '{}' already exists", name)));
     }
 
     // Ensure parent directory exists
@@ -101,14 +101,21 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
     }
 
     let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
+    let rows_affected = conn.execute(
         "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
          VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0)",
         rusqlite::params![filename, group_path, clean_title, is_journal as i32, now],
-    )
-    ?;
+    )?;
 
-    let id = conn.last_insert_rowid();
+    let id = if rows_affected > 0 {
+        conn.last_insert_rowid()
+    } else {
+        conn.query_row(
+            "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
+            rusqlite::params![group_path, filename],
+            |row| row.get(0),
+        )?
+    };
 
     // Index initial content into FTS
     if !is_journal {
@@ -133,7 +140,7 @@ pub fn save_and_index_page(
     notes_dir: &Path,
     name_or_filename: &str,
     content: &str,
-) -> Result<PageInfo, CoreError> {
+) -> Result<PageInfo, NotesError> {
     let (group_path, filename) = sanitize_note_path(name_or_filename);
     let path = safe_note_path(notes_dir, name_or_filename);
 
@@ -204,10 +211,13 @@ fn slice_preview_content(content: &str, limit: usize) -> &str {
     let mut line_count = 0;
     let mut cut_byte_idx = content.len();
 
-    let mut current_offset = 0;
-    for line in content.lines() {
+    let mut remaining = content;
+    while !remaining.is_empty() {
         line_count += 1;
-        let line_len = line.len();
+        let (line, next_remaining) = match remaining.split_once('\n') {
+            Some((l, r)) => (l.strip_suffix('\r').unwrap_or(l), r),
+            None => (remaining.strip_suffix('\r').unwrap_or(remaining), ""),
+        };
         let trimmed = line.trim();
         if !trimmed.is_empty() {
             if let Some(opener) = crate::parser::as_delimiter_opener(trimmed) {
@@ -216,15 +226,11 @@ fn slice_preview_content(content: &str, limit: usize) -> &str {
 
             structural_lines += 1;
             if structural_lines >= min_lines && in_delim.is_none() {
-                let end_of_line = current_offset + line_len;
-                cut_byte_idx = (end_of_line + 1).min(content.len());
+                cut_byte_idx = content.len() - next_remaining.len();
                 break;
             }
         }
-        current_offset += line_len + 1;
-        if current_offset > content.len() {
-            current_offset = content.len();
-        }
+        remaining = next_remaining;
     }
 
     if line_count <= 60 || cut_byte_idx >= content.len() {
@@ -341,13 +347,13 @@ pub fn get_page_preview_json_with_options(notes_dir: &Path, filename: &str, limi
 }
 
 /// Read the raw AsciiDoc content of a page.
-pub fn read_page(notes_dir: &Path, name_or_path: &str) -> Result<String, CoreError> {
+pub fn read_page(notes_dir: &Path, name_or_path: &str) -> Result<String, NotesError> {
     let path = safe_note_path(notes_dir, name_or_path);
-    std::fs::read_to_string(&path).map_err(|e| CoreError::Msg(format!("Failed to read {}: {}", name_or_path, e)))
+    std::fs::read_to_string(&path).map_err(|e| NotesError::Msg(format!("Failed to read {}: {}", name_or_path, e)))
 }
 
 /// Delete a page: remove file + delete from SQLite and FTS.
-pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) -> Result<(), CoreError> {
+pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) -> Result<(), NotesError> {
     let page_info = get_page(conn, name_or_filename)?;
 
     if let Some(info) = page_info {
@@ -374,7 +380,7 @@ pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) 
 }
 
 /// List all pages sorted by group_path, then updated_at descending.
-pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, CoreError> {
+pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, NotesError> {
     let mut stmt = conn
         .prepare("SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count FROM pages ORDER BY group_path ASC, updated_at DESC")
         ?;
@@ -389,7 +395,7 @@ pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, CoreError> {
 }
 
 /// Get the N most recently updated non-journal pages.
-pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, CoreError> {
+pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, NotesError> {
     let mut stmt = conn
         .prepare(
             "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count
@@ -407,7 +413,7 @@ pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, Co
 }
 
 /// Get a page by filename, full relative path, or title.
-pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError> {
+pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, NotesError> {
     let (group_path, filename) = sanitize_note_path(name_or_filename);
     let title_without_adoc = name_or_filename
         .rsplit('/')
@@ -468,7 +474,7 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
 /// Copy example .adoc files to the notes directory on first run
 /// and register them in the database under the given group.
 /// Skips copying if the target directory already contains .adoc files (not first run).
-pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, target_group: &str) -> Result<(), CoreError> {
+pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, target_group: &str) -> Result<(), NotesError> {
     if !examples_dir.exists() {
         return Ok(());
     }
@@ -518,7 +524,7 @@ fn copy_dir_recursive(
     current_dest_dir: &Path,
     current_group: &str,
     in_asset_dir: bool,
-) -> Result<(), CoreError> {
+) -> Result<(), NotesError> {
     for entry in std::fs::read_dir(current_src_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -734,12 +740,12 @@ pub fn move_page(
     notes_dir: &Path,
     source_name_or_path: &str,
     target_group: &str,
-) -> Result<PageInfo, CoreError> {
+) -> Result<PageInfo, NotesError> {
     let source_page = get_page(conn, source_name_or_path)?
-        .ok_or_else(|| CoreError::Msg(format!("Page '{}' not found", source_name_or_path)))?;
+        .ok_or_else(|| NotesError::Msg(format!("Page '{}' not found", source_name_or_path)))?;
 
     if source_page.is_journal || source_page.filename == JOURNAL_FILENAME {
-        return Err(CoreError::Msg("Cannot move journal page".to_string()));
+        return Err(NotesError::Msg("Cannot move journal page".to_string()));
     }
 
     let target_group_clean = target_group.trim().trim_matches('/').to_string();
@@ -759,7 +765,7 @@ pub fn move_page(
     let dest_file = safe_note_path(notes_dir, &new_full_path);
 
     if dest_file.exists() && dest_file != src_file {
-        return Err(CoreError::Msg(format!("Destination file '{}' already exists", new_full_path)));
+        return Err(NotesError::Msg(format!("Destination file '{}' already exists", new_full_path)));
     }
 
     // Ensure target group directory exists on disk and in groups table
@@ -852,12 +858,12 @@ pub fn rename_page(
     notes_dir: &Path,
     name_or_path: &str,
     new_title: &str,
-) -> Result<PageInfo, CoreError> {
+) -> Result<PageInfo, NotesError> {
     let source_page = get_page(conn, name_or_path)?
-        .ok_or_else(|| CoreError::Msg(format!("Page '{}' not found", name_or_path)))?;
+        .ok_or_else(|| NotesError::Msg(format!("Page '{}' not found", name_or_path)))?;
 
     if source_page.is_journal || source_page.filename == JOURNAL_FILENAME {
-        return Err(CoreError::Msg("Cannot rename journal page".to_string()));
+        return Err(NotesError::Msg("Cannot rename journal page".to_string()));
     }
 
     let new_filename = ensure_adoc_extension(&sanitize_filename(new_title));
@@ -890,7 +896,7 @@ pub fn rename_page(
     let dest_file = safe_note_path(notes_dir, &new_full_path);
 
     if dest_file.exists() && dest_file != src_file {
-        return Err(CoreError::Msg(format!("A file named '{}' already exists", new_filename)));
+        return Err(NotesError::Msg(format!("A file named '{}' already exists", new_filename)));
     }
 
     // Update the title inside the .adoc content (first line `= Title`)

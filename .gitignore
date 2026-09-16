@@ -5,12 +5,15 @@ RPMS/
 *.rpm
 .mimocode/
 .junie/
+.opencode/
+documentation.list
 *.bak
 
 # Compiled translations (generated at build time by lrelease)
 *.qm
 .output.txt
-tests/__pycache__/
+__pycache__/
+*.pyc
 
 # qmake build artifacts
 notesplusplus-sailfish/Makefile

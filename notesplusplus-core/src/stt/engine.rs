@@ -1,4 +1,4 @@
-use super::downloader::SttError;
+use crate::error::NotesError;
 #[cfg(feature = "whisper")]
 use super::whisper_ffi::WhisperContext;
 use std::fs::File;
@@ -22,9 +22,9 @@ pub struct WavInfo {
 }
 
 /// Parses and decodes a WAV file into normalized 16kHz mono `f32` samples in range `[-1.0, 1.0]`.
-pub fn decode_wav_file(path: impl AsRef<Path>) -> Result<Vec<f32>, SttError> {
+pub fn decode_wav_file(path: impl AsRef<Path>) -> Result<Vec<f32>, NotesError> {
     let mut file = File::open(path.as_ref()).map_err(|e| {
-        SttError::AudioFormat(format!(
+        NotesError::SttAudio(format!(
             "Failed to open audio file {}: {}",
             path.as_ref().display(),
             e
@@ -36,14 +36,14 @@ pub fn decode_wav_file(path: impl AsRef<Path>) -> Result<Vec<f32>, SttError> {
 }
 
 /// Parses and decodes WAV byte buffer into normalized 16kHz mono `f32` samples.
-pub fn decode_wav_bytes(bytes: &[u8]) -> Result<Vec<f32>, SttError> {
+pub fn decode_wav_bytes(bytes: &[u8]) -> Result<Vec<f32>, NotesError> {
     let (info, raw_pcm) = parse_wav_chunks(bytes)?;
 
     let mut mono_samples = match info.audio_format {
         1 => decode_pcm_integer(raw_pcm, info.num_channels, info.bits_per_sample)?,
         3 => decode_pcm_float(raw_pcm, info.num_channels, info.bits_per_sample)?,
         other => {
-            return Err(SttError::AudioFormat(format!(
+            return Err(NotesError::SttAudio(format!(
                 "Unsupported audio format tag: {} (only PCM 1 and IEEE Float 3 supported)",
                 other
             )))
@@ -63,27 +63,27 @@ pub fn decode_wav_bytes(bytes: &[u8]) -> Result<Vec<f32>, SttError> {
 }
 
 /// Parses the WAV header and returns metadata without decoding the entire audio payload.
-pub fn parse_wav_header(bytes: &[u8]) -> Result<WavInfo, SttError> {
+pub fn parse_wav_header(bytes: &[u8]) -> Result<WavInfo, NotesError> {
     let (info, _) = parse_wav_chunks(bytes)?;
     Ok(info)
 }
 
 /// Internal helper to parse RIFF chunks and extract fmt and data slices.
-fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), SttError> {
+fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), NotesError> {
     if bytes.len() < 12 {
-        return Err(SttError::AudioFormat(
+        return Err(NotesError::SttAudio(
             "Audio file too short to be a valid WAV".to_string(),
         ));
     }
 
     if &bytes[0..4] != b"RIFF" {
-        return Err(SttError::AudioFormat(
+        return Err(NotesError::SttAudio(
             "Missing RIFF header magic in audio file".to_string(),
         ));
     }
 
     if &bytes[8..12] != b"WAVE" {
-        return Err(SttError::AudioFormat(
+        return Err(NotesError::SttAudio(
             "Missing WAVE format tag in audio file".to_string(),
         ));
     }
@@ -103,7 +103,7 @@ fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), SttError> {
                 data_slice = Some(&bytes[chunk_start..bytes.len()]);
                 break;
             }
-            return Err(SttError::AudioFormat(
+            return Err(NotesError::SttAudio(
                 "Malformed chunk size in WAV file".to_string(),
             ));
         }
@@ -112,7 +112,7 @@ fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), SttError> {
 
         if chunk_id == b"fmt " {
             if chunk_data.len() < 16 {
-                return Err(SttError::AudioFormat(
+                return Err(NotesError::SttAudio(
                     "fmt chunk too small in WAV file".to_string(),
                 ));
             }
@@ -123,10 +123,10 @@ fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), SttError> {
             let bits_per_sample = u16::from_le_bytes(chunk_data[14..16].try_into().unwrap());
 
             if num_channels == 0 {
-                return Err(SttError::AudioFormat("WAV file has 0 channels".to_string()));
+                return Err(NotesError::SttAudio("WAV file has 0 channels".to_string()));
             }
             if sample_rate == 0 {
-                return Err(SttError::AudioFormat(
+                return Err(NotesError::SttAudio(
                     "WAV file has 0 sample rate".to_string(),
                 ));
             }
@@ -141,10 +141,10 @@ fn parse_wav_chunks(bytes: &[u8]) -> Result<(WavInfo, &[u8]), SttError> {
     }
 
     let (audio_format, num_channels, sample_rate, bits_per_sample) = fmt_info
-        .ok_or_else(|| SttError::AudioFormat("Missing 'fmt ' chunk in WAV file".to_string()))?;
+        .ok_or_else(|| NotesError::SttAudio("Missing 'fmt ' chunk in WAV file".to_string()))?;
 
     let raw_pcm = data_slice
-        .ok_or_else(|| SttError::AudioFormat("Missing 'data' chunk in WAV file".to_string()))?;
+        .ok_or_else(|| NotesError::SttAudio("Missing 'data' chunk in WAV file".to_string()))?;
 
     let bytes_per_sample = (bits_per_sample as usize) / 8;
     let block_align = (num_channels as usize) * bytes_per_sample;
@@ -176,7 +176,7 @@ fn decode_pcm_integer(
     raw_pcm: &[u8],
     num_channels: u16,
     bits_per_sample: u16,
-) -> Result<Vec<f32>, SttError> {
+) -> Result<Vec<f32>, NotesError> {
     let channels = num_channels as usize;
 
     match bits_per_sample {
@@ -237,7 +237,7 @@ fn decode_pcm_integer(
             }
             Ok(mono)
         }
-        other => Err(SttError::AudioFormat(format!(
+        other => Err(NotesError::SttAudio(format!(
             "Unsupported bits per sample: {}",
             other
         ))),
@@ -249,9 +249,9 @@ fn decode_pcm_float(
     raw_pcm: &[u8],
     num_channels: u16,
     bits_per_sample: u16,
-) -> Result<Vec<f32>, SttError> {
+) -> Result<Vec<f32>, NotesError> {
     if bits_per_sample != 32 {
-        return Err(SttError::AudioFormat(format!(
+        return Err(NotesError::SttAudio(format!(
             "Unsupported float PCM bit depth: {} (expected 32)",
             bits_per_sample
         )));
@@ -329,17 +329,17 @@ impl WhisperEngine {
     /// Loads a Whisper model from disk. Verifies the model file exists, is readable, and
     /// contains a valid GGML header before handing it off to whisper.cpp for full loading
     /// (weights, mel filters, vocabulary, tokenizer).
-    pub fn load(model_path: impl AsRef<Path>) -> Result<Self, SttError> {
+    pub fn load(model_path: impl AsRef<Path>) -> Result<Self, NotesError> {
         let path = model_path.as_ref().to_path_buf();
         if !path.is_file() {
-            return Err(SttError::ModelFileMissing(path.display().to_string()));
+            return Err(NotesError::SttModel(format!("Model file not found at {}", path.display())));
         }
 
         let mut file = File::open(&path)?;
         let mut header_buf = [0u8; 48];
         let bytes_read = file.read(&mut header_buf)?;
         if bytes_read < 48 {
-            return Err(SttError::Engine(format!(
+            return Err(NotesError::SttModel(format!(
                 "Model file is invalid or truncated at {}",
                 path.display()
             )));
@@ -347,7 +347,7 @@ impl WhisperEngine {
 
         let magic = u32::from_le_bytes(header_buf[0..4].try_into().unwrap());
         if magic != GGML_MAGIC && magic != GGMF_MAGIC && magic != GGJT_MAGIC && magic != GGUF_MAGIC {
-            return Err(SttError::Engine(format!(
+            return Err(NotesError::SttModel(format!(
                 "Invalid Whisper model format magic: 0x{:08x} at {}",
                 magic,
                 path.display()
@@ -381,13 +381,13 @@ impl WhisperEngine {
     }
 
     /// Transcribes a recorded WAV file into text.
-    pub fn transcribe_wav_file(&self, audio_path: impl AsRef<Path>) -> Result<String, SttError> {
+    pub fn transcribe_wav_file(&self, audio_path: impl AsRef<Path>) -> Result<String, NotesError> {
         let samples = decode_wav_file(audio_path)?;
         self.transcribe_samples(&samples)
     }
 
     /// Transcribes normalized 16kHz mono audio samples into text using whisper.cpp.
-    pub fn transcribe_samples(&self, samples: &[f32]) -> Result<String, SttError> {
+    pub fn transcribe_samples(&self, samples: &[f32]) -> Result<String, NotesError> {
         if samples.is_empty() {
             log::warn!("WhisperEngine: samples buffer is empty");
             return Ok(String::new());
@@ -440,7 +440,7 @@ impl WhisperEngine {
 
     /// Executes real Whisper STT inference (mel -> encoder -> decoder) via whisper.cpp.
     #[cfg(feature = "whisper")]
-    fn run_whisper_inference(&self, samples: &[f32]) -> Result<String, SttError> {
+    fn run_whisper_inference(&self, samples: &[f32]) -> Result<String, NotesError> {
         let n_threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(2)
@@ -454,9 +454,9 @@ impl WhisperEngine {
     /// don't need speech-to-text). Always returns an explicit "not implemented" error
     /// rather than fabricating output.
     #[cfg(not(feature = "whisper"))]
-    fn run_whisper_inference(&self, _samples: &[f32]) -> Result<String, SttError> {
+    fn run_whisper_inference(&self, _samples: &[f32]) -> Result<String, NotesError> {
         let _ = &self.language; // only consulted by the real whisper.cpp backend
-        Err(SttError::Engine(
+        Err(NotesError::SttModel(
             "Whisper inference backend is disabled (built without the `whisper` feature)"
                 .to_string(),
         ))
@@ -574,8 +574,8 @@ mod tests {
         let result = WhisperEngine::load(&bad_model_path);
         assert!(result.is_err());
         match result.unwrap_err() {
-            SttError::Engine(_) => {}
-            other => panic!("Expected SttError::Engine, got {:?}", other),
+            NotesError::SttModel(_) => {}
+            other => panic!("Expected NotesError::SttModel, got {:?}", other),
         }
     }
 

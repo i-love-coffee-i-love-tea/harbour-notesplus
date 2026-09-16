@@ -2,7 +2,7 @@ use std::path::Path;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::CoreError;
+use crate::NotesError;
 use crate::db;
 use crate::page::{self, sanitize_filename};
 
@@ -60,10 +60,10 @@ pub fn create_group(
     notes_dir: &Path,
     parent_path: &str,
     name: &str,
-) -> Result<GroupInfo, CoreError> {
+) -> Result<GroupInfo, NotesError> {
     let sanitized_name = sanitize_filename(name.trim()).trim_matches('_').to_string();
     if sanitized_name.is_empty() {
-        return Err(CoreError::Msg("Group name cannot be empty".to_string()));
+        return Err(NotesError::Msg("Group name cannot be empty".to_string()));
     }
 
     let full_path = if parent_path.trim().is_empty() {
@@ -105,15 +105,15 @@ pub fn rename_group(
     notes_dir: &Path,
     old_path: &str,
     new_name: &str,
-) -> Result<String, CoreError> {
+) -> Result<String, NotesError> {
     let old_path = old_path.trim().trim_matches('/');
     if old_path.is_empty() {
-        return Err(CoreError::Msg("Cannot rename root group".to_string()));
+        return Err(NotesError::Msg("Cannot rename root group".to_string()));
     }
 
     let sanitized_new_name = sanitize_filename(new_name.trim()).trim_matches('_').to_string();
     if sanitized_new_name.is_empty() {
-        return Err(CoreError::Msg("New group name cannot be empty".to_string()));
+        return Err(NotesError::Msg("New group name cannot be empty".to_string()));
     }
 
     let new_path = if let Some((parent, _)) = old_path.rsplit_once('/') {
@@ -135,7 +135,7 @@ pub fn rename_group(
     let new_dir = notes_dir.join(&new_path);
 
     if new_dir.exists() {
-        return Err(CoreError::Msg(format!("Target group directory '{}' already exists", new_path)));
+        return Err(NotesError::Msg(format!("Target group directory '{}' already exists", new_path)));
     }
 
     if old_dir.exists() {
@@ -207,10 +207,10 @@ pub fn delete_group(
     notes_dir: &Path,
     path: &str,
     recursive: bool,
-) -> Result<(), CoreError> {
+) -> Result<(), NotesError> {
     let clean_path = path.trim().trim_matches('/');
     if clean_path.is_empty() {
-        return Err(CoreError::Msg("Cannot delete root group".to_string()));
+        return Err(NotesError::Msg("Cannot delete root group".to_string()));
     }
 
     let prefix_slash = format!("{}/", clean_path);
@@ -228,7 +228,7 @@ pub fn delete_group(
     )?;
 
     if !recursive && (note_count > 0 || child_group_count > 0) {
-        return Err(CoreError::Msg(format!("Group '{}' is not empty", clean_path)));
+        return Err(NotesError::Msg(format!("Group '{}' is not empty", clean_path)));
     }
 
     if recursive {
@@ -283,7 +283,7 @@ pub fn list_groups(
     conn: &Connection,
     parent_path: Option<&str>,
     max_depth: Option<i32>,
-) -> Result<Vec<GroupInfo>, CoreError> {
+) -> Result<Vec<GroupInfo>, NotesError> {
     let mut stmt = conn.prepare(
         "SELECT path, display_name, collapsed, sort_order, note_sort FROM groups ORDER BY sort_order ASC, display_name ASC"
     )?;
@@ -358,7 +358,7 @@ pub fn list_groups(
 }
 
 /// Returns all groups as a flat list with accurate note counts.
-pub fn get_groups_flat(conn: &Connection) -> Result<Vec<GroupInfo>, CoreError> {
+pub fn get_groups_flat(conn: &Connection) -> Result<Vec<GroupInfo>, NotesError> {
     list_groups(conn, None, None)
 }
 
@@ -367,7 +367,7 @@ pub fn set_group_note_sort(
     conn: &Connection,
     path: &str,
     note_sort: NoteSortOrder,
-) -> Result<NoteSortOrder, CoreError> {
+) -> Result<NoteSortOrder, NotesError> {
     let clean_path = path.trim().trim_matches('/');
     let now = chrono::Utc::now().to_rfc3339();
     let display_name = if clean_path.is_empty() {
@@ -388,7 +388,7 @@ pub fn set_group_note_sort(
 pub fn get_group_note_sort(
     conn: &Connection,
     path: &str,
-) -> Result<NoteSortOrder, CoreError> {
+) -> Result<NoteSortOrder, NotesError> {
     let clean_path = path.trim().trim_matches('/');
     let sort_str: Option<String> = conn
         .query_row(
@@ -403,7 +403,7 @@ pub fn get_group_note_sort(
 }
 
 /// Toggles a group's collapsed state and returns the new boolean value.
-pub fn toggle_group_collapsed(conn: &Connection, path: &str) -> Result<bool, CoreError> {
+pub fn toggle_group_collapsed(conn: &Connection, path: &str) -> Result<bool, NotesError> {
     let clean_path = path.trim().trim_matches('/');
     let now = chrono::Utc::now().to_rfc3339();
     let display_name = clean_path.rsplit('/').next().unwrap_or(clean_path);

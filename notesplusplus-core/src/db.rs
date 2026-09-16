@@ -20,7 +20,7 @@ pub fn init_schema(conn: &Connection) -> SqlResult<()> {
     if let Err(e) = conn.pragma_update(None, "cache_size", -8000) {
         log::warn!("Failed to set cache_size: {}", e);
     }
-    if let Err(e) = conn.pragma_update(None, "busy_timeout", 5000) {
+    if let Err(e) = conn.pragma_update(None, "busy_timeout", crate::constants::DB_BUSY_TIMEOUT_MS) {
         log::warn!("Failed to set busy_timeout: {}", e);
     }
 
@@ -41,6 +41,11 @@ pub fn init_schema(conn: &Connection) -> SqlResult<()> {
             filename, title, content,
             tokenize='porter unicode61'
         );
+
+        CREATE TRIGGER IF NOT EXISTS pages_ai AFTER INSERT ON pages BEGIN
+            INSERT INTO pages_fts(rowid, filename, title, content)
+            VALUES (new.id, CASE WHEN new.group_path = '' THEN new.filename ELSE new.group_path || '/' || new.filename END, new.title, '');
+        END;
 
         CREATE TRIGGER IF NOT EXISTS pages_ad AFTER DELETE ON pages BEGIN
             DELETE FROM pages_fts WHERE rowid = old.id;

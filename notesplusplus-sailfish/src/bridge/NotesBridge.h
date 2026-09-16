@@ -79,6 +79,7 @@ public:
     Q_INVOKABLE void    save_page_source(QString name, QString content);
     Q_INVOKABLE void    create_page(QString name);
     Q_INVOKABLE void    delete_page(QString name);
+    Q_INVOKABLE bool    rename_page(QString old_path, QString new_title);
     Q_INVOKABLE void    navigate_to_page(QString name);
     Q_INVOKABLE void    insert_link_at_cursor(int block_idx, int cursor_pos, QString target);
     Q_INVOKABLE void    toggle_checkbox(int block_index, QString item_path);
@@ -142,6 +143,9 @@ public:
     Q_INVOKABLE bool    check_auth_challenge();
     Q_INVOKABLE void    approve_auth_challenge(QString challenge_id);
     Q_INVOKABLE void    deny_auth_challenge(QString challenge_id);
+
+    // Lifecycle
+    Q_INVOKABLE void    poll_init_and_load();
 
     // Rendering
     Q_INVOKABLE QString render_element_previews();
@@ -273,6 +277,9 @@ private:
     bool         m_authChallengePending = false;
     QString      m_authChallengeId;
     QString      m_authVerificationCode;
+
+    /* ---- Lifetime guard for detached threads ---- */
+    std::shared_ptr<std::atomic<bool>> m_alive;
 
     Q_DISABLE_COPY(NotesBridge)
 };

@@ -6,6 +6,7 @@ use ring::rand::SecureRandom;
 use ring::signature::KeyPair;
 
 use super::tls::{TlsCertificate, TlsOptions};
+use crate::error::NotesError;
 
 mod der {
     use std::net::IpAddr;
@@ -93,7 +94,7 @@ mod der {
 }
 
 /// Generates a new self-signed X.509 certificate and private key.
-pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate, String> {
+pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate, NotesError> {
     let rng = ring::rand::SystemRandom::new();
 
     // 1. Generate ECDSA P-256 PKCS#8 document
@@ -101,14 +102,14 @@ pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate,
         &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
         &rng,
     )
-    .map_err(|e| format!("Failed to generate ECDSA key pair: {:?}", e))?;
+    .map_err(|e| NotesError::Tls(format!("Failed to generate ECDSA key pair: {:?}", e)))?;
 
     let key_pair = ring::signature::EcdsaKeyPair::from_pkcs8(
         &ring::signature::ECDSA_P256_SHA256_ASN1_SIGNING,
         pkcs8_doc.as_ref(),
         &rng,
     )
-    .map_err(|e| format!("Failed to parse generated key pair: {:?}", e))?;
+    .map_err(|e| NotesError::Tls(format!("Failed to parse generated key pair: {:?}", e)))?;
 
     let pub_key_bytes = key_pair.public_key().as_ref();
 
@@ -119,7 +120,7 @@ pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate,
     // Serial Number: 16 random bytes (positive integer)
     let mut serial_bytes = [0u8; 16];
     rng.fill(&mut serial_bytes)
-        .map_err(|e| format!("Random generation failed: {:?}", e))?;
+        .map_err(|e| NotesError::Tls(format!("Random generation failed: {:?}", e)))?;
     serial_bytes[0] &= 0x7f; // Ensure MSB is 0 for positive integer
     if serial_bytes[0] == 0 {
         serial_bytes[0] = 1;
@@ -219,7 +220,7 @@ pub fn generate_self_signed_cert(options: &TlsOptions) -> Result<TlsCertificate,
     // 3. Sign TBSCertificate with key_pair
     let sig = key_pair
         .sign(&rng, &tbs_der)
-        .map_err(|e| format!("Signing failed: {:?}", e))?;
+        .map_err(|e| NotesError::Tls(format!("Signing failed: {:?}", e)))?;
     let sig_bit_str = der::bit_string(sig.as_ref());
 
     // 4. Assemble full X.509 Certificate DER

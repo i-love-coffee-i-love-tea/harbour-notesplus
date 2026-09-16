@@ -283,7 +283,7 @@ pub fn handle_agent_undo<W: Write>(
             send_json_ok(stream, &resp, cors_origin);
         }
         Err(err) => {
-            let resp = json!({ "ok": false, "error": err, "can_undo": session_guard.can_undo() });
+            let resp = json!({ "ok": false, "error": err.to_string(), "can_undo": session_guard.can_undo() });
             send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
     }
@@ -308,7 +308,7 @@ pub fn handle_fetch_url<W: Write>(
             send_json_ok(stream, &resp, cors_origin);
         }
         Err(err) => {
-            let resp = json!({ "ok": false, "error": err });
+            let resp = json!({ "ok": false, "error": err.to_string() });
             send_response(stream, 400, "Bad Request", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
         }
     }

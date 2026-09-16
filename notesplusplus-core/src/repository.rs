@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
-use crate::CoreError;
+use crate::NotesError;
 use crate::group::{self, GroupInfo, NoteSortOrder};
 use crate::page::{self, PageInfo};
 use crate::search::{self, SearchResult};
@@ -12,46 +12,46 @@ use crate::search::{self, SearchResult};
 /// Common trait for note storage and index operations.
 pub trait NoteRepository: Send + Sync {
     /// List all pages from the index.
-    fn list_pages(&self) -> Result<Vec<PageInfo>, CoreError>;
+    fn list_pages(&self) -> Result<Vec<PageInfo>, NotesError>;
 
     /// Search indexed pages via full-text search.
-    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, CoreError>;
+    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, NotesError>;
 
     /// Retrieve page metadata by title or filename.
-    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError>;
+    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, NotesError>;
 
     /// Read raw note content from disk.
-    fn read_note_content(&self, filename: &str) -> Result<String, CoreError>;
+    fn read_note_content(&self, filename: &str) -> Result<String, NotesError>;
 
     /// Save note content atomically and update database metadata and FTS index in O(1) time.
-    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, CoreError>;
+    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError>;
 
     /// Create a new note page and register it in the index.
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, CoreError>;
+    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, NotesError>;
 
     /// Delete a note page from disk and the SQLite index.
-    fn delete_page(&self, name_or_filename: &str) -> Result<(), CoreError>;
+    fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError>;
 
     /// Perform a full filesystem reconciliation sync.
-    fn sync_all(&self) -> Result<(), CoreError>;
+    fn sync_all(&self) -> Result<(), NotesError>;
 
     /// Create a new note group.
-    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, CoreError>;
+    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, NotesError>;
 
     /// Rename an existing group.
-    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, CoreError>;
+    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, NotesError>;
 
     /// Delete a note group.
-    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), CoreError>;
+    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), NotesError>;
 
     /// List groups, optionally filtered.
-    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, CoreError>;
+    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, NotesError>;
 
     /// Set note sort order for a group.
-    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, CoreError>;
+    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, NotesError>;
 
     /// Move a page to a new group.
-    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError>;
+    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, NotesError>;
 
     /// Check whether a note file exists on disk.
     fn note_exists(&self, name_or_filename: &str) -> bool;
@@ -80,72 +80,72 @@ impl FsSqliteNoteRepository {
 }
 
 impl NoteRepository for FsSqliteNoteRepository {
-    fn list_pages(&self) -> Result<Vec<PageInfo>, CoreError> {
+    fn list_pages(&self) -> Result<Vec<PageInfo>, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::list_pages(&conn)
     }
 
-    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, CoreError> {
+    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         search::search_pages(&conn, query)
     }
 
-    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, CoreError> {
+    fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::get_page(&conn, name_or_filename)
     }
 
-    fn read_note_content(&self, filename: &str) -> Result<String, CoreError> {
+    fn read_note_content(&self, filename: &str) -> Result<String, NotesError> {
         let path = page::safe_note_path(&self.notes_dir, filename);
-        std::fs::read_to_string(&path).map_err(|e| CoreError::Msg(format!("Failed to read {}: {}", filename, e)))
+        std::fs::read_to_string(&path).map_err(|e| NotesError::Msg(format!("Failed to read {}: {}", filename, e)))
     }
 
-    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, CoreError> {
+    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::save_and_index_page(&conn, &self.notes_dir, filename, content)
     }
 
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, CoreError> {
+    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::create_page(&conn, &self.notes_dir, name, is_journal)
     }
 
-    fn delete_page(&self, name_or_filename: &str) -> Result<(), CoreError> {
+    fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::delete_page(&conn, &self.notes_dir, name_or_filename)
     }
 
-    fn sync_all(&self) -> Result<(), CoreError> {
+    fn sync_all(&self) -> Result<(), NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::sync_and_index_pages(&conn, &self.notes_dir)
     }
 
-    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, CoreError> {
+    fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         group::create_group(&conn, &self.notes_dir, parent_path, name)
     }
 
-    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, CoreError> {
+    fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         group::rename_group(&conn, &self.notes_dir, old_path, new_name)
     }
 
-    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), CoreError> {
+    fn delete_group(&self, path: &str, recursive: bool) -> Result<(), NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         group::delete_group(&conn, &self.notes_dir, path, recursive)
     }
 
-    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, CoreError> {
+    fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         group::list_groups(&conn, parent_path, max_depth)
     }
 
-    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, CoreError> {
+    fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         group::set_group_note_sort(&conn, path, note_sort)
     }
 
-    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, CoreError> {
+    fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         page::move_page(&conn, &self.notes_dir, source_name_or_path, target_group)
     }

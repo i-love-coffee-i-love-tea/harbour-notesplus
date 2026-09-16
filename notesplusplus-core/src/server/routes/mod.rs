@@ -58,19 +58,19 @@ pub fn handle_http_client(mut request: tiny_http::Request, ctx: ServerContext) {
     }
 
     // SSE handlers need owned writer — handle before borrow-heavy dispatch
-    if (clean_path == API_ROUTE_EVENTS || clean_path == "api/events") && req.method == HttpMethod::Get {
+    if clean_path == API_ROUTE_EVENTS && req.method == HttpMethod::Get {
         pages::handle_events_sse(writer, &req, &ctx, &cors_origin);
         return;
     }
-    if (clean_path == API_ROUTE_AI_CHAT || clean_path == "api/agent/chat") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_CHAT || clean_path == API_ROUTE_AGENT_CHAT) && req.method == HttpMethod::Post {
         agent::handle_agent_chat(writer, &req, &ctx, &cors_origin);
         return;
     }
-    if (clean_path == API_ROUTE_AI_TEMPLATE || clean_path == "api/agent/template") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_TEMPLATE || clean_path == API_ROUTE_AGENT_TEMPLATE) && req.method == HttpMethod::Post {
         agent::handle_agent_template(writer, &req, &ctx, &cors_origin);
         return;
     }
-    if (clean_path == API_ROUTE_AI_CONFIRM || clean_path == "api/agent/confirm") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_CONFIRM || clean_path == API_ROUTE_AGENT_CONFIRM) && req.method == HttpMethod::Post {
         agent::handle_agent_confirm(writer, &req, &ctx, &cors_origin);
         return;
     }
@@ -138,7 +138,7 @@ fn is_public_path(p: &str) -> bool {
         || p == "favicon.ico"
         || p.starts_with("assets/")
         || p.starts_with("composables/")
-        || p.starts_with("api/auth/")
+        || p.starts_with(API_ROUTE_AUTH_PREFIX)
 }
 
 /// Authenticated API routes — called after auth gatekeeper passes.
@@ -154,8 +154,8 @@ fn dispatch_api(
         pages::handle_pages_api(writer, req, ctx, cors);
         return;
     }
-    if clean_path.starts_with("api/pages/") {
-        let filename = &clean_path[10..];
+    if clean_path.starts_with(API_ROUTE_PAGES_PREFIX) {
+        let filename = &clean_path[API_ROUTE_PAGES_PREFIX.len()..];
         pages::handle_page_detail_api(writer, req, filename, ctx, cors);
         return;
     }
@@ -165,12 +165,12 @@ fn dispatch_api(
         return;
     }
     // Groups
-    if clean_path == "api/groups" || clean_path.starts_with("api/groups/") {
+    if clean_path == API_ROUTE_GROUPS || clean_path.starts_with(API_ROUTE_GROUPS_PREFIX) {
         pages::handle_groups_api(writer, req, clean_path, ctx, cors);
         return;
     }
     // Notes
-    if clean_path == "api/notes" || clean_path.starts_with("api/notes/") {
+    if clean_path == API_ROUTE_NOTES || clean_path.starts_with(API_ROUTE_NOTES_PREFIX) {
         pages::handle_notes_api(writer, req, clean_path, ctx, cors);
         return;
     }
@@ -188,40 +188,40 @@ fn dispatch_api(
         return;
     }
     // Export
-    if clean_path == "api/export/html" {
+    if clean_path == API_ROUTE_EXPORT_HTML {
         pages::handle_export_html_api(writer, req, ctx, cors);
         return;
     }
-    if clean_path == "api/export/all" {
+    if clean_path == API_ROUTE_EXPORT_ALL {
         pages::handle_export_all_api(writer, ctx, cors);
         return;
     }
     // Agent (non-SSE endpoints)
-    if (clean_path == API_ROUTE_AI_STATUS || clean_path == "api/agent/status") && req.method == HttpMethod::Get {
+    if (clean_path == API_ROUTE_AI_STATUS || clean_path == API_ROUTE_AGENT_STATUS) && req.method == HttpMethod::Get {
         agent::handle_agent_status(writer, ctx, cors);
         return;
     }
-    if (clean_path == API_ROUTE_AI_MODELS || clean_path == "api/agent/models") && req.method == HttpMethod::Get {
+    if (clean_path == API_ROUTE_AI_MODELS || clean_path == API_ROUTE_AGENT_MODELS) && req.method == HttpMethod::Get {
         agent::handle_agent_models(writer, ctx, cors);
         return;
     }
-    if clean_path == API_ROUTE_AI_CONFIG || clean_path == "api/agent/config" {
+    if clean_path == API_ROUTE_AI_CONFIG || clean_path == API_ROUTE_AGENT_CONFIG {
         agent::handle_agent_config(writer, req, ctx, cors);
         return;
     }
-    if (clean_path == API_ROUTE_AI_UNDO || clean_path == "api/agent/undo") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_UNDO || clean_path == API_ROUTE_AGENT_UNDO) && req.method == HttpMethod::Post {
         agent::handle_agent_undo(writer, ctx, cors);
         return;
     }
-    if (clean_path == API_ROUTE_AI_FETCH_URL || clean_path == "api/agent/fetch_url" || clean_path == "api/fetch_url") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_FETCH_URL || clean_path == API_ROUTE_AGENT_FETCH_URL || clean_path == "api/fetch_url") && req.method == HttpMethod::Post {
         agent::handle_fetch_url(writer, req, cors);
         return;
     }
-    if (clean_path == API_ROUTE_AI_PREPROCESS_HTML || clean_path == "api/agent/preprocess_html" || clean_path == "api/preprocess_html") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_PREPROCESS_HTML || clean_path == API_ROUTE_AGENT_PREPROCESS_HTML || clean_path == "api/preprocess_html") && req.method == HttpMethod::Post {
         agent::handle_preprocess_html(writer, req, cors);
         return;
     }
-    if (clean_path == API_ROUTE_AI_READ_FILE || clean_path == "api/agent/read_file" || clean_path == "api/read_file") && req.method == HttpMethod::Post {
+    if (clean_path == API_ROUTE_AI_READ_FILE || clean_path == API_ROUTE_AGENT_READ_FILE || clean_path == "api/read_file") && req.method == HttpMethod::Post {
         agent::handle_read_file(writer, req, ctx, cors);
         return;
     }

@@ -9,7 +9,7 @@ This document describes the development, build, test, and deployment workflows f
 - **`notesplusplus-core`**: Pure Rust core engine containing:
   - AsciiDoc AST parser (`parser/`, `block.rs`, `inline.rs`, `html.rs`).
   - SQLite database, full-text search (FTS), page indexing (`db/`, `search.rs`, `page.rs`).
-  - Embedded HTTP/HTTPS web server with TLS and self-signed certificate generation (`server.rs`, `server/tls.rs`).
+  - Embedded HTTP/HTTPS web server with TLS and self-signed certificate generation (`server/mod.rs`, `server/tls.rs`).
   - Web Access Authentication: HTTP Basic Auth + OpenID Connect (OIDC) / OAuth 2.0 PKCE (`server/auth.rs`).
   - Static Vue 3 ES Modules web editor & preview (`server/web_assets.rs`).
   - LLM AI Assistant client & agent tool execution loop (`agent/`).
@@ -189,7 +189,7 @@ All RPMs are built with `SailfishOS-5.1.0.11-aarch64`. This produces **aarch64**
 
 ### Dependency note: `url` crate and ICU chain
 
-The `url` crate >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Unicode normalization stack (`icu_collections`, `icu_normalizer`, `displaydoc`, `zerofrom`), adding ~20 heavy proc-macro crates. Downgrading to `url 2.5.2` replaces the ICU-based `idna 1.x` with pure-Rust `idna 0.5`, significantly reducing the dependency tree. This does NOT enable4.6 builds (glibc limitation remains) but reduces build times and binary size.
+The `url` crate >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Unicode normalization stack (`icu_collections`, `icu_normalizer`, `displaydoc`, `zerofrom`), adding ~20 heavy proc-macro crates. Downgrading to `url 2.5.2` replaces the ICU-based `idna 1.x` with pure-Rust `idna 0.5`, significantly reducing the dependency tree. This does NOT enable 4.6 builds (glibc limitation remains) but reduces build times and binary size.
 
 ```bash
 cargo update -p url --precise 2.5.2

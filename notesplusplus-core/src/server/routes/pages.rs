@@ -3,7 +3,7 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::block::Block;
-use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN};
+use crate::constants::{MIME_HTML, MIME_JSON, MIME_TEXT_PLAIN, API_ROUTE_GROUPS_PREFIX, API_ROUTE_NOTES, API_ROUTE_NOTES_PREFIX};
 use crate::html::{adoc_to_html5, adoc_to_html_body, blocks_to_html_body};
 use crate::page;
 use crate::page::sanitize_note_filename;
@@ -278,7 +278,7 @@ pub fn handle_notes_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    if clean_path == "api/notes" {
+    if clean_path == API_ROUTE_NOTES {
         match req.method.as_str() {
             "GET" => {
                 let q_param = req.query.as_deref().and_then(|q| {
@@ -343,9 +343,9 @@ pub fn handle_notes_api<W: Write>(
         }
     }
 
-    if req.method == "POST" && clean_path.starts_with("api/notes/") && clean_path.ends_with("/toggle") {
+    if req.method == "POST" && clean_path.starts_with(API_ROUTE_NOTES_PREFIX) && clean_path.ends_with("/toggle") {
         let raw_name = clean_path
-            .strip_prefix("api/notes/")
+            .strip_prefix(API_ROUTE_NOTES_PREFIX)
             .unwrap()
             .strip_suffix("/toggle")
             .unwrap();
@@ -408,8 +408,8 @@ pub fn handle_notes_api<W: Write>(
         return;
     }
 
-    if clean_path.starts_with("api/notes/") {
-        let note_name = clean_path.strip_prefix("api/notes/").unwrap_or("");
+    if clean_path.starts_with(API_ROUTE_NOTES_PREFIX) {
+        let note_name = clean_path.strip_prefix(API_ROUTE_NOTES_PREFIX).unwrap_or("");
 
         match req.method.as_str() {
             "GET" => {
@@ -503,7 +503,7 @@ pub fn handle_groups_api<W: Write>(
             }
         }
         "DELETE" => {
-            let path = clean_path.strip_prefix("api/groups/").unwrap_or("").trim();
+            let path = clean_path.strip_prefix(API_ROUTE_GROUPS_PREFIX).unwrap_or("").trim();
             if path.is_empty() {
                 send_json_error(stream, 400, "Bad Request", "Group path required", cors_origin);
                 return;
@@ -520,7 +520,7 @@ pub fn handle_groups_api<W: Write>(
             }
         }
         "PUT" => {
-            let old_path = clean_path.strip_prefix("api/groups/").unwrap_or("").trim();
+            let old_path = clean_path.strip_prefix(API_ROUTE_GROUPS_PREFIX).unwrap_or("").trim();
             let json_val = req.json_body();
             let new_name = json_val.get("new_name").or_else(|| json_val.get("name")).and_then(|v| v.as_str()).unwrap_or("").trim();
             let note_sort = json_val.get("note_sort").and_then(|v| v.as_str()).map(|s| s.trim());

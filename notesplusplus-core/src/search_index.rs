@@ -8,14 +8,14 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use crate::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
-use crate::CoreError;
+use crate::NotesError;
 use crate::db;
 use crate::page::{extract_doc_title, sanitize_filename, is_asset_dir};
 
 /// Scan notes directory recursively for .adoc files, insert any missing into DB and index into FTS.
 /// Skips re-reading and re-indexing files that have not changed since last recorded update.
 /// Purges records from DB and FTS when files no longer exist on disk.
-pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
+pub fn sync_and_index_pages(conn: &Connection, notes_dir: &Path) -> Result<(), NotesError> {
     if !notes_dir.exists() {
         return Ok(());
     }
@@ -33,7 +33,7 @@ fn sync_dir_recursive(
     current_dir: &Path,
     current_group: &str,
     depth: usize,
-) -> Result<(), CoreError> {
+) -> Result<(), NotesError> {
     if depth > 10 {
         return Ok(());
     }
@@ -146,7 +146,7 @@ pub struct RebuildStats {
 
 /// Destroys and recreates the full-text search index, clears all page and group
 /// records, and rescans the notes directory from scratch.
-pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats, CoreError> {
+pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats, NotesError> {
     conn.execute_batch("DROP TABLE IF EXISTS pages_fts")?;
     conn.execute("DELETE FROM pages", [])?;
     conn.execute("DELETE FROM groups", [])?;
@@ -173,7 +173,7 @@ pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats
 }
 
 /// Purges page records from DB and FTS when files no longer exist on disk.
-pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(), CoreError> {
+pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(), NotesError> {
     let mut stmt = conn.prepare("SELECT id, filename, group_path FROM pages")?;
     let rows: Vec<(i64, String, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
@@ -197,7 +197,7 @@ pub fn cleanup_orphaned_pages(conn: &Connection, notes_dir: &Path) -> Result<(),
 }
 
 /// Removes groups that have no pages and no child groups.
-pub fn cleanup_orphaned_groups(conn: &Connection) -> Result<(), CoreError> {
+pub fn cleanup_orphaned_groups(conn: &Connection) -> Result<(), NotesError> {
     let groups: Vec<String> = conn
         .prepare("SELECT path FROM groups")?
         .query_map([], |row| row.get::<_, String>(0))?

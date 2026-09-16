@@ -9,6 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
+use crate::error::NotesError;
+
 pub fn current_epoch_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -17,10 +19,10 @@ pub fn current_epoch_secs() -> u64 {
 }
 
 /// Generates a cryptographically secure random hex string of given byte length.
-pub fn generate_secure_token(byte_len: usize) -> Result<String, String> {
+pub fn generate_secure_token(byte_len: usize) -> Result<String, NotesError> {
     let rng = SystemRandom::new();
     let mut bytes = vec![0u8; byte_len];
-    rng.fill(&mut bytes).map_err(|e| format!("Failed to generate random bytes: {}", e))?;
+    rng.fill(&mut bytes).map_err(|e| NotesError::Auth(format!("Failed to generate random bytes: {}", e)))?;
     Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
@@ -166,7 +168,7 @@ impl SessionStore {
         username: &str,
         auth_method: &str,
         ttl_secs: u64,
-    ) -> Result<Session, String> {
+    ) -> Result<Session, NotesError> {
         let now = current_epoch_secs();
         let session_id = generate_secure_token(32)?;
 
@@ -244,7 +246,7 @@ impl AuthChallengeStore {
     }
 
     /// Creates a new pending challenge with the given TTL in seconds.
-    pub fn create_challenge(&self, ttl_secs: u64) -> Result<AuthChallenge, String> {
+    pub fn create_challenge(&self, ttl_secs: u64) -> Result<AuthChallenge, NotesError> {
         let now = current_epoch_secs();
         let challenge = AuthChallenge {
             challenge_id: generate_secure_token(32)?,

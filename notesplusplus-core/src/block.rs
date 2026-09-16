@@ -324,6 +324,36 @@ impl Block {
         }
     }
 
+    /// Prepend a raw text prefix to this block's `raw` field.
+    /// Skips `EmptyLine` (which has no raw field).
+    pub fn prepend_raw(&mut self, prefix: &str) {
+        match self {
+            Block::Heading { ref mut raw, .. }
+            | Block::Paragraph { ref mut raw, .. }
+            | Block::OrderedListItem { ref mut raw, .. }
+            | Block::UnorderedListItem { ref mut raw, .. }
+            | Block::DescriptionListItem { ref mut raw, .. }
+            | Block::CalloutListItem { ref mut raw, .. }
+            | Block::CodeBlock { ref mut raw, .. }
+            | Block::LiteralBlock { ref mut raw, .. }
+            | Block::Blockquote { ref mut raw, .. }
+            | Block::Verse { ref mut raw, .. }
+            | Block::Sidebar { ref mut raw, .. }
+            | Block::Example { ref mut raw, .. }
+            | Block::Table { ref mut raw, .. }
+            | Block::Image { ref mut raw, .. }
+            | Block::HorizontalRule { ref mut raw }
+            | Block::Admonition { ref mut raw, .. }
+            | Block::Open { ref mut raw, .. }
+            | Block::PageBreak { ref mut raw }
+            | Block::Comment { ref mut raw, .. }
+            | Block::Toc { ref mut raw, .. } => {
+                *raw = format!("{}\n{}", prefix, raw);
+            }
+            Block::EmptyLine => {}
+        }
+    }
+
     pub fn to_qvariant_map(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         map.insert("type".into(), serde_json::Value::String(self.block_type().into()));

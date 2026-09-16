@@ -9,8 +9,6 @@
 //! - Opaque pointers (`*mut AppPaths`, `*mut FfiSearchEngine`, etc.) must be
 //!   freed with their respective `notes_core_*_free()` functions.
 
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
-
 pub mod agent;
 pub mod common;
 pub mod consts;

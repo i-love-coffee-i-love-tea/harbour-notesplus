@@ -2,7 +2,7 @@ use std::os::raw::c_char;
 
 use crate::agent::LlmConfig;
 use crate::server;
-use super::common::{cstr_to_path, cstr_to_string, string_to_c};
+use super::common::{cstr_to_path, cstr_to_string, ffi_err, string_to_c};
 
 /// Start the web server. Returns opaque handle or NULL on failure.
 #[no_mangle]
@@ -91,7 +91,7 @@ pub extern "C" fn notes_core_server_tls_install(
             });
             string_to_c(serde_json::to_string(&info).unwrap_or_default())
         }
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 
@@ -111,7 +111,7 @@ pub extern "C" fn notes_core_server_tls_reset(
             });
             string_to_c(serde_json::to_string(&info).unwrap_or_default())
         }
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 

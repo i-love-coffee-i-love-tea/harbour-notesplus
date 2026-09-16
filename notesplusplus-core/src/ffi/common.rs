@@ -146,8 +146,10 @@ pub unsafe fn cstr_to_path(ptr: *const c_char) -> PathBuf {
 }
 
 /// Allocate a C string from a Rust String. Caller must free via notes_core_free_string.
+/// Interior NUL bytes are stripped to prevent silent truncation.
 pub fn string_to_c(s: String) -> *mut c_char {
-    CString::new(s).unwrap_or_default().into_raw()
+    let sanitized = s.replace('\0', "");
+    CString::new(sanitized).unwrap_or_default().into_raw()
 }
 
 /// Free a string allocated by any notes_core_* function.
@@ -160,3 +162,8 @@ pub extern "C" fn notes_core_free_string(s: *mut c_char) {
         unsafe { drop(CString::from_raw(s)); }
     }
 }
+
+macro_rules! ffi_err {
+    ($e:expr) => { crate::ffi::common::string_to_c(format!("ERROR: {}", $e)) };
+}
+pub(crate) use ffi_err;

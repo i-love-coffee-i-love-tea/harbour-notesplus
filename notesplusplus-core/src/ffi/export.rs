@@ -1,7 +1,7 @@
 use std::os::raw::c_char;
 
 use crate::html;
-use super::common::{cstr_to_path, string_to_c};
+use super::common::{cstr_to_path, ffi_err, string_to_c};
 
 /// Export a single page to HTML5. Returns allocated output path or error.
 #[no_mangle]
@@ -17,7 +17,7 @@ pub extern "C" fn notes_core_export_html5(
     let assets = ndir.join("assets");
     match html::export_page_to_html5(&ndir, &assets, &full.to_string_lossy(), &out) {
         Ok(p) => string_to_c(p.to_string_lossy().into_owned()),
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 
@@ -35,6 +35,6 @@ pub extern "C" fn notes_core_export_all_html5(
             let strs: Vec<String> = paths.iter().map(|p| p.to_string_lossy().into_owned()).collect();
             string_to_c(serde_json::to_string(&strs).unwrap_or_else(|_| "[]".to_string()))
         }
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }

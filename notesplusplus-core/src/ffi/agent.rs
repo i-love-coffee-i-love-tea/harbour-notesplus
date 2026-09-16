@@ -6,7 +6,7 @@ use crate::agent::{
     AgentSession, AgentStepResult, LlmClient, LlmConfig, PendingConfirmation, PermissionConfig,
     PermissionManager,
 };
-use super::common::{cstr_to_path, cstr_to_string, string_to_c};
+use super::common::{cstr_to_path, cstr_to_string, ffi_err, string_to_c};
 
 pub struct FfiAgentSession {
     pub session: Arc<Mutex<AgentSession>>,
@@ -142,12 +142,6 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
             last_created_note = sess.last_created_note();
         }
 
-        if let Some(cb) = cb_opt {
-            unsafe {
-                cb(udata, std::ptr::null(), true);
-            }
-        }
-
         if let Ok(mut guard) = result_slot.lock() {
             *guard = Some(WorkerResult {
                 step_result: Ok(step_result),
@@ -157,6 +151,12 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
                 last_snapshot_id,
                 last_created_note,
             });
+        }
+
+        if let Some(cb) = cb_opt {
+            unsafe {
+                cb(udata, std::ptr::null(), true);
+            }
         }
     });
     0
@@ -195,6 +195,23 @@ pub extern "C" fn notes_core_agent_poll(
                 "can_undo": wr.can_undo,
                 "last_snapshot_id": wr.last_snapshot_id,
                 "last_created_note": wr.last_created_note,
+                "step_result": match &wr.step_result {
+                    Ok(AgentStepResult::Finished { content, .. }) => serde_json::json!({
+                        "type": "Finished",
+                        "content": content,
+                    }),
+                    Ok(AgentStepResult::RequiresConfirmation(_)) => serde_json::json!({
+                        "type": "RequiresConfirmation",
+                    }),
+                    Ok(AgentStepResult::Error(e)) => serde_json::json!({
+                        "type": "Error",
+                        "content": e,
+                    }),
+                    Err(e) => serde_json::json!({
+                        "type": "Error",
+                        "content": e,
+                    }),
+                },
                 "error": match &wr.step_result {
                     Err(e) => e.clone(),
                     Ok(AgentStepResult::Error(e)) => e.clone(),
@@ -213,11 +230,13 @@ pub extern "C" fn notes_core_agent_poll(
     }
 }
 
-/// Confirm or deny a pending action (background).
+/// Confirm or deny a pending action with streaming token callback (background).
 #[no_mangle]
-pub extern "C" fn notes_core_agent_confirm(
+pub unsafe extern "C" fn notes_core_agent_confirm_streaming(
     ffi: *mut FfiAgentSession,
     approved: i32,
+    callback: Option<FfiTokenCallback>,
+    user_data: *mut std::os::raw::c_void,
 ) -> i32 {
     let ffi = unsafe { &mut *ffi };
     let session = ffi.session.clone();
@@ -228,6 +247,11 @@ pub extern "C" fn notes_core_agent_confirm(
         b.clear();
     }
 
+    let cb_wrapper = SendCallback {
+        callback,
+        user_data_addr: user_data as usize,
+    };
+
     thread::spawn(move || {
         let step_result;
         let messages_json;
@@ -236,11 +260,24 @@ pub extern "C" fn notes_core_agent_confirm(
         let last_snapshot_id;
         let last_created_note;
 
+        let SendCallback {
+            callback: cb_opt,
+            user_data_addr,
+        } = cb_wrapper;
+        let udata = user_data_addr as *mut std::os::raw::c_void;
+
         {
             let mut sess = session.lock().unwrap();
             let result = sess.confirm_pending_action_streaming(approved != 0, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
+                }
+                if let Some(cb) = cb_opt {
+                    let c_tok = string_to_c(tok.to_string());
+                    unsafe {
+                        cb(udata, c_tok, false);
+                        crate::ffi::common::notes_core_free_string(c_tok);
+                    }
                 }
             });
             step_result = result;
@@ -262,8 +299,23 @@ pub extern "C" fn notes_core_agent_confirm(
                 last_created_note,
             });
         }
+
+        if let Some(cb) = cb_opt {
+            unsafe {
+                cb(udata, std::ptr::null(), true);
+            }
+        }
     });
     0
+}
+
+/// Confirm or deny a pending action (background).
+#[no_mangle]
+pub unsafe extern "C" fn notes_core_agent_confirm(
+    ffi: *mut FfiAgentSession,
+    approved: i32,
+) -> i32 {
+    notes_core_agent_confirm_streaming(ffi, approved, None, std::ptr::null_mut())
 }
 
 /// Undo the last agent action. Returns allocated result string.
@@ -275,7 +327,7 @@ pub extern "C" fn notes_core_agent_undo(
     let mut sess = ffi.session.lock().unwrap();
     match sess.undo_last_action() {
         Ok(msg) => string_to_c(msg),
-        Err(e) => string_to_c(format!("ERROR: {}", e)),
+        Err(e) => ffi_err!(e),
     }
 }
 

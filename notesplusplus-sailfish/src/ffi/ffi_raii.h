@@ -57,10 +57,18 @@ inline std::string ffiStringToStd(char* raw) {
     return std::string(guard.get());
 }
 
-/* Helper: convert QString to temporary UTF-8 data for FFI calls.
- * The returned pointer is valid as long as the QByteArray is alive. */
-inline const char* qstrToFFI(const QString& s) {
-    return s.toUtf8().constData();
-}
+/* Helper: RAII wrapper for temporary QString -> const char* conversions in FFI calls.
+ * Preserves the temporary QByteArray across the full expression containing the call.
+ */
+class QStrFfi {
+public:
+    inline explicit QStrFfi(const QString& s) : m_bytes(s.toUtf8()) {}
+    inline const char* constData() const { return m_bytes.constData(); }
+    inline operator const char*() const { return m_bytes.constData(); }
+private:
+    QByteArray m_bytes;
+};
+
+#define qstrToFFI(s) (QStrFfi(s).constData())
 
 #endif /* NOTESPLUSPLUS_FFI_RAII_H */

@@ -1,43 +1,11 @@
 use super::model::{model_file_path, model_filename, DownloadProgress, SttModelInfo};
+use crate::error::NotesError;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-
-#[derive(thiserror::Error, Debug)]
-pub enum SttError {
-    #[error("Model not found: {0}")]
-    ModelNotFound(String),
-
-    #[error("Network error: {0}")]
-    Network(String),
-
-    #[error("HTTP error: status {status}, body: {body}")]
-    Http { status: u16, body: String },
-
-    #[error("Checksum mismatch: expected {expected}, calculated {actual}")]
-    ChecksumMismatch { expected: String, actual: String },
-
-    #[error("Download cancelled")]
-    Cancelled,
-
-    #[error("Audio format error: {0}")]
-    AudioFormat(String),
-
-    #[error("Inference error: {0}")]
-    Inference(String),
-
-    #[error("Engine error: {0}")]
-    Engine(String),
-
-    #[error("Model file not found at {0}")]
-    ModelFileMissing(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-}
 
 /// Helper function to convert raw byte slice to lowercase hex string.
 pub fn hex_encode(bytes: &[u8]) -> String {
@@ -79,7 +47,7 @@ impl ModelDownloader {
         model: &SttModelInfo,
         cancel_flag: Option<Arc<AtomicBool>>,
         mut on_progress: F,
-    ) -> Result<PathBuf, SttError>
+    ) -> Result<PathBuf, NotesError>
     where
         F: FnMut(DownloadProgress),
     {
@@ -98,10 +66,10 @@ impl ModelDownloader {
             Ok(resp) => resp,
             Err(ureq::Error::Status(status, resp)) => {
                 let body = resp.into_string().unwrap_or_default();
-                return Err(SttError::Http { status, body });
+                return Err(NotesError::Http(format!("STT HTTP {}: {}", status, body)));
             }
             Err(ureq::Error::Transport(err)) => {
-                return Err(SttError::Network(err.to_string()));
+                return Err(NotesError::Http(format!("STT download: {}", err)));
             }
         };
 
@@ -135,7 +103,7 @@ impl ModelDownloader {
                 if flag.load(Ordering::SeqCst) {
                     drop(file);
                     let _ = fs::remove_file(&part_path);
-                    return Err(SttError::Cancelled);
+                    return Err(NotesError::SttCancelled);
                 }
             }
 
@@ -146,7 +114,7 @@ impl ModelDownloader {
                         if flag.load(Ordering::SeqCst) {
                             drop(file);
                             let _ = fs::remove_file(&part_path);
-                            return Err(SttError::Cancelled);
+                            return Err(NotesError::SttCancelled);
                         }
                     }
 
@@ -170,7 +138,7 @@ impl ModelDownloader {
                 Err(e) => {
                     drop(file);
                     let _ = fs::remove_file(&part_path);
-                    return Err(SttError::Io(e));
+                    return Err(NotesError::Io(e));
                 }
             }
         }
@@ -184,7 +152,7 @@ impl ModelDownloader {
 
         if !calculated_hex.eq_ignore_ascii_case(&model.sha256) {
             let _ = fs::remove_file(&part_path);
-            return Err(SttError::ChecksumMismatch {
+            return Err(NotesError::SttChecksum {
                 expected: model.sha256.clone(),
                 actual: calculated_hex,
             });
@@ -205,7 +173,7 @@ impl ModelDownloader {
     }
 
     /// Deletes the model binary and any orphaned `.part` file from the models directory.
-    pub fn delete(&self, model_id: &str) -> Result<bool, SttError> {
+    pub fn delete(&self, model_id: &str) -> Result<bool, NotesError> {
         let dest_path = model_file_path(&self.models_dir, model_id);
         let part_path = self.models_dir.join(format!("{}.part", model_filename(model_id)));
 
@@ -220,7 +188,7 @@ impl ModelDownloader {
     }
 
     /// Verifies the SHA256 checksum of an already installed model file.
-    pub fn verify_installed_model(&self, model: &SttModelInfo) -> Result<bool, SttError> {
+    pub fn verify_installed_model(&self, model: &SttModelInfo) -> Result<bool, NotesError> {
         let path = model.file_path(&self.models_dir);
         if !path.is_file() {
             return Ok(false);
@@ -484,7 +452,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            SttError::ChecksumMismatch { expected, actual } => {
+            NotesError::SttChecksum { expected, actual } => {
                 assert_eq!(expected, wrong_sha256);
                 assert_eq!(actual, calculate_sha256(content));
             }
@@ -546,7 +514,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            SttError::Cancelled => {}
+            NotesError::SttCancelled => {}
             other => panic!("Expected Cancelled error, got {:?}", other),
         }
 

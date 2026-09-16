@@ -9,6 +9,7 @@ use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
 use crate::agent::prompt::build_system_prompt_with_custom;
 use crate::agent::tools::{ToolCall, TOOL_READ_NOTE, TOOL_LIST_NOTES, TOOL_SEARCH_NOTES, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_FETCH_URL};
+use crate::error::NotesError;
 use crate::page;
 use crate::repository::NoteRepository;
 
@@ -392,25 +393,25 @@ impl AgentSession {
     }
 
     /// Undoes the last recorded edit action by rolling back to its pre-edit snapshot.
-    pub fn undo_last_action(&mut self) -> Result<String, String> {
+    pub fn undo_last_action(&mut self) -> Result<String, NotesError> {
         let snapshot_id = self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.clone()
-            .ok_or_else(|| "No previous action available to undo".to_string())?;
+            .ok_or_else(|| NotesError::Msg("No previous action available to undo".to_string()))?;
         self.rollback_snapshot(&snapshot_id)
     }
 
     /// Rolls back a note to an arbitrary snapshot by ID.
-    pub fn rollback_snapshot(&mut self, snapshot_id: &str) -> Result<String, String> {
+    pub fn rollback_snapshot(&mut self, snapshot_id: &str) -> Result<String, NotesError> {
         let snapshot = {
             let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
             let snap = backup.get_snapshot(snapshot_id)
-                .map_err(|e| format!("Failed to read snapshot: {}", e))?
-                .ok_or_else(|| format!("Snapshot '{}' not found", snapshot_id))?;
+                .map_err(|e| NotesError::Msg(format!("Failed to read snapshot: {}", e)))?
+                .ok_or_else(|| NotesError::Msg(format!("Snapshot '{}' not found", snapshot_id)))?;
             let _ = backup.delete_snapshot(snapshot_id);
             snap
         };
 
         self.repository.save_note(&snapshot.filename, &snapshot.content)
-            .map_err(|e| format!("Failed to restore note: {}", e))?;
+            .map_err(|e| NotesError::Msg(format!("Failed to restore note: {}", e)))?;
 
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.last_snapshot_id.as_deref() == Some(snapshot_id) {

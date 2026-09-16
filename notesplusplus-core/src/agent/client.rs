@@ -7,13 +7,42 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use crate::agent::tools::{get_available_tools, ToolCall, ToolDefinition};
 use crate::constants::{DEFAULT_AI_ENDPOINT, DEFAULT_AI_MODEL, DEFAULT_AI_TIMEOUT_SECS};
+use crate::error::NotesError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(Default)]
 pub enum LlmProvider {
     #[default]
     Ollama,
     OpenAiCompatible,
+}
+
+impl Serialize for LlmProvider {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            LlmProvider::Ollama => serializer.serialize_str("ollama"),
+            LlmProvider::OpenAiCompatible => serializer.serialize_str("openai"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LlmProvider {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "openai" | "openai_compatible" | "openaicompatible" | "mimocode" | "compatible" => {
+                Ok(LlmProvider::OpenAiCompatible)
+            }
+            "ollama" => Ok(LlmProvider::Ollama),
+            _ => Ok(LlmProvider::default()),
+        }
+    }
 }
 
 impl std::str::FromStr for LlmProvider {
@@ -142,20 +171,6 @@ pub struct ModelInfo {
 pub struct AssistantResponse {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum LlmError {
-    #[error("Network connection error: {0}")]
-    Network(String),
-    #[error("HTTP error ({status}): {body}")]
-    Http { status: u16, body: String },
-    #[error("JSON serialization/deserialization error: {0}")]
-    Json(String),
-    #[error("Invalid LLM response: {0}")]
-    InvalidResponse(String),
-    #[error("Timeout waiting for LLM response")]
-    Timeout,
 }
 
 #[derive(Clone)]
@@ -303,7 +318,7 @@ impl LlmClient {
     }
 
     /// Fetches the list of available models from the configured LLM server.
-    pub fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
+    pub fn list_models(&self) -> Result<Vec<ModelInfo>, NotesError> {
         let url = self.resolve_models_url();
         let agent = self.build_agent();
 
@@ -320,22 +335,22 @@ impl LlmClient {
             Ok(r) => r,
             Err(ureq::Error::Status(code, resp)) => {
                 let err_text = resp.into_string().unwrap_or_default();
-                return Err(LlmError::Http { status: code, body: err_text });
+                return Err(NotesError::LlmHttp { status: code, body: err_text });
             }
             Err(ureq::Error::Transport(t)) => {
-                return Err(LlmError::Network(format!("Failed to fetch models from {}: {}", url, t)));
+                return Err(NotesError::LlmNetwork(format!("Failed to fetch models from {}: {}", url, t)));
             }
         };
 
         let body: Value = resp.into_json()
-            .map_err(|e| LlmError::Json(format!("Failed to parse models response: {}", e)))?;
+            .map_err(|e| NotesError::LlmResponse(format!("Failed to parse models response: {}", e)))?;
 
         match self.config.provider {
             LlmProvider::Ollama => {
                 // Ollama: { "models": [{ "name": "llama3.2:latest", ... }] }
                 let models = body.get("models")
                     .and_then(|v| v.as_array())
-                    .ok_or_else(|| LlmError::InvalidResponse("Missing 'models' array in Ollama response".to_string()))?;
+                    .ok_or_else(|| NotesError::LlmResponse("Missing 'models' array in Ollama response".to_string()))?;
 
                 let mut result = Vec::new();
                 for m in models {
@@ -357,7 +372,7 @@ impl LlmClient {
                 // OpenAI: { "data": [{ "id": "gpt-4", ... }] }
                 let data = body.get("data")
                     .and_then(|v| v.as_array())
-                    .ok_or_else(|| LlmError::InvalidResponse("Missing 'data' array in OpenAI response".to_string()))?;
+                    .ok_or_else(|| NotesError::LlmResponse("Missing 'data' array in OpenAI response".to_string()))?;
 
                 let mut result = Vec::new();
                 for m in data {
@@ -502,12 +517,12 @@ impl LlmClient {
     }
 
     /// Parses the raw JSON response from either Ollama or OpenAI/MiMoCode.
-    pub fn parse_response(provider: LlmProvider, json_val: &Value) -> Result<AssistantResponse, LlmError> {
+    pub fn parse_response(provider: LlmProvider, json_val: &Value) -> Result<AssistantResponse, NotesError> {
         match provider {
             LlmProvider::Ollama => {
                 // Ollama format: { "message": { "role": "assistant", "content": "...", "tool_calls": [...] } }
                 let message = json_val.get("message").ok_or_else(|| {
-                    LlmError::InvalidResponse("Missing 'message' field in Ollama response".to_string())
+                    NotesError::LlmResponse("Missing 'message' field in Ollama response".to_string())
                 })?;
 
                 let content = message.get("content")
@@ -527,15 +542,15 @@ impl LlmClient {
                 let choices = json_val.get("choices")
                     .and_then(|v| v.as_array())
                     .ok_or_else(|| {
-                        LlmError::InvalidResponse("Missing or invalid 'choices' array in OpenAI response".to_string())
+                        NotesError::LlmResponse("Missing or invalid 'choices' array in OpenAI response".to_string())
                     })?;
 
                 if choices.is_empty() {
-                    return Err(LlmError::InvalidResponse("Empty choices in response".to_string()));
+                    return Err(NotesError::LlmResponse("Empty choices in response".to_string()));
                 }
 
                 let message = choices[0].get("message").ok_or_else(|| {
-                    LlmError::InvalidResponse("Missing 'message' in first choice".to_string())
+                    NotesError::LlmResponse("Missing 'message' in first choice".to_string())
                 })?;
 
                 let content = message.get("content")
@@ -553,18 +568,18 @@ impl LlmClient {
         }
     }
 
-    fn extract_tool_calls(val: Option<&Value>) -> Result<Vec<ToolCall>, LlmError> {
+    fn extract_tool_calls(val: Option<&Value>) -> Result<Vec<ToolCall>, NotesError> {
         let mut results = Vec::new();
         if let Some(calls_val) = val {
             if let Some(arr) = calls_val.as_array() {
                 for item in arr {
                     let id = item.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
                     let func_obj = item.get("function").ok_or_else(|| {
-                        LlmError::InvalidResponse("Missing 'function' inside tool_call".to_string())
+                        NotesError::LlmResponse("Missing 'function' inside tool_call".to_string())
                     })?;
 
                     let name = func_obj.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
-                        LlmError::InvalidResponse("Missing 'name' inside function definition".to_string())
+                        NotesError::LlmResponse("Missing 'name' inside function definition".to_string())
                     })?.to_string();
 
                     let raw_args = func_obj.get("arguments").cloned().unwrap_or(Value::Null);
@@ -594,7 +609,7 @@ impl LlmClient {
     }
 
     /// Sends a chat completion request to the configured LLM endpoint.
-    pub fn send_chat(&self, messages: &[ChatMessage]) -> Result<AssistantResponse, LlmError> {
+    pub fn send_chat(&self, messages: &[ChatMessage]) -> Result<AssistantResponse, NotesError> {
         self.send_chat_streaming(messages, |_| {})
     }
 
@@ -603,7 +618,7 @@ impl LlmClient {
         &self,
         messages: &[ChatMessage],
         on_token: F,
-    ) -> Result<AssistantResponse, LlmError> {
+    ) -> Result<AssistantResponse, NotesError> {
         self.send_chat_streaming_with_tools(messages, &get_available_tools(), on_token)
     }
 
@@ -613,7 +628,7 @@ impl LlmClient {
         messages: &[ChatMessage],
         tools: &[ToolDefinition],
         on_token: F,
-    ) -> Result<AssistantResponse, LlmError> {
+    ) -> Result<AssistantResponse, NotesError> {
         let body = self.build_request_body_with_stream(messages, tools, true);
         let url = self.resolve_chat_url();
 
@@ -632,7 +647,7 @@ impl LlmClient {
             Ok(r) => r,
             Err(ureq::Error::Status(code, resp)) => {
                 let err_text = resp.into_string().unwrap_or_default();
-                return Err(LlmError::Http {
+                return Err(NotesError::LlmHttp {
                     status: code,
                     body: err_text,
                 });
@@ -642,7 +657,7 @@ impl LlmClient {
                     ureq::ErrorKind::ConnectionFailed => format!("Connection failed to {}: {}", url, t),
                     _ => format!("{}", t),
                 };
-                return Err(LlmError::Network(err_msg));
+                return Err(NotesError::LlmNetwork(err_msg));
             }
         };
 
@@ -658,22 +673,22 @@ impl LlmClient {
     pub fn parse_ollama_stream<R: BufRead, F: FnMut(&str)>(
         reader: R,
         mut on_token: F,
-    ) -> Result<AssistantResponse, LlmError> {
+    ) -> Result<AssistantResponse, NotesError> {
         let mut accumulated_content = String::new();
         let mut accumulated_tool_calls = Vec::new();
 
         for line_res in reader.lines() {
-            let line = line_res.map_err(|e| LlmError::Network(format!("Stream read error: {}", e)))?;
+            let line = line_res.map_err(|e| NotesError::LlmNetwork(format!("Stream read error: {}", e)))?;
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
             }
 
             let json_val: Value = serde_json::from_str(trimmed)
-                .map_err(|e| LlmError::Json(format!("Invalid JSON line {}: {}", e, trimmed)))?;
+                .map_err(|e| NotesError::LlmResponse(format!("Invalid JSON line {}: {}", e, trimmed)))?;
 
             if let Some(err_msg) = json_val.get("error").and_then(|v| v.as_str()) {
-                return Err(LlmError::InvalidResponse(err_msg.to_string()));
+                return Err(NotesError::LlmResponse(err_msg.to_string()));
             }
 
             if let Some(msg_obj) = json_val.get("message") {
@@ -709,12 +724,12 @@ impl LlmClient {
     pub fn parse_openai_stream<R: BufRead, F: FnMut(&str)>(
         reader: R,
         mut on_token: F,
-    ) -> Result<AssistantResponse, LlmError> {
+    ) -> Result<AssistantResponse, NotesError> {
         let mut accumulated_content = String::new();
         let mut tool_calls_by_index: std::collections::BTreeMap<usize, (Option<String>, String, String)> = std::collections::BTreeMap::new();
 
         for line_res in reader.lines() {
-            let line = line_res.map_err(|e| LlmError::Network(format!("Stream read error: {}", e)))?;
+            let line = line_res.map_err(|e| NotesError::LlmNetwork(format!("Stream read error: {}", e)))?;
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -737,7 +752,7 @@ impl LlmClient {
 
             if let Some(err_obj) = json_val.get("error") {
                 let msg = err_obj.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown OpenAI error");
-                return Err(LlmError::InvalidResponse(msg.to_string()));
+                return Err(NotesError::LlmResponse(msg.to_string()));
             }
 
             if let Some(choices) = json_val.get("choices").and_then(|v| v.as_array()) {
@@ -1087,5 +1102,31 @@ data: [DONE]\n";
 
         let tls_cfg = build_insecure_tls_client_config();
         assert!(tls_cfg.alpn_protocols.is_empty());
+    }
+
+    #[test]
+    fn test_llm_config_deserialization_case_insensitive() {
+        let json_data = json!({
+            "provider": "ollama",
+            "endpoint_url": "http://192.168.0.226:11434",
+            "model": "llama3.2",
+            "api_key": null,
+            "timeout_secs": 90,
+            "allow_self_signed": false
+        });
+
+        let cfg: LlmConfig = serde_json::from_value(json_data).expect("Should deserialize");
+        assert_eq!(cfg.provider, LlmProvider::Ollama);
+        assert_eq!(cfg.endpoint_url, "http://192.168.0.226:11434");
+        assert_eq!(cfg.model, "llama3.2");
+
+        let json_openai = json!({
+            "provider": "openai",
+            "endpoint_url": "https://api.openai.com",
+            "model": "gpt-4o"
+        });
+        let cfg_openai: LlmConfig = serde_json::from_value(json_openai).expect("Should deserialize");
+        assert_eq!(cfg_openai.provider, LlmProvider::OpenAiCompatible);
+        assert_eq!(cfg_openai.endpoint_url, "https://api.openai.com");
     }
 }

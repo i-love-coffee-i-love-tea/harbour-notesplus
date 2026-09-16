@@ -6,7 +6,7 @@
 //! C++ side, so no bindgen-generated bindings are required and no ABI mismatch risk
 //! exists on the Rust side.
 
-use super::downloader::SttError;
+use crate::error::NotesError;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_float, c_int};
 use std::path::Path;
@@ -43,14 +43,14 @@ unsafe impl Send for WhisperContext {}
 
 impl WhisperContext {
     /// Loads a GGML Whisper model from disk via whisper.cpp.
-    pub fn load(model_path: &Path) -> Result<Self, SttError> {
+    pub fn load(model_path: &Path) -> Result<Self, NotesError> {
         let path_str = model_path.to_string_lossy();
         let c_path = CString::new(path_str.as_bytes())
-            .map_err(|_| SttError::Engine("Model path contains an interior NUL byte".to_string()))?;
+            .map_err(|_| NotesError::SttModel("Model path contains an interior NUL byte".to_string()))?;
 
         let ctx = unsafe { whisper_bridge_init(c_path.as_ptr()) };
         if ctx.is_null() {
-            return Err(SttError::Engine(format!(
+            return Err(NotesError::SttModel(format!(
                 "whisper.cpp failed to load model at {}",
                 model_path.display()
             )));
@@ -75,7 +75,7 @@ impl WhisperContext {
         samples: &[f32],
         language: Option<&str>,
         n_threads: i32,
-    ) -> Result<String, SttError> {
+    ) -> Result<String, NotesError> {
         if samples.is_empty() {
             return Ok(String::new());
         }
@@ -83,7 +83,7 @@ impl WhisperContext {
         let c_language = match language {
             Some(lang) if !lang.is_empty() && lang != "auto" => Some(
                 CString::new(lang)
-                    .map_err(|_| SttError::Engine("Language code contains a NUL byte".to_string()))?,
+                    .map_err(|_| NotesError::SttModel("Language code contains a NUL byte".to_string()))?,
             ),
             _ => None,
         };
@@ -103,7 +103,7 @@ impl WhisperContext {
         };
 
         if result_ptr.is_null() {
-            return Err(SttError::Inference(
+            return Err(NotesError::SttInference(
                 "whisper.cpp inference failed (whisper_full returned an error)".to_string(),
             ));
         }
