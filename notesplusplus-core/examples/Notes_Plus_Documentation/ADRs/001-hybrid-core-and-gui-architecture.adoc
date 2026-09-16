@@ -11,7 +11,7 @@ This decision decouples the core document engine from platform-specific UI bindi
 
 == Context
 
-Notes++ targets Sailfish OS devices running Qt Quick / QML (Silica), while simultaneously providing:
+Notes Plus targets Sailfish OS devices running Qt Quick / QML (Silica), while simultaneously providing:
 
 * An embedded companion HTTP server for desktop browsers.
 * Real-time Server-Sent Events (SSE) streaming for AI interactions.

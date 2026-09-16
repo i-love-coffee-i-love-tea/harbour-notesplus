@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ includes a native presentation mode in the companion web UI, dynamically converting standard AsciiDoc notes into responsive slide decks without third-party presentation frameworks.
+Notes Plus includes a native presentation mode in the companion web UI, dynamically converting standard AsciiDoc notes into responsive slide decks without third-party presentation frameworks.
 
 == Context
 

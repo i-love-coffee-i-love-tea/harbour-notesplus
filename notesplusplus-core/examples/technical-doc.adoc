@@ -3,11 +3,11 @@
 
 == Overview
 
-This document describes the architecture of the Notes++ application.
+This document describes the architecture of the Notes Plus application.
 
 == Architecture
 
-Notes++ uses a 3-crate workspace:
+Notes Plus uses a 3-crate workspace:
 
 1. `notesplusplus-core` — Pure Rust core library
 2. `notesplusplus-sailfish` — Sailfish OS GUI
@@ -22,8 +22,8 @@ The core library has no Qt or Sailfish dependencies and can be tested independen
 
 === Storage
 
-* *Files*: `~/.local/share/harbour-notesplusplus/notes/*.adoc`
-* *Database*: `~/.local/share/harbour-notesplusplus/notesplusplus.db`
+* *Files*: `~/.local/share/harbour-notesplus/notes/*.adoc`
+* *Database*: `~/.local/share/harbour-notesplus/notesplus.db`
 
 === SQLite Schema
 

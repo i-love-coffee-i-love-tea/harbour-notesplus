@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ stores all documents as plain-text AsciiDoc (`.adoc`) files on the local filesystem, avoiding proprietary databases and cloud lock-in.
+Notes Plus stores all documents as plain-text AsciiDoc (`.adoc`) files on the local filesystem, avoiding proprietary databases and cloud lock-in.
 
 == Context
 
@@ -17,7 +17,7 @@ Furthermore, mobile device file synchronization (via Syncthing, Nextcloud, or Gi
 
 == Decision
 
-Store all user notes as standard, human-readable AsciiDoc (`.adoc`) files directly on the local filesystem in the user's document directory (`~/Documents/Notes++` or standard XDG document paths).
+Store all user notes as standard, human-readable AsciiDoc (`.adoc`) files directly on the local filesystem in the user's document directory (`~/Documents/Notes Plus` or standard XDG document paths).
 
 === Feature Comparison: AsciiDoc vs. Markdown
 
@@ -52,7 +52,7 @@ AsciiDoc was selected over standard Markdown due to its rich semantic markup cap
 
 [source,ascii]
 ----
-~/Documents/Notes++/
+~/Documents/Notes Plus/
 ├── Meeting_Notes.adoc           // Top-level note
 ├── Technical_Guide.adoc         // Top-level note
 └── Notes_Plus_Documentation/    // Group directory // <1>

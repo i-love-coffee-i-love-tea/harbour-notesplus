@@ -289,8 +289,8 @@ mod tests {
     #[test]
     fn test_generate_self_signed_cert() {
         let options = TlsOptions {
-            common_name: "Notes++ Web Server".to_string(),
-            organization: "Notes++".to_string(),
+            common_name: "Notes Plus Web Server".to_string(),
+            organization: "Notes Plus".to_string(),
             alt_names: vec!["localhost".to_string(), "127.0.0.1".to_string(), "192.168.1.50".to_string()],
             cert_path: None,
             key_path: None,

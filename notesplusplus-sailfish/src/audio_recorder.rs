@@ -277,7 +277,7 @@ impl AudioRecorder {
                 let home = std::env::var_os("HOME").unwrap_or_else(|| "/tmp".into());
                 PathBuf::from(home).join(".cache")
             });
-        let dir = cache_root.join("harbour-notesplusplus");
+        let dir = cache_root.join("harbour-notesplus");
         let _ = fs::create_dir_all(&dir);
         dir.join(RECORDING_FILE_NAME)
     }
@@ -745,7 +745,7 @@ mod tests {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .ends_with(".wav"));
-        assert!(path.to_string_lossy().contains("harbour-notesplusplus"));
+        assert!(path.to_string_lossy().contains("harbour-notesplus"));
     }
 
     #[test]

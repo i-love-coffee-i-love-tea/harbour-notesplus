@@ -7,18 +7,18 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ distinguishes note groups from note asset folders through a filesystem convention (`note.adoc` + `note/`), enabling image and asset attachments without sidebar clutter.
+Notes Plus distinguishes note groups from note asset folders through a filesystem convention (`note.adoc` + `note/`), enabling image and asset attachments without sidebar clutter.
 
 == Context
 
-Notes++ stores user notes as plain-text `.adoc` files on the filesystem (xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002]). Users organize notes into hierarchical groups by creating subdirectories.
+Notes Plus stores user notes as plain-text `.adoc` files on the filesystem (xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002]). Users organize notes into hierarchical groups by creating subdirectories.
 
 However, documents frequently reference images, SVGs, or custom themes. Without a convention for asset storage, users face a dilemma:
 
 1. Place all binary assets in the root notes folder, cluttering the top-level directory.
 2. Create dedicated asset folders, which would pollute the UI group list as empty groups.
 
-Additionally, example documents shipped with the application (`/usr/share/harbour-notesplusplus/examples/`) must follow the exact same layout as user directories.
+Additionally, example documents shipped with the application (`/usr/share/harbour-notesplus/examples/`) must follow the exact same layout as user directories.
 
 == Decision
 
@@ -61,7 +61,7 @@ A directory `foo/` is classified as an *Asset Directory* if `foo.adoc` exists al
 
 [source,ascii]
 ----
-~/Documents/Notes++/
+~/Documents/Notes Plus/
 ├── Meeting_Notes.adoc           // Regular note
 ├── Chronicles.adoc              // Note with attached assets
 ├── Chronicles/                  // Asset directory for Chronicles.adoc (HIDDEN from sidebar) // <1>

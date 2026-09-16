@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build harbour-notesplusplus for Sailfish OS (aarch64) via sfdk build.
+# Build harbour-notesplus for Sailfish OS (aarch64) via sfdk build.
 #
 # Prerequisites (run once):
 #   - Sailfish SDK installed with Docker engine
@@ -31,7 +31,7 @@ if [ -f "$SCRIPT_DIR/Cargo.lock" ]; then
     sed -i 's/^version = 4$/version = 3/' "$SCRIPT_DIR/Cargo.lock"
 fi
 
-echo "=== Building harbour-notesplusplus directly via sfdk ==="
+echo "=== Building harbour-notesplus directly via sfdk ==="
 cd "$SCRIPT_DIR"
 sfdk -c target="$TARGET" build
 
@@ -47,7 +47,7 @@ if [ -d "$SCRIPT_DIR/RPMS" ]; then
 fi
 
 echo "=== Done ==="
-if [ -f "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/harbour-notesplusplus" ]; then
-    file "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/harbour-notesplusplus"
+if [ -f "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/harbour-notesplus" ]; then
+    file "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/harbour-notesplus"
 fi
 ls -lh "$SCRIPT_DIR/rpms/"*.rpm 2>/dev/null || true

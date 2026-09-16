@@ -1,7 +1,7 @@
-pub const APP_DIR_NAME: &str = "harbour-notesplusplus";
+pub const APP_DIR_NAME: &str = "harbour-notesplus";
 pub const NOTES_DIR_NAME: &str = "notes";
 pub const ASSETS_DIR_NAME: &str = "assets";
-pub const DB_FILENAME: &str = "notesplusplus.db";
+pub const DB_FILENAME: &str = "notesplus.db";
 pub const JOURNAL_FILENAME: &str = "journal.adoc";
 pub const JOURNAL_TITLE: &str = "Journal";
 
@@ -16,7 +16,7 @@ pub const MAX_CONCURRENT_CONNECTIONS: usize = 16;
 pub const PORT_SCAN_RANGE: u16 = 20;
 
 // Session & Cookie constants
-pub const SESSION_COOKIE_NAME: &str = "notesplusplus_session";
+pub const SESSION_COOKIE_NAME: &str = "notesplus_session";
 pub const SESSION_EXPIRY_SECS: u64 = 7 * 24 * 3600; // 7 days
 pub const AUTH_CHALLENGE_TTL_SECS: u64 = 60;
 

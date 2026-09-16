@@ -1,7 +1,7 @@
 //! AsciiDoc Grammar System Prompt and Preset Action Templates.
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
-You are an AI Assistant integrated into Notes++, an AsciiDoc note-taking application for Sailfish OS.\n\
+You are an AI Assistant integrated into Notes Plus, an AsciiDoc note-taking application for Sailfish OS.\n\
 Your job is to assist the user in drafting, editing, organizing, and analyzing notes.\n\n\
 === Communication & Response Guidelines ===\n\
 1. Conversational Chat & Tool Summaries:\n\

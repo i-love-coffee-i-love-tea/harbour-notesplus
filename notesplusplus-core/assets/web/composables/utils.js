@@ -115,7 +115,7 @@ export function getRequestedNote() {
   }
 
   try {
-    const saved = localStorage.getItem('notesplusplus_last_note');
+    const saved = localStorage.getItem('notesplus_last_note');
     if (saved && saved.trim()) {
       const trimmed = saved.trim();
       return trimmed.endsWith('.adoc') ? trimmed : trimmed + '.adoc';

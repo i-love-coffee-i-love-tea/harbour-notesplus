@@ -1,10 +1,10 @@
-Name:       harbour-notesplusplus
-Summary:    Notes++ — AsciiDoc notes app for Sailfish OS
+Name:       harbour-notesplus
+Summary:    Notes Plus — AsciiDoc notes app for Sailfish OS
 Version:    0.1.0
 Release:    1
 Group:      Utilities
 License:    MIT
-URL:        https://github.com/gobuki/harbour-notesplusplus
+URL:        https://github.com/gobuki/harbour-notesplus
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
@@ -21,7 +21,7 @@ BuildRequires:  gcc-c++
 BuildRequires:  qt5-qttools-linguist
 
 %description
-Notes++ is an AsciiDoc notes app for Sailfish OS.
+Notes Plus is an AsciiDoc notes app for Sailfish OS.
 Journal with auto-managed daily named pages, page linking,
 full-text search, HTML5 export, and embedded documentation web server.
 
@@ -77,14 +77,14 @@ ls -la "$RUST_TARGET_DIR/libnotesplusplus_core.a" || {
 
 # Step 2: Build the C++ bridge using qmake (links the Rust static lib)
 cd notesplusplus-sailfish
-qmake harbour-notesplusplus.pro \
+qmake harbour-notesplus.pro \
     "RUST_CORE_LIB=$PWD/../$RUST_TARGET_DIR/libnotesplusplus_core.a"
 make -j$(nproc)
 cd ..
 
 # Compile translations
 cd notesplusplus-sailfish/translations
-lrelease harbour-notesplusplus.ts harbour-notesplusplus_de.ts harbour-notesplusplus_es.ts harbour-notesplusplus_en.ts harbour-notesplusplus_en_US.ts
+lrelease harbour-notesplus.ts harbour-notesplus_de.ts harbour-notesplus_es.ts harbour-notesplus_en.ts harbour-notesplus_en_US.ts
 cd ../..
 
 %install
@@ -94,17 +94,17 @@ mkdir -p %{buildroot}%{_bindir}
 # Find the binary (built by qmake in notesplusplus-sailfish/)
 BINARY=""
 for candidate in \
-    notesplusplus-sailfish/harbour-notesplusplus \
-    notesplusplus-sailfish/release/harbour-notesplusplus \
-    target/release/harbour-notesplusplus; do
+    notesplusplus-sailfish/harbour-notesplus \
+    notesplusplus-sailfish/release/harbour-notesplus \
+    target/release/harbour-notesplus; do
   if [ -f "$candidate" ] && [ -x "$candidate" ]; then
     BINARY="$candidate"
     break
   fi
 done
 if [ -z "$BINARY" ]; then
-  echo "ERROR: harbour-notesplusplus binary not found"
-  find . -name harbour-notesplusplus -type f -executable
+  echo "ERROR: harbour-notesplus binary not found"
+  find . -name harbour-notesplus -type f -executable
   exit 1
 fi
 install -m 755 "$BINARY" %{buildroot}%{_bindir}/%{name}

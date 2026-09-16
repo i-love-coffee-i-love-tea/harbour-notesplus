@@ -16,5 +16,5 @@ tests/__pycache__/
 notesplusplus-sailfish/Makefile
 notesplusplus-sailfish/*.o
 notesplusplus-sailfish/moc_*
-notesplusplus-sailfish/harbour-notesplusplus
+notesplusplus-sailfish/harbour-notesplus
 notesplusplus-sailfish/*.pro.user

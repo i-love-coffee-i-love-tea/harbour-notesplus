@@ -5,7 +5,7 @@
 
 [NOTE]
 .Architecture Repository
-This document indexes the foundational Architecture Decision Records (ADRs) governing the technical design, storage protocols, and security boundaries of *Notes++* (`harbour-notesplusplus`).
+This document indexes the foundational Architecture Decision Records (ADRs) governing the technical design, storage protocols, and security boundaries of *Notes Plus* (`harbour-notesplus`).
 
 == Index of Architectural Decisions
 

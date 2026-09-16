@@ -46,8 +46,8 @@ pub struct TlsOptions {
 impl Default for TlsOptions {
     fn default() -> Self {
         Self {
-            common_name: "Notes++ Web Server".to_string(),
-            organization: "Notes++".to_string(),
+            common_name: "Notes Plus Web Server".to_string(),
+            organization: "Notes Plus".to_string(),
             alt_names: vec!["localhost".to_string(), "127.0.0.1".to_string()],
             cert_path: None,
             key_path: None,

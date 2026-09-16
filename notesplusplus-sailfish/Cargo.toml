@@ -1,8 +1,8 @@
 [package]
-name = "harbour-notesplusplus"
+name = "harbour-notesplus"
 version.workspace = true
 edition = "2021"
-description = "Notes++ — AsciiDoc notes app for Sailfish OS"
+description = "Notes Plus — AsciiDoc notes app for Sailfish OS"
 
 [dependencies]
 notesplusplus-core = { path = "../notesplusplus-core" }

@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ utilizes a strongly typed Abstract Syntax Tree (AST) with atomic block-level mutation routines, guaranteeing document formatting integrity during in-place edits.
+Notes Plus utilizes a strongly typed Abstract Syntax Tree (AST) with atomic block-level mutation routines, guaranteeing document formatting integrity during in-place edits.
 
 == Context
 

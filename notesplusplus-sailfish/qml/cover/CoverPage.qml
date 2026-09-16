@@ -9,7 +9,7 @@ CoverBackground {
         spacing: Theme.paddingMedium
 
         Label {
-            text: "Notes++"
+            text: "Notes Plus"
             font.pixelSize: Theme.fontSizeLarge
             color: Theme.highlightColor
             anchors.horizontalCenter: parent.horizontalCenter

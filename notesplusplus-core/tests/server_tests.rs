@@ -54,7 +54,7 @@ fn test_server_lifecycle_and_endpoints() {
     let res_root = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
     assert_eq!(res_root.status(), 200);
     let root_body = res_root.into_string().unwrap();
-    assert!(root_body.contains("Notes++"));
+    assert!(root_body.contains("Notes Plus"));
 
     // Test GET /icon.png
     let res_icon = ureq::get(&format!("http://127.0.0.1:{}/icon.png", port)).call().unwrap();
@@ -586,7 +586,7 @@ fn test_security_asset_path_isolation() {
     let res_raw = ureq::get(&format!("http://127.0.0.1:{}/raw/secret.adoc", port)).call().unwrap();
     assert_eq!(res_raw.status(), 200);
     let body = res_raw.into_string().unwrap();
-    assert!(body.contains("Notes++"), "unauthenticated /raw/ should serve login page, not note content");
+    assert!(body.contains("Notes Plus"), "unauthenticated /raw/ should serve login page, not note content");
 
     // /api/notes without auth should return 401
     let res_api = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
@@ -600,7 +600,7 @@ fn test_security_asset_path_isolation() {
     let res_page = ureq::get(&format!("http://127.0.0.1:{}/page/test", port)).call().unwrap();
     assert_eq!(res_page.status(), 200);
     let page_body = res_page.into_string().unwrap();
-    assert!(page_body.contains("Notes++"), "unauthenticated /page/ should serve login page");
+    assert!(page_body.contains("Notes Plus"), "unauthenticated /page/ should serve login page");
 
     // Path traversal attempt should be blocked (use raw TCP to avoid URL normalization)
     {
@@ -690,7 +690,7 @@ fn test_logout_flow_and_session_invalidation() {
         .unwrap();
     assert_eq!(logout_res.status(), 200);
     let logout_cookie_hdr = logout_res.header("Set-Cookie").unwrap();
-    assert!(logout_cookie_hdr.contains("Max-Age=0") || logout_cookie_hdr.contains("notesplusplus_session="));
+    assert!(logout_cookie_hdr.contains("Max-Age=0") || logout_cookie_hdr.contains("notesplus_session="));
 
     // 6. Verify subsequent requests using the old session cookie are rejected with 401
     let reject_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
@@ -1350,7 +1350,7 @@ fn test_theme_assets_and_contrast_rules() {
     assert_eq!(theme_js_res.status(), 200);
     let theme_js = theme_js_res.into_string().unwrap();
     assert!(theme_js.contains("useTheme"));
-    assert!(theme_js.contains("notesplusplus_theme_preference"));
+    assert!(theme_js.contains("notesplus_theme_preference"));
 
     server_handle.stop();
 }

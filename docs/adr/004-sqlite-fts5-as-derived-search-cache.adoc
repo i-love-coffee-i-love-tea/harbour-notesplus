@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ implements a local SQLite FTS5 virtual table strictly as a disposable, derived search cache, delivering sub-millisecond full-text queries without compromising plain-text portability.
+Notes Plus implements a local SQLite FTS5 virtual table strictly as a disposable, derived search cache, delivering sub-millisecond full-text queries without compromising plain-text portability.
 
 == Context
 

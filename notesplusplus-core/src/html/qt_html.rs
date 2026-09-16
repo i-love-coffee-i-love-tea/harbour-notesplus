@@ -91,7 +91,7 @@ pub fn resolve_qt_image_path(target: &str, notes_dir: Option<&str>, allow_extern
             return format!("file://{}/{}", dir, target);
         }
     }
-    format!("file:///usr/share/harbour-notesplusplus/examples/{}", target)
+    format!("file:///usr/share/harbour-notesplus/examples/{}", target)
 }
 
 // ── Icon rendering (matches JS renderIcon) ───────────────────────────

@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ vendors all companion web UI dependencies and frontend assets locally within `notesplusplus-core`, guaranteeing 100% offline air-gapped functionality with zero privacy leakage.
+Notes Plus vendors all companion web UI dependencies and frontend assets locally within `notesplusplus-core`, guaranteeing 100% offline air-gapped functionality with zero privacy leakage.
 
 == Context
 

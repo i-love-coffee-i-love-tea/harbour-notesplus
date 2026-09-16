@@ -1,9 +1,9 @@
-= Welcome to Notes++
+= Welcome to Notes Plus
 :toc:
 
 == Getting Started
 
-Notes++ is an AsciiDoc notes app for Sailfish OS. It features:
+Notes Plus is an AsciiDoc notes app for Sailfish OS. It features:
 
 * *Journal* — auto-managed daily pages
 * *Pages* — named notes with AsciiDoc formatting
@@ -17,7 +17,7 @@ Pull down the menu and select "New Page". Type a name and start writing.
 
 == Formatting
 
-Notes++ supports AsciiDoc inline formatting:
+Notes Plus supports AsciiDoc inline formatting:
 
 * *Bold text* with asterisks
 * _Italic text_ with underscores

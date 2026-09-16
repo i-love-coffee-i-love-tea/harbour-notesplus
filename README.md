@@ -1,4 +1,4 @@
-# Notes++
+# Notes Plus
 
 A fast, offline-first AsciiDoc notes app for **Sailfish OS** with an AI assistant, speech-to-text, and a built-in web editor accessible from any browser on your network.
 
@@ -15,15 +15,15 @@ A fast, offline-first AsciiDoc notes app for **Sailfish OS** with an AI assistan
 
 ## Screenshots
 
-The app icon is at `rpm/icons/128x128/harbour-notesplusplus.png`.
+The app icon is at `rpm/icons/128x128/harbour-notesplus.png`.
 
 ## Installation
 
 ### Sailfish OS
 
 1. Download the latest `.rpm` from the Releases page
-2. Transfer to your phone and tap to install (or use `devel-su pkcon install harbour-notesplusplus.rpm`)
-3. Launch **Notes++** from the app grid
+2. Transfer to your phone and tap to install (or use `devel-su pkcon install harbour-notesplus.rpm`)
+3. Launch **Notes Plus** from the app grid
 
 ### Web UI
 

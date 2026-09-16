@@ -315,7 +315,7 @@ impl NotesBridge {
                     eprintln!("[debug] init_schema in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();
-                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplusplus/examples"), "");
+                    let _ = page::copy_examples(&conn, &notes_path, std::path::Path::new("/usr/share/harbour-notesplus/examples"), "");
                     eprintln!("[debug] copy_examples in {:?}", t.elapsed());
 
                     let t = std::time::Instant::now();

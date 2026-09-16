@@ -59,7 +59,7 @@ jobs:
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harbour-notesplusplus-${{ matrix.arch }}-rpm
+          name: harbour-notesplus-${{ matrix.arch }}-rpm
           path: ./RPMS/*.rpm
           if-no-files-found: error
 
@@ -126,7 +126,7 @@ jobs:
             exit 0
           fi
 
-          echo "Publishing RPMs to OpenRepos for application harbour-notesplusplus..."
+          echo "Publishing RPMs to OpenRepos for application harbour-notesplus..."
           python -m openrepos upload ./dist/*.rpm --username "$OPENREPOS_USERNAME" --password "$OPENREPOS_PASSWORD" || {
             echo "::error ::Failed to publish RPMs via openrepos CLI."
             exit 1

@@ -238,7 +238,7 @@ function resolveImagePath(target, notesDir, allowExternal) {
     if (notesDir && notesDir.length > 0) {
         return "file://" + notesDir + "/" + target
     }
-    return "file:///usr/share/harbour-notesplusplus/examples/" + target
+    return "file:///usr/share/harbour-notesplus/examples/" + target
 }
 
 function indentListLine(line) {

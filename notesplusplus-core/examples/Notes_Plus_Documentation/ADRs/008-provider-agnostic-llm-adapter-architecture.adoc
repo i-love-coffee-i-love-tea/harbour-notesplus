@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ implements a provider-agnostic LLM client adapter in `notesplusplus-core`, supporting local Ollama, on-device models, and OpenAI-compatible endpoints with unified streaming.
+Notes Plus implements a provider-agnostic LLM client adapter in `notesplusplus-core`, supporting local Ollama, on-device models, and OpenAI-compatible endpoints with unified streaming.
 
 == Context
 

@@ -93,7 +93,7 @@ echo "Done — $(ls "$BACKUP_DIR" | wc -l) databases backed up to $BACKUP_DIR"
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Notes++</title>
+    <title>Notes Plus</title>
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -133,7 +133,7 @@ echo "Done — $(ls "$BACKUP_DIR" | wc -l) databases backed up to $BACKUP_DIR"
 [source,json]
 ----
 {
-    "name": "notesplusplus",
+    "name": "notesplus",
     "version": "1.0.0",
     "features": {
         "syntaxHighlighting": true,

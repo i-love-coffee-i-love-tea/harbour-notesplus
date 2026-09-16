@@ -56,7 +56,7 @@
 
 === Project Structure
 
-Notes++ uses a multi-crate Cargo workspace:
+Notes Plus uses a multi-crate Cargo workspace:
 
 1. `notesplusplus-core`
   * Parser (AsciiDoc to blocks)
@@ -82,7 +82,7 @@ Notes++ uses a multi-crate Cargo workspace:
 4. Run `bash build-sailfish.sh`
 5. Deploy the RPM:
   * `scp rpms/*.rpm user@phone:/tmp/`
-  * `devel-su rpm -Uvh /tmp/harbour-notesplusplus-*.rpm`
+  * `devel-su rpm -Uvh /tmp/harbour-notesplus-*.rpm`
 
 === List in a Table
 
@@ -234,7 +234,7 @@ External links work with full URLs or the `link:` macro:
 
 * Visit https://sailfishos.org[Sailfish OS] for more info
 * link:https://doc.qt.io/qt-5/qml-types.html[Qt QML Types] documentation
-* Bare URL: https://github.com/niclas-niclas/harbour-notesplusplus
+* Bare URL: https://github.com/gobuki/harbour-notesplus
 
 Internal page links use the `xref:` macro:
 
@@ -332,8 +332,8 @@ fn main() {
 
 === Footnotes, Images & Icons
 
-Notes++ includes fast embedded searching footnote:[Powered by SQLite FTS5 with prefix matching] for all your notes.
+Notes Plus includes fast embedded searching footnote:[Powered by SQLite FTS5 with prefix matching] for all your notes.
 
-Image demonstration: image:icon.png[Notes++ Icon, width=32] and image:harbour-notesplusplus.png[Notes++ Logo, width=48]
+Image demonstration: image:icon.png[Notes Plus Icon, width=32] and image:harbour-notesplus.png[Notes Plus Logo, width=48]
 
 Icons demonstration: icon:heart[role=love] icon:star[] icon:info[] icon:check[] icon:warning[] icon:search[] icon:gear[]

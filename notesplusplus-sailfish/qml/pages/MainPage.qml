@@ -574,7 +574,7 @@ Page {
             width: parent.width
 
             PageHeader {
-                title: "Notes++"
+                title: "Notes Plus"
             }
 
             Item {
@@ -862,7 +862,7 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("Welcome to Notes++")
+                    text: qsTr("Welcome to Notes Plus")
                     color: Theme.highlightColor
                     font.pixelSize: Theme.fontSizeLarge
                     font.bold: true

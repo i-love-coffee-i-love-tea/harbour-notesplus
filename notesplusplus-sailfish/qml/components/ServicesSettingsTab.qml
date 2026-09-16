@@ -1,6 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import harbour.notesplusplus 1.0
+import harbour.notesplus 1.0
 import "."
 
 Column {
@@ -260,7 +260,7 @@ Column {
     Label {
         x: Theme.horizontalPageMargin
         width: parent.width - Theme.horizontalPageMargin * 2
-        text: qsTr("Notes++ v0.1.0\nAsciiDoc reader & notebook for Sailfish OS")
+        text: qsTr("Notes Plus v0.1.0\nAsciiDoc reader & notebook for Sailfish OS")
         color: Theme.secondaryColor
         font.pixelSize: Theme.fontSizeSmall
         wrapMode: Text.Wrap

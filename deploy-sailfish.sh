@@ -6,8 +6,8 @@
 #
 # Examples:
 #   ./deploy-sailfish.sh
-#   ./deploy-sailfish.sh rpms/harbour-notesplusplus-0.1.0-1.aarch64.rpm
-#   ./deploy-sailfish.sh rpms/harbour-notesplusplus-0.1.0-1.aarch64.rpm phone-wifi
+#   ./deploy-sailfish.sh rpms/harbour-notesplus-0.1.0-1.aarch64.rpm
+#   ./deploy-sailfish.sh rpms/harbour-notesplus-0.1.0-1.aarch64.rpm phone-wifi
 
 set -e
 
@@ -43,7 +43,7 @@ if [ -z "$RPM_PATH" ] || [ ! -f "$RPM_PATH" ]; then
 fi
 
 RPM_FILE="$(basename "$RPM_PATH")"
-APP_NAME="harbour-notesplusplus"
+APP_NAME="harbour-notesplus"
 
 # 2. Determine target host
 if [ -z "$TARGET_HOST" ]; then
@@ -89,8 +89,8 @@ REMOTE_DOWNLOADS="$REMOTE_HOME/Downloads"
 REMOTE_DEST="$REMOTE_DOWNLOADS/$RPM_FILE"
 
 # 4. Copy RPM to phone's Downloads directory
-echo "Stopping any running harbour-notesplusplus processes on $TARGET_HOST..."
-ssh "$TARGET_HOST" 'killall -9 harbour-notesplusplus 2>/dev/null || true'
+echo "Stopping any running harbour-notesplus processes on $TARGET_HOST..."
+ssh "$TARGET_HOST" 'killall -9 harbour-notesplus 2>/dev/null || true'
 
 echo "Copying $RPM_FILE to $TARGET_HOST:$REMOTE_DOWNLOADS/..."
 ssh "$TARGET_HOST" "mkdir -p '$REMOTE_DOWNLOADS'"

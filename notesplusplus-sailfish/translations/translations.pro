@@ -5,8 +5,8 @@ SOURCES += \
     $$files(qml/cover/*.qml, true)
 
 TRANSLATIONS += \
-    harbour-notesplusplus.ts \
-    harbour-notesplusplus_de.ts \
-    harbour-notesplusplus_es.ts \
-    harbour-notesplusplus_en.ts \
-    harbour-notesplusplus_en_US.ts
+    harbour-notesplus.ts \
+    harbour-notesplus_de.ts \
+    harbour-notesplus_es.ts \
+    harbour-notesplus_en.ts \
+    harbour-notesplus_en_US.ts

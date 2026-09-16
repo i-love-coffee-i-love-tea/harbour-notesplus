@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ embeds a pure standard-library HTTP/1.1 server in `notesplusplus-core`, enabling local network browser editing and streaming AI completions with 0% idle CPU drain.
+Notes Plus embeds a pure standard-library HTTP/1.1 server in `notesplusplus-core`, enabling local network browser editing and streaming AI completions with 0% idle CPU drain.
 
 == Context
 
@@ -40,7 +40,7 @@ Enforces cookie-based session management (`fishdoc_session`) with persistent ses
 
 [source,ascii]
 ----
-Desktop Browser (Vue 3 UI)            Notes++ Core (Embedded HTTP)
+Desktop Browser (Vue 3 UI)            Notes Plus Core (Embedded HTTP)
          │                                       │
          ├────── GET /api/pages ────────────────►┤
          │◄───── 200 OK (JSON Pages Array) ──────┤

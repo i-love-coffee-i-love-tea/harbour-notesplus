@@ -7,7 +7,7 @@
 
 [NOTE]
 .Status: Accepted
-Notes++ enforces kernel socket-level rejection of public network IP addresses by default, protecting mobile devices from cellular port scans, unauthorized access, and battery exhaustion.
+Notes Plus enforces kernel socket-level rejection of public network IP addresses by default, protecting mobile devices from cellular port scans, unauthorized access, and battery exhaustion.
 
 == Context
 

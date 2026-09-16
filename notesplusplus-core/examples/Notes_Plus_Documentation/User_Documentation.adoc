@@ -1,4 +1,4 @@
-= Notes++ User Documentation
+= Notes Plus User Documentation
 :toc:
 :sectnums:
 
@@ -63,7 +63,7 @@ Click any `xref:` link or `<<anchor>>` to navigate to the target note. The app r
 
 == AsciiDoc Syntax Reference
 
-The following is a complete reference of every syntax Notes++ supports, verified against the parser source code. Where possible, each feature is shown both as source code and as a live rendered example -- the document you are reading is itself a demo.
+The following is a complete reference of every syntax Notes Plus supports, verified against the parser source code. Where possible, each feature is shown both as source code and as a live rendered example -- the document you are reading is itself a demo.
 
 [quote, Donald Knuth]
 ____
@@ -91,7 +91,7 @@ Markdown::
 A different markup language. AsciiDoc supports richer constructs like tables with column specs, admonitions, and cross-references.
 
 FTS5::
-Full-text search extension for SQLite. Notes++ uses it for instant search across all your notes.
+Full-text search extension for SQLite. Notes Plus uses it for instant search across all your notes.
 
 The horizontal rule below (three dashes on its own line) is a live demo:
 
@@ -247,7 +247,7 @@ a|Link to another note by filename. Tap to navigate.
 m|<<budget-review>>
 a|Shorthand link to a heading anchor within a note.
 
-m|https://github.com/gobuki/harbour-notesplusplus[GitHub]
+m|https://github.com/gobuki/harbour-notesplus[GitHub]
 a|External web link with a display label.
 
 m|link:mailto:team@example.com[Email us]
@@ -262,7 +262,7 @@ Place a small image inline with surrounding text:
 
 [source,asciidoc]
 ----
-The app icon image:icon.png[Notes++ logo, width=24] appears in the toolbar.
+The app icon image:icon.png[Notes Plus logo, width=24] appears in the toolbar.
 ----
 
 The image file is resolved from the note's own directory or its asset directory.
@@ -485,7 +485,7 @@ Term--definition pairs, perfect for glossaries or metadata:
 [source,asciidoc]
 ----
 AsciiDoc:: A lightweight markup language for writing structured documents.
-FTS5:: Full-text search extension for SQLite. Used by Notes++ for instant search.
+FTS5:: Full-text search extension for SQLite. Used by Notes Plus for instant search.
 xref:: A cross-reference macro that links to another note by filename.
 ----
 
@@ -550,7 +550,7 @@ Delimited by `----`. Add `[source,language]` above for syntax highlighting. The 
 [source,rust]
 ----
 fn main() {
-    let name = "Notes++";
+    let name = "Notes Plus";
     println!("Hello from {name}!");
 }
 ----
@@ -565,8 +565,8 @@ Use `[source,svgbob]` to draw ASCII-art diagrams that render as inline SVG. Boxe
 [source,svgbob]
 ----
     +----------+       +----------+
-    |  Notes++ |       |  Browser |
-    |  on phone|       |  on PC   |
+    |Notes Plus|       |  Browser |
+    | on phone |       |  on PC   |
     +----+-----+       +----+-----+
          |                  |
          |    HTTPS / TLS   |
@@ -930,7 +930,7 @@ Add a `.Title` line before the table attributes or delimiter to give the table a
 .Feature Comparison
 [cols="1,1,1"]
 |===
-|Feature |Notes++ |Other App
+|Feature |Notes Plus |Other App
 
 |Offline-first |icon:check[] |icon:warning[role=yellow]
 |AI assistant |icon:check[] |icon:warning[role=yellow]
@@ -955,7 +955,7 @@ With a title (rendered as a caption below the image):
 
 [source,asciidoc]
 ----
-.Figure 1: The Notes++ architecture
+.Figure 1: The Notes Plus architecture
 image::architecture.svg[Architecture diagram, width=500]
 ----
 
@@ -965,7 +965,7 @@ Place a small image within a line of text:
 
 [source,asciidoc]
 ----
-The Notes++ icon image:icon.png[Notes++, width=20] appears in the app launcher.
+The Notes Plus icon image:icon.png[Notes Plus, width=20] appears in the app launcher.
 ----
 
 === Table of Contents
@@ -1030,7 +1030,7 @@ This convention matches tools like Logseq and Obsidian. Images referenced with `
 
 [source,svgbob]
 ----
-"~/Documents/Notes++/"
+"~/Documents/Notes Plus/"
  |
  +-- "meeting-notes.adoc"
  +-- "project-plan.adoc"
@@ -1294,12 +1294,12 @@ In *Settings > Speech-to-Text*, each model shows its status with download/delete
 
 === Overview
 
-Notes++ includes an embedded HTTPS web server that serves a Vue 3 single-page application. From any browser on your local network, you can view and edit notes, use the AI assistant, and run presentations.
+Notes Plus includes an embedded HTTPS web server that serves a Vue 3 single-page application. From any browser on your local network, you can view and edit notes, use the AI assistant, and run presentations.
 
 [source,svgbob]
 ----
 +--------------------+         HTTPS          +--------------------+
-|  Notes++ on phone  | <--------------------> |  Browser on laptop |
+|Notes Plus on phone | <--------------------> |  Browser on laptop |
 | "(embedded server)"|                        |"(Vue 3 web editor)"|
 +--------------------+                        +--------------------+
         |                                              |
@@ -1534,7 +1534,7 @@ See the *AI Assistant > Tool Permissions* section above for detailed explanation
 |Self-signed
 
 |Export All Notes as HTML5
-|Button: batch export all notes to `~/Documents/Notes++ Exports/`
+|Button: batch export all notes to `~/Documents/Notes Plus Exports/`
 | --
 |===
 
@@ -1544,7 +1544,7 @@ The Services tab also shows the app version at the bottom.
 
 === Sailjail Permissions
 
-When first launched, Notes++ requests these system permissions:
+When first launched, Notes Plus requests these system permissions:
 
 [cols="1,3"]
 |===

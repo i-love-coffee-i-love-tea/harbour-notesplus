@@ -46,7 +46,7 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
     
     // First pass: extract document title if not provided and collect headings for TOC
     let doc_title = if title.is_empty() {
-        extract_title(blocks).unwrap_or_else(|| "Notes++ Document".to_string())
+        extract_title(blocks).unwrap_or_else(|| "Notes Plus Document".to_string())
     } else {
         title.to_string()
     };
@@ -60,7 +60,7 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="generator" content="Notes++ HTML5 Exporter">
+    <meta name="generator" content="Notes Plus HTML5 Exporter">
     <title>{title}</title>
     <style>
 {css}
@@ -76,7 +76,7 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
 {footnotes}
         </main>
         <footer class="document-footer">
-            <p>Exported by <strong>Notes++</strong> on {date}</p>
+            <p>Exported by <strong>Notes Plus</strong> on {date}</p>
         </footer>
     </div>
     <script>

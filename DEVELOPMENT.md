@@ -1,6 +1,6 @@
 # Developer Guide: Build, Test & Deployment
 
-This document describes the development, build, test, and deployment workflows for **Notes++** on Sailfish OS and embedded environments.
+This document describes the development, build, test, and deployment workflows for **Notes Plus** on Sailfish OS and embedded environments.
 
 ---
 
@@ -57,7 +57,7 @@ Sailfish OS binaries are cross-compiled for `aarch64` using the `sfdk` Sailfish 
 
 ## 4. Parallel Multi-Project Builds
 
-Multiple Sailfish OS projects (e.g. `harbour-notesplusplus`, `harbour-retrofit`, `harbour-netpwrctrl`) can build concurrently using the same Sailfish SDK build engine container (`sailfish-sdk-build-engine_gobuki`):
+Multiple Sailfish OS projects (e.g. `harbour-notesplus`, `harbour-retrofit`, `harbour-netpwrctrl`) can build concurrently using the same Sailfish SDK build engine container (`sailfish-sdk-build-engine_gobuki`):
 
 ### How Isolation Works
 * **In-Tree Project Workspaces**: Each project builds directly in its own repository directory. There is no shared sync workspace (such as `~/SailfishWorkspace`), eliminating workspace overwrite collisions (`rsync --delete`).
@@ -85,7 +85,7 @@ Multiple Sailfish OS projects (e.g. `harbour-notesplusplus`, `harbour-retrofit`,
 
 ### What `deploy-sailfish.sh` does:
 1. Finds the latest `.aarch64.rpm` from `rpms/`.
-2. Stops any running instance of `harbour-notesplusplus` on the target device via SSH.
+2. Stops any running instance of `harbour-notesplus` on the target device via SSH.
 3. Transfers the RPM to `/home/defaultuser/Downloads/` on `phone-wifi`.
 4. Triggers the Sailfish OS package installation notification via D-Bus (`org.sailfishos.installation.prompt`).
 

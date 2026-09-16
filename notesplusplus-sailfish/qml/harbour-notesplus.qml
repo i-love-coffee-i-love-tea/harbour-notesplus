@@ -1,7 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import Nemo.Configuration 1.0
-import harbour.notesplusplus 1.0
+import harbour.notesplus 1.0
 import "pages"
 import "cover"
 
@@ -14,169 +14,169 @@ ApplicationWindow {
 
     ConfigurationValue {
         id: fontSizeScaleConf
-        key: "/apps/harbour-notesplusplus/font_size_scale"
+        key: "/apps/harbour-notesplus/font_size_scale"
         defaultValue: 1.0
     }
 
     ConfigurationValue {
         id: fontFamilyConf
-        key: "/apps/harbour-notesplusplus/font_family"
+        key: "/apps/harbour-notesplus/font_family"
         defaultValue: ""
     }
 
     ConfigurationValue {
         id: codeFontScaleConf
-        key: "/apps/harbour-notesplusplus/code_font_scale"
+        key: "/apps/harbour-notesplus/code_font_scale"
         defaultValue: 1.0
     }
 
     ConfigurationValue {
         id: tocCollapseThresholdConf
-        key: "/apps/harbour-notesplusplus/toc_collapse_threshold"
+        key: "/apps/harbour-notesplus/toc_collapse_threshold"
         defaultValue: 5
     }
 
     ConfigurationValue {
         id: previewScaleConf
-        key: "/apps/harbour-notesplusplus/preview_scale"
+        key: "/apps/harbour-notesplus/preview_scale"
         defaultValue: 0.52
     }
 
     ConfigurationValue {
         id: gridColumnsConf
-        key: "/apps/harbour-notesplusplus/grid_columns"
+        key: "/apps/harbour-notesplus/grid_columns"
         defaultValue: 2
     }
 
     ConfigurationValue {
         id: dropCommentsConf
-        key: "/apps/harbour-notesplusplus/drop_comments"
+        key: "/apps/harbour-notesplus/drop_comments"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: allowExternalImagesConf
-        key: "/apps/harbour-notesplusplus/allow_external_images"
+        key: "/apps/harbour-notesplus/allow_external_images"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: autostartWebServerConf
-        key: "/apps/harbour-notesplusplus/autostart_web_server"
+        key: "/apps/harbour-notesplus/autostart_web_server"
         defaultValue: false
     }
 
     ConfigurationValue {
         id: rejectPublicNetworksConf
-        key: "/apps/harbour-notesplusplus/reject_public_networks"
+        key: "/apps/harbour-notesplus/reject_public_networks"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: bindAddressConf
-        key: "/apps/harbour-notesplusplus/bind_address"
+        key: "/apps/harbour-notesplus/bind_address"
         defaultValue: "0.0.0.0"
     }
 
     ConfigurationValue {
         id: sessionExpiryHoursConf
-        key: "/apps/harbour-notesplusplus/session_expiry_hours"
+        key: "/apps/harbour-notesplus/session_expiry_hours"
         defaultValue: 24
     }
 
     ConfigurationValue {
         id: groupDisplayDepthConf
-        key: "/apps/harbour-notesplusplus/group_display_depth"
+        key: "/apps/harbour-notesplus/group_display_depth"
         defaultValue: 2
     }
 
     ConfigurationValue {
         id: journalEnabledConf
-        key: "/apps/harbour-notesplusplus/journal_enabled"
+        key: "/apps/harbour-notesplus/journal_enabled"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiEnabledConf
-        key: "/apps/harbour-notesplusplus/ai_enabled"
+        key: "/apps/harbour-notesplus/ai_enabled"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiProviderConf
-        key: "/apps/harbour-notesplusplus/ai_provider"
+        key: "/apps/harbour-notesplus/ai_provider"
         defaultValue: "ollama"
     }
 
     ConfigurationValue {
         id: aiEndpointConf
-        key: "/apps/harbour-notesplusplus/ai_endpoint"
+        key: "/apps/harbour-notesplus/ai_endpoint"
         defaultValue: app.defaultAiEndpoint
     }
 
     ConfigurationValue {
         id: aiModelConf
-        key: "/apps/harbour-notesplusplus/ai_model"
+        key: "/apps/harbour-notesplus/ai_model"
         defaultValue: "llama3.2"
     }
 
     ConfigurationValue {
         id: aiApiKeyConf
-        key: "/apps/harbour-notesplusplus/ai_api_key"
+        key: "/apps/harbour-notesplus/ai_api_key"
         defaultValue: ""
     }
 
     ConfigurationValue {
         id: aiTimeoutConf
-        key: "/apps/harbour-notesplusplus/ai_timeout_secs"
+        key: "/apps/harbour-notesplus/ai_timeout_secs"
         defaultValue: 90
     }
 
     ConfigurationValue {
         id: aiAutoAllowReadConf
-        key: "/apps/harbour-notesplusplus/ai_auto_allow_read"
+        key: "/apps/harbour-notesplus/ai_auto_allow_read"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiAutoAllowCreateConf
-        key: "/apps/harbour-notesplusplus/ai_auto_allow_create"
+        key: "/apps/harbour-notesplus/ai_auto_allow_create"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiRequireConfirmEditConf
-        key: "/apps/harbour-notesplusplus/ai_require_confirm_edit"
+        key: "/apps/harbour-notesplus/ai_require_confirm_edit"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiAllowFetchUrlConf
-        key: "/apps/harbour-notesplusplus/ai_allow_fetch_url"
+        key: "/apps/harbour-notesplus/ai_allow_fetch_url"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: aiAllowSelfSignedConf
-        key: "/apps/harbour-notesplusplus/ai_allow_self_signed"
+        key: "/apps/harbour-notesplus/ai_allow_self_signed"
         defaultValue: false
     }
 
     ConfigurationValue {
         id: customAiInstructionsConf
-        key: "/apps/harbour-notesplusplus/custom_ai_instructions"
+        key: "/apps/harbour-notesplus/custom_ai_instructions"
         defaultValue: ""
     }
 
     ConfigurationValue {
         id: sttEnabledConf
-        key: "/apps/harbour-notesplusplus/stt_enabled"
+        key: "/apps/harbour-notesplus/stt_enabled"
         defaultValue: true
     }
 
     ConfigurationValue {
         id: sttModelConf
-        key: "/apps/harbour-notesplusplus/stt_model"
+        key: "/apps/harbour-notesplus/stt_model"
         defaultValue: ""
     }
 

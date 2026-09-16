@@ -284,7 +284,7 @@ Column {
 
                     Label {
                         width: parent.width
-                        text: "fn main() {\n    println!(\"Hello Notes++!\");\n}"
+                        text: "fn main() {\n    println!(\"Hello Notes Plus!\");\n}"
                         font.family: "monospace"
                         font.pixelSize: Math.round(Theme.fontSizeSmall * app.codeFontScale)
                         color: "#f2f2f7"

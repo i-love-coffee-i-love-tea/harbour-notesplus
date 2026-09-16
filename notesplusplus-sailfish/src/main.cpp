@@ -1,4 +1,4 @@
-/* main.cpp — Sailfish OS bootstrap for harbour-notesplusplus (C++ bridge).
+/* main.cpp — Sailfish OS bootstrap for harbour-notesplus (C++ bridge).
  *
  * Registers the C++ QObject bridge types with the QML engine.
  * Replaces the Rust main.rs that used qmetaobject crate.
@@ -17,23 +17,23 @@
 int main(int argc, char* argv[])
 {
     QGuiApplication* app = SailfishApp::application(argc, argv);
-    app->setApplicationName("harbour-notesplusplus");
+    app->setApplicationName("harbour-notesplus");
     app->setOrganizationName("org.gobuki");
 
     QQuickView* view = SailfishApp::createView();
 
-    /* Register QML types under harbour.notesplusplus 1.0 */
-    qmlRegisterType<NotesBridge>("harbour.notesplusplus", 1, 0, "NotesBridge");
-    qmlRegisterType<AgentBridge>("harbour.notesplusplus", 1, 0, "AgentBridge");
-    qmlRegisterType<SpeechBridge>("harbour.notesplusplus", 1, 0, "SpeechBridge");
+    /* Register QML types under harbour.notesplus 1.0 */
+    qmlRegisterType<NotesBridge>("harbour.notesplus", 1, 0, "NotesBridge");
+    qmlRegisterType<AgentBridge>("harbour.notesplus", 1, 0, "AgentBridge");
+    qmlRegisterType<SpeechBridge>("harbour.notesplus", 1, 0, "SpeechBridge");
 
     /* Set the QML source */
     QUrl qmlUrl;
-    QFile localQml("/usr/share/harbour-notesplusplus/qml/harbour-notesplusplus.qml");
+    QFile localQml("/usr/share/harbour-notesplus/qml/harbour-notesplus.qml");
     if (localQml.exists()) {
-        qmlUrl = QUrl::fromLocalFile("/usr/share/harbour-notesplusplus/qml/harbour-notesplusplus.qml");
+        qmlUrl = QUrl::fromLocalFile("/usr/share/harbour-notesplus/qml/harbour-notesplus.qml");
     } else {
-        qmlUrl = SailfishApp::pathTo("qml/harbour-notesplusplus.qml");
+        qmlUrl = SailfishApp::pathTo("qml/harbour-notesplus.qml");
     }
     view->setSource(qmlUrl);
     view->showFullScreen();

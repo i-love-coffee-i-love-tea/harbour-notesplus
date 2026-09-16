@@ -1,10 +1,10 @@
-# harbour-notesplusplus.pro — qmake project for Harbour-compliant build
+# harbour-notesplus.pro — qmake project for Harbour-compliant build
 #
 # Builds the C++ bridge layer + links the Rust core as a static library.
 # The Rust core is compiled via cargo (invoked from %build in the spec file).
 
 TEMPLATE = app
-TARGET = harbour-notesplusplus
+TARGET = harbour-notesplus
 CONFIG += sailfishapp link_pkgconfig
 QT += quick qml network multimedia
 
@@ -56,5 +56,5 @@ LIBS += -lpthread -lm -ldl -lsqlite3
 PKGCONFIG += sailfishapp sqlite3
 
 # Install paths (handled by sailfishapp feature)
-# Binary: /usr/bin/harbour-notesplusplus
-# QML:   /usr/share/harbour-notesplusplus/qml/
+# Binary: /usr/bin/harbour-notesplus
+# QML:   /usr/share/harbour-notesplus/qml/

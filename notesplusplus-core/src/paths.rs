@@ -222,7 +222,7 @@ mod tests {
         let paths = AppPaths::from_data_dir(&custom);
         assert_eq!(paths.data_dir, custom);
         assert_eq!(paths.notes_dir, custom.join("notes"));
-        assert_eq!(paths.db_path, custom.join("notesplusplus.db"));
+        assert_eq!(paths.db_path, custom.join("notesplus.db"));
         assert_eq!(paths.journal_path(), custom.join("notes").join("journal.adoc"));
         assert_eq!(paths.models_dir(), custom.join("models"));
         assert_eq!(paths.stt_models_dir(), custom.join("models").join("stt"));

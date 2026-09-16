@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Notes++ - AsciiDoc Editor & AI</title>
+  <title>Notes Plus - AsciiDoc Editor & AI</title>
   <link rel="icon" type="image/png" href="/icon.png">
   <link rel="stylesheet" href="/style.css">
   
@@ -22,8 +22,8 @@
     <div v-if="!isAuthenticated" class="login-overlay">
       <div class="login-card">
         <div class="login-header">
-          <img src="/icon.png" class="login-logo-img" alt="Notes++">
-          <h2>Notes++</h2>
+          <img src="/icon.png" class="login-logo-img" alt="Notes Plus">
+          <h2>Notes Plus</h2>
           <p class="login-subtitle">Web Access Authorization</p>
         </div>
 
@@ -58,7 +58,7 @@
         <span class="offline-icon">⚠️</span>
         <div class="offline-text">
           <strong>Phone Not Reachable</strong>
-          <span>Cannot connect to Notes++ on your Sailfish OS device. Changes cannot be saved until connection is restored.</span>
+          <span>Cannot connect to Notes Plus on your Sailfish OS device. Changes cannot be saved until connection is restored.</span>
         </div>
       </div>
       <button type="button" class="btn-reconnect" @click="checkConnection" :disabled="isCheckingConnection">
@@ -69,9 +69,9 @@
     <!-- Top Navigation Bar -->
     <header class="navbar">
       <div class="nav-left">
-        <a href="/" class="brand" title="Notes++">
-          <img src="/icon.png" class="brand-icon" alt="Notes++">
-          <span class="brand-name">Notes++</span>
+        <a href="/" class="brand" title="Notes Plus">
+          <img src="/icon.png" class="brand-icon" alt="Notes Plus">
+          <span class="brand-name">Notes Plus</span>
         </a>
         
         <div class="nav-group doc-group">
@@ -335,7 +335,7 @@
         </section>
       </template>
 
-      <!-- MODE 2: In-Place Block Editor (Notes++ style) -->
+      <!-- MODE 2: In-Place Block Editor (Notes Plus style) -->
       <template v-else-if="viewMode === 'inplace'">
         <section class="inplace-container" @click="handlePreviewClick">
           <div class="inplace-header">
@@ -516,7 +516,7 @@
     <aside class="ai-drawer" :class="{ 'is-open': openAiDrawer }">
       <div class="ai-drawer-header">
         <div class="ai-title">
-          <svg class="sparkle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg> <strong>Notes++ AI</strong>
+          <svg class="sparkle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg> <strong>Notes Plus AI</strong>
           <select 
             v-if="availableModels.length > 0" 
             v-model="aiConfig.model" 
@@ -748,7 +748,7 @@
       <!-- Chat History Stream (Chat tab only) -->
       <div v-if="aiTab === 'chat'" class="ai-chat-messages" ref="chatMessagesContainer">
         <div v-if="messages.length === 0" class="chat-welcome">
-          <p><svg style="vertical-align: text-bottom; margin-right: 4px;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11c0-1-2-2-4-2"/><path d="M16 11c-1 0-2.5-.5-3-1.5"/><path d="M12 2a3 3 0 0 0-3 3v2c0 1-1 2-3 2"/><path d="M12 2a3 3 0 0 1 3 3v2c0 1 1 2 3 2"/><path d="M4.2 14.5A6 6 0 0 0 4 16c0 1.7 1.3 3 3 3h10c1.7 0 3-1.3 3-3a6 6 0 0 0-.2-1.5"/><path d="M8 22V11"/><path d="M16 22V11"/></svg><strong>Welcome to Notes++ Assistant!</strong></p>
+          <p><svg style="vertical-align: text-bottom; margin-right: 4px;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11c0-1-2-2-4-2"/><path d="M16 11c-1 0-2.5-.5-3-1.5"/><path d="M12 2a3 3 0 0 0-3 3v2c0 1-1 2-3 2"/><path d="M12 2a3 3 0 0 1 3 3v2c0 1 1 2 3 2"/><path d="M4.2 14.5A6 6 0 0 0 4 16c0 1.7 1.3 3 3 3h10c1.7 0 3-1.3 3-3a6 6 0 0 0-.2-1.5"/><path d="M8 22V11"/><path d="M16 22V11"/></svg><strong>Welcome to Notes Plus Assistant!</strong></p>
           <p>I can edit notes, answer questions, format tables, search your library, and summarize documentation directly via your configured Ollama backend.</p>
         </div>
 
@@ -758,14 +758,14 @@
           :class="['chat-bubble', msg.role]"
         >
           <div class="chat-bubble-header">
-            <strong>{{ msg.role === 'user' ? 'You' : 'Notes++ AI' }}</strong>
+            <strong>{{ msg.role === 'user' ? 'You' : 'Notes Plus AI' }}</strong>
           </div>
           <div class="chat-bubble-body" v-html="formatMessageContent(msg.content)"></div>
         </div>
 
         <!-- Live Streaming Output -->
         <div v-if="isAiStreaming" class="chat-bubble assistant streaming">
-          <div class="chat-bubble-header"><strong>Notes++ AI</strong> <span class="typing-indicator">typing...</span></div>
+          <div class="chat-bubble-header"><strong>Notes Plus AI</strong> <span class="typing-indicator">typing...</span></div>
           <div class="chat-bubble-body" v-html="formatMessageContent(streamingText)"></div>
         </div>
 

@@ -23,7 +23,7 @@ createApp({
     // Core Note & View State
     const currentFilename = ref(getRequestedNote() || 'welcome.adoc');
     const notesList = ref([]);
-    const rawContent = ref('= Welcome to Notes++\n\nStart writing documentation in AsciiDoc.\n');
+    const rawContent = ref('= Welcome to Notes Plus\n\nStart writing documentation in AsciiDoc.\n');
     const viewMode = ref('split');
     const isSaving = ref(false);
     const saveStatusText = ref('Saved');
@@ -154,7 +154,7 @@ createApp({
             } else {
               target = list[0].filename;
             }
-            if (target && (target !== currentFilename.value || !rawContent.value || rawContent.value.startsWith('= Welcome to Notes++\n\nStart writing'))) {
+            if (target && (target !== currentFilename.value || !rawContent.value || rawContent.value.startsWith('= Welcome to Notes Plus\n\nStart writing'))) {
               await loadNote(target);
             }
           }
@@ -170,7 +170,7 @@ createApp({
     async function loadNote(filename, updateHistory = true) {
       if (!filename) return;
       currentFilename.value = filename;
-      try { localStorage.setItem('notesplusplus_last_note', filename); } catch (_) {}
+      try { localStorage.setItem('notesplus_last_note', filename); } catch (_) {}
 
       if (updateHistory && typeof history !== 'undefined' && history.replaceState) {
         const desiredHash = '#' + encodeURIComponent(filename);
@@ -248,7 +248,7 @@ createApp({
 
       let starterContent = `= ${title}\n\n`;
       if (newNoteTemplate.value === 'technical') {
-        starterContent = `= ${title}\n:toc: left\n:icons: font\n\n== Overview\nDescribe system architecture and design.\n\n== Requirements\n* [ ] Core functionality\n* [ ] Performance goals\n\n[source,rust]\n----\nfn main() {\n    println!("Hello Notes++!");\n}\n----\n`;
+        starterContent = `= ${title}\n:toc: left\n:icons: font\n\n== Overview\nDescribe system architecture and design.\n\n== Requirements\n* [ ] Core functionality\n* [ ] Performance goals\n\n[source,rust]\n----\nfn main() {\n    println!("Hello Notes Plus!");\n}\n----\n`;
       } else if (newNoteTemplate.value === 'meeting') {
         starterContent = `= Meeting: ${title}\n:icons: font\n\nDate: ${new Date().toISOString().slice(0, 10)}\nAttendees: User\n\n== Agenda\n. Topic 1\n. Topic 2\n\n== Action Items\n* [ ] Task 1\n* [ ] Task 2\n`;
       } else if (newNoteTemplate.value === 'journal') {

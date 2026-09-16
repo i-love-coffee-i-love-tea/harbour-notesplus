@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the harbour-notesplusplus app icon: ><(((º> on teal background.
+"""Generate the harbour-notesplus app icon: ><(((º> on teal background.
 
 Run from the project root:
     python3 scripts/generate-icon.py
 
 Requires: Pillow (pip install Pillow)
-Output:   rpm/icons/{86x86,108x108,128x128,172x172}/harbour-notesplusplus.png
-          rpm/harbour-notesplusplus.png (86x86 copy)
+Output:   rpm/icons/{86x86,108x108,128x128,172x172}/harbour-notesplus.png
+          rpm/harbour-notesplus.png (86x86 copy)
 """
 
 import os
@@ -58,13 +58,13 @@ for size in SIZES:
     # Save to rpm/icons/<size>x<size>/
     icon_dir = os.path.join(RPM_DIR, "icons", f"{size}x{size}")
     os.makedirs(icon_dir, exist_ok=True)
-    icon_path = os.path.join(icon_dir, "harbour-notesplusplus.png")
+    icon_path = os.path.join(icon_dir, "harbour-notesplus.png")
     icon.save(icon_path)
     print(f"  {icon_path}")
 
-    # Also save 86x86 as the default rpm/harbour-notesplusplus.png
+    # Also save 86x86 as the default rpm/harbour-notesplus.png
     if size == 86:
-        default_path = os.path.join(RPM_DIR, "harbour-notesplusplus.png")
+        default_path = os.path.join(RPM_DIR, "harbour-notesplus.png")
         icon.save(default_path)
         print(f"  {default_path} (default)")
 

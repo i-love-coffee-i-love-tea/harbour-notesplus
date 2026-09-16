@@ -22,8 +22,8 @@ jobs:
       - name: Check version consistency
         run: |
           CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          SPEC_VERSION=$(grep '^Version:' rpm/harbour-notesplusplus.spec | awk '{print $2}')
-          APPDATA_VERSION=$(grep -oP 'version="\K[^"]+' rpm/harbour-notesplusplus.appdata.xml | head -1)
+          SPEC_VERSION=$(grep '^Version:' rpm/harbour-notesplus.spec | awk '{print $2}')
+          APPDATA_VERSION=$(grep -oP '<release\s+version="\K[^"]+' rpm/harbour-notesplus.appdata.xml | head -1)
           echo "Cargo workspace version: $CARGO_VERSION"
           echo "Spec version: $SPEC_VERSION"
           echo "AppData version: $APPDATA_VERSION"
@@ -76,6 +76,6 @@ jobs:
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harbour-notesplusplus-${{ matrix.arch }}-rpm
+          name: harbour-notesplus-${{ matrix.arch }}-rpm
           path: ./RPMS/*.rpm
           if-no-files-found: error

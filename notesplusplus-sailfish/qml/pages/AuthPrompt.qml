@@ -75,7 +75,7 @@ Page {
             anchors.horizontalCenter: parent.horizontalCenter
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: qsTr("A web browser is requesting access to Notes++.")
+            text: qsTr("A web browser is requesting access to Notes Plus.")
             font.pixelSize: Theme.fontSizeMedium
             color: Theme.primaryColor
             wrapMode: Text.WordWrap

@@ -1,6 +1,6 @@
 import { ref, computed, watch, onMounted } from 'vue';
 
-const THEME_STORAGE_KEY = 'notesplusplus_theme_preference';
+const THEME_STORAGE_KEY = 'notesplus_theme_preference';
 
 export function useTheme() {
   const themePreference = ref(localStorage.getItem(THEME_STORAGE_KEY) || 'os');
