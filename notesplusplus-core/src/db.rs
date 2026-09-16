@@ -41,6 +41,17 @@ pub fn init_schema(conn: &Connection) -> SqlResult<()> {
             filename, title, content,
             tokenize='porter unicode61'
         );
+
+        CREATE TRIGGER IF NOT EXISTS pages_ad AFTER DELETE ON pages BEGIN
+            DELETE FROM pages_fts WHERE rowid = old.id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS pages_au AFTER UPDATE OF filename, group_path, title ON pages BEGIN
+            UPDATE pages_fts
+            SET filename = CASE WHEN new.group_path = '' THEN new.filename ELSE new.group_path || '/' || new.filename END,
+                title = new.title
+            WHERE rowid = old.id;
+        END;
         ",
     )?;
 
@@ -493,5 +504,59 @@ mod tests {
             rusqlite::params![now],
         );
         assert!(duplicate_res.is_err(), "Expected unique constraint error for duplicate (group_path, filename)");
+    }
+
+    #[test]
+    fn test_fts_trigger_on_delete_removes_fts_entry() {
+        let (conn, _dir) = test_db();
+        let page_id = insert_test_page(&conn, "note.adoc", "My Note");
+        update_fts_content(&conn, page_id, "searchable trigger content").unwrap();
+
+        // Verify FTS indexed it
+        let count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pages_fts WHERE pages_fts MATCH 'searchable'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        // Directly delete from pages table
+        conn.execute("DELETE FROM pages WHERE id = ?1", rusqlite::params![page_id]).unwrap();
+
+        // Trigger should have deleted the FTS entry automatically
+        let count_after: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pages_fts WHERE pages_fts MATCH 'searchable'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count_after, 0);
+    }
+
+    #[test]
+    fn test_fts_trigger_on_update_syncs_metadata() {
+        let (conn, _dir) = test_db();
+        let page_id = insert_test_page(&conn, "spec.adoc", "Old Title");
+        update_fts_content(&conn, page_id, "some documentation").unwrap();
+
+        // Update title and group_path on pages table
+        conn.execute(
+            "UPDATE pages SET title = 'Updated Title', group_path = 'Docs' WHERE id = ?1",
+            rusqlite::params![page_id],
+        ).unwrap();
+
+        // Verify FTS entry has updated filename and title
+        let (filename, title): (String, String) = conn
+            .query_row(
+                "SELECT filename, title FROM pages_fts WHERE rowid = ?1",
+                rusqlite::params![page_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(filename, "Docs/spec.adoc");
+        assert_eq!(title, "Updated Title");
     }
 }

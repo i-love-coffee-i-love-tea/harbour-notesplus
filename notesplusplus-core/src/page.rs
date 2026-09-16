@@ -198,45 +198,43 @@ pub fn save_and_index_page(
 
 /// Slice leading text sufficient to extract `limit` preview blocks without cutting open delimited blocks.
 fn slice_preview_content(content: &str, limit: usize) -> &str {
-    let lines: Vec<&str> = content.lines().collect();
-    if lines.len() <= 60 {
-        return content;
-    }
-
     let min_lines = (limit * 4).max(50);
     let mut in_delim: Option<&str> = None;
     let mut structural_lines = 0;
-    let mut cut_line_idx = lines.len();
+    let mut line_count = 0;
+    let mut cut_byte_idx = content.len();
 
-    for (idx, line) in lines.iter().enumerate() {
+    let mut current_offset = 0;
+    for line in content.lines() {
+        line_count += 1;
+        let line_len = line.len();
         let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+        if !trimmed.is_empty() {
+            if let Some(opener) = crate::parser::as_delimiter_opener(trimmed) {
+                in_delim = if in_delim == Some(opener) { None } else { Some(opener) };
+            }
 
-        if let Some(opener) = crate::parser::as_delimiter_opener(trimmed) {
-            in_delim = if in_delim == Some(opener) { None } else { Some(opener) };
+            structural_lines += 1;
+            if structural_lines >= min_lines && in_delim.is_none() {
+                let end_of_line = current_offset + line_len;
+                cut_byte_idx = (end_of_line + 1).min(content.len());
+                break;
+            }
         }
-
-        structural_lines += 1;
-        if structural_lines >= min_lines && in_delim.is_none() {
-            cut_line_idx = idx + 1;
-            break;
+        current_offset += line_len + 1;
+        if current_offset > content.len() {
+            current_offset = content.len();
         }
     }
 
-    if cut_line_idx >= lines.len() {
+    if line_count <= 60 || cut_byte_idx >= content.len() {
         content
     } else {
-        let mut byte_count = 0;
-        for line in &lines[..cut_line_idx] {
-            byte_count += line.len() + 1;
+        let mut boundary = cut_byte_idx;
+        while boundary > 0 && !content.is_char_boundary(boundary) {
+            boundary -= 1;
         }
-        if byte_count <= content.len() {
-            &content[..byte_count]
-        } else {
-            content
-        }
+        &content[..boundary]
     }
 }
 

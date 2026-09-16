@@ -11,6 +11,7 @@
 #include <sailfishapp.h>
 
 #include "bridge/NotesBridge.h"
+#include "bridge/BlockListModel.h"
 #include "bridge/AgentBridge.h"
 #include "bridge/SpeechBridge.h"
 
@@ -24,6 +25,7 @@ int main(int argc, char* argv[])
 
     /* Register QML types under harbour.notesplus 1.0 */
     qmlRegisterType<NotesBridge>("harbour.notesplus", 1, 0, "NotesBridge");
+    qmlRegisterType<BlockListModel>("harbour.notesplus", 1, 0, "BlockListModel");
     qmlRegisterType<AgentBridge>("harbour.notesplus", 1, 0, "AgentBridge");
     qmlRegisterType<SpeechBridge>("harbour.notesplus", 1, 0, "SpeechBridge");
 

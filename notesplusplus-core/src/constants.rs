@@ -29,6 +29,7 @@ pub const API_ROUTE_AUTH_CODE_INITIATE: &str = "api/auth/code/initiate";
 pub const API_ROUTE_AUTH_CODE_STATUS: &str = "api/auth/code/status";
 pub const API_ROUTE_THEME: &str = "api/theme";
 pub const API_ROUTE_SEARCH: &str = "api/search";
+pub const API_ROUTE_EVENTS: &str = "api/events";
 pub const API_ROUTE_PAGES: &str = "api/pages";
 pub const API_ROUTE_RENDER: &str = "api/render";
 pub const API_ROUTE_BLOCKS_PARSE: &str = "api/blocks/parse";

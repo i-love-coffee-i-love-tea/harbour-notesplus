@@ -374,23 +374,7 @@ impl Block {
                         let code = lines.join("\n");
                         let normalized = crate::highlight::normalize_language(lang);
                         let highlighted = crate::highlight::highlight_code(&code, &normalized);
-                        // QML Text.RichText doesn't honour <pre> whitespace — convert
-                        // newlines to <br/> and leading spaces to &nbsp; for indentation.
-                        // Leading spaces may appear as bare text or inside <span> tags,
-                        // so track whether we're past all opening tags on the current line.
-                        let mut qml_html = String::with_capacity(highlighted.len());
-                        let mut at_line_start = true;
-                        let mut in_tag = false;
-                        for c in highlighted.chars() {
-                            match c {
-                                '\n' => { qml_html.push_str("<br/>"); at_line_start = true; in_tag = false; }
-                                '<' => { qml_html.push(c); in_tag = true; }
-                                '>' => { qml_html.push(c); in_tag = false; }
-                                ' ' if at_line_start && !in_tag => { qml_html.push_str("&nbsp;"); }
-                                ' ' if at_line_start && in_tag => { qml_html.push(c); }
-                                _ => { qml_html.push(c); if !in_tag { at_line_start = false; } }
-                            }
-                        }
+                        let qml_html = crate::html::format_code_for_qml_richtext(&highlighted);
                         map.insert("highlighted_html".into(), serde_json::Value::String(qml_html));
                     }
                 }

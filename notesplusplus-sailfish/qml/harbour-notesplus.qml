@@ -1,199 +1,36 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import Nemo.Configuration 1.0
 import harbour.notesplus 1.0
 import "pages"
 import "cover"
+import "components"
+import "js/AiInstructionsManager.js" as AiInstructions
 
 ApplicationWindow {
     id: app
     _defaultPageOrientations: Orientation.All
 
+    AppSettings {
+        id: appSettings
+    }
+
     // Single source of truth for default AI endpoint — referenced everywhere
-    readonly property string defaultAiEndpoint: "http://localhost:11434"
+    readonly property string defaultAiEndpoint: appSettings.defaultAiEndpoint
 
-    ConfigurationValue {
-        id: fontSizeScaleConf
-        key: "/apps/harbour-notesplus/font_size_scale"
-        defaultValue: 1.0
-    }
-
-    ConfigurationValue {
-        id: fontFamilyConf
-        key: "/apps/harbour-notesplus/font_family"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: codeFontScaleConf
-        key: "/apps/harbour-notesplus/code_font_scale"
-        defaultValue: 1.0
-    }
-
-    ConfigurationValue {
-        id: tocCollapseThresholdConf
-        key: "/apps/harbour-notesplus/toc_collapse_threshold"
-        defaultValue: 5
-    }
-
-    ConfigurationValue {
-        id: previewScaleConf
-        key: "/apps/harbour-notesplus/preview_scale"
-        defaultValue: 0.52
-    }
-
-    ConfigurationValue {
-        id: gridColumnsConf
-        key: "/apps/harbour-notesplus/grid_columns"
-        defaultValue: 2
-    }
-
-    ConfigurationValue {
-        id: dropCommentsConf
-        key: "/apps/harbour-notesplus/drop_comments"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: allowExternalImagesConf
-        key: "/apps/harbour-notesplus/allow_external_images"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: autostartWebServerConf
-        key: "/apps/harbour-notesplus/autostart_web_server"
-        defaultValue: false
-    }
-
-    ConfigurationValue {
-        id: rejectPublicNetworksConf
-        key: "/apps/harbour-notesplus/reject_public_networks"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: bindAddressConf
-        key: "/apps/harbour-notesplus/bind_address"
-        defaultValue: "0.0.0.0"
-    }
-
-    ConfigurationValue {
-        id: sessionExpiryHoursConf
-        key: "/apps/harbour-notesplus/session_expiry_hours"
-        defaultValue: 24
-    }
-
-    ConfigurationValue {
-        id: groupDisplayDepthConf
-        key: "/apps/harbour-notesplus/group_display_depth"
-        defaultValue: 2
-    }
-
-    ConfigurationValue {
-        id: journalEnabledConf
-        key: "/apps/harbour-notesplus/journal_enabled"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiEnabledConf
-        key: "/apps/harbour-notesplus/ai_enabled"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiProviderConf
-        key: "/apps/harbour-notesplus/ai_provider"
-        defaultValue: "ollama"
-    }
-
-    ConfigurationValue {
-        id: aiEndpointConf
-        key: "/apps/harbour-notesplus/ai_endpoint"
-        defaultValue: app.defaultAiEndpoint
-    }
-
-    ConfigurationValue {
-        id: aiModelConf
-        key: "/apps/harbour-notesplus/ai_model"
-        defaultValue: "llama3.2"
-    }
-
-    ConfigurationValue {
-        id: aiApiKeyConf
-        key: "/apps/harbour-notesplus/ai_api_key"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: aiTimeoutConf
-        key: "/apps/harbour-notesplus/ai_timeout_secs"
-        defaultValue: 90
-    }
-
-    ConfigurationValue {
-        id: aiAutoAllowReadConf
-        key: "/apps/harbour-notesplus/ai_auto_allow_read"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiAutoAllowCreateConf
-        key: "/apps/harbour-notesplus/ai_auto_allow_create"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiRequireConfirmEditConf
-        key: "/apps/harbour-notesplus/ai_require_confirm_edit"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiAllowFetchUrlConf
-        key: "/apps/harbour-notesplus/ai_allow_fetch_url"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: aiAllowSelfSignedConf
-        key: "/apps/harbour-notesplus/ai_allow_self_signed"
-        defaultValue: false
-    }
-
-    ConfigurationValue {
-        id: customAiInstructionsConf
-        key: "/apps/harbour-notesplus/custom_ai_instructions"
-        defaultValue: ""
-    }
-
-    ConfigurationValue {
-        id: sttEnabledConf
-        key: "/apps/harbour-notesplus/stt_enabled"
-        defaultValue: true
-    }
-
-    ConfigurationValue {
-        id: sttModelConf
-        key: "/apps/harbour-notesplus/stt_model"
-        defaultValue: ""
-    }
-
-    property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
-    property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
-    property real codeFontScale: codeFontScaleConf.value !== undefined && codeFontScaleConf.value > 0 ? codeFontScaleConf.value : 1.0
-    property int tocCollapseThreshold: tocCollapseThresholdConf.value !== undefined ? tocCollapseThresholdConf.value : 5
-    property real previewScale: previewScaleConf.value !== undefined && previewScaleConf.value > 0 ? previewScaleConf.value : 0.52
-    property int gridColumns: gridColumnsConf.value !== undefined ? gridColumnsConf.value : 2
-    property bool dropComments: dropCommentsConf.value !== undefined ? dropCommentsConf.value : true
-    property bool allowExternalImages: allowExternalImagesConf.value !== undefined ? allowExternalImagesConf.value : true
-    property bool autostartWebServer: autostartWebServerConf.value !== undefined ? autostartWebServerConf.value : false
-    property bool rejectPublicNetworks: rejectPublicNetworksConf.value !== undefined ? rejectPublicNetworksConf.value : true
-    property string bindAddress: bindAddressConf.value !== undefined ? bindAddressConf.value : "0.0.0.0"
-    property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
-    property int groupDisplayDepth: groupDisplayDepthConf.value !== undefined ? groupDisplayDepthConf.value : 2
-    property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
+    property alias fontScale: appSettings.fontScale
+    property alias docFontFamily: appSettings.docFontFamily
+    property alias codeFontScale: appSettings.codeFontScale
+    property alias tocCollapseThreshold: appSettings.tocCollapseThreshold
+    property alias previewScale: appSettings.previewScale
+    property alias gridColumns: appSettings.gridColumns
+    property alias dropComments: appSettings.dropComments
+    property alias allowExternalImages: appSettings.allowExternalImages
+    property alias autostartWebServer: appSettings.autostartWebServer
+    property alias rejectPublicNetworks: appSettings.rejectPublicNetworks
+    property alias bindAddress: appSettings.bindAddress
+    property alias sessionExpiryHours: appSettings.sessionExpiryHours
+    property alias groupDisplayDepth: appSettings.groupDisplayDepth
+    property alias journalEnabled: appSettings.journalEnabled
 
     function formatSize(bytes) {
         if (!bytes || bytes <= 0) return ""
@@ -208,126 +45,39 @@ ApplicationWindow {
     function scaledFontSize(base) {
         return Math.round(base * fontScale)
     }
-    property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
-    property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
-    property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""
 
-    property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"
-    property string aiEndpoint: aiEndpointConf.value !== undefined ? aiEndpointConf.value : app.defaultAiEndpoint
-    property string aiModel: aiModelConf.value !== undefined ? aiModelConf.value : "llama3.2"
-    property string aiApiKey: aiApiKeyConf.value !== undefined ? aiApiKeyConf.value : ""
-    property int aiTimeout: aiTimeoutConf.value !== undefined ? aiTimeoutConf.value : 90
-    property bool aiAutoAllowRead: aiAutoAllowReadConf.value !== undefined ? aiAutoAllowReadConf.value : true
-    property bool aiAutoAllowCreate: aiAutoAllowCreateConf.value !== undefined ? aiAutoAllowCreateConf.value : true
-    property bool aiRequireConfirmEdit: aiRequireConfirmEditConf.value !== undefined ? aiRequireConfirmEditConf.value : true
-    property bool aiAllowFetchUrl: aiAllowFetchUrlConf.value !== undefined ? aiAllowFetchUrlConf.value : true
-    property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
+    property alias aiEnabled: appSettings.aiEnabled
+    property alias sttEnabled: appSettings.sttEnabled
+    property alias sttModel: appSettings.sttModel
 
-    readonly property var defaultCustomAiInstructions: [
-        {
-            "id": "beautify",
-            "buttonText": qsTr("Beautify"),
-            "icon": "icon-m-favorite",
-            "instruction": "Please beautify the active note by adding visual structure, helpful admonition blocks (NOTE, TIP, WARNING), clean tables, and suitable emoji accents where appropriate. Call the edit_note tool with the complete beautified AsciiDoc content and filename."
-        },
-        {
-            "id": "extract_todos",
-            "buttonText": qsTr("Extract To-Dos"),
-            "icon": "icon-m-select-all",
-            "instruction": "Please analyze the active note and extract all actionable tasks and todo items into a clean AsciiDoc checklist using `* [ ]`."
-        },
-        {
-            "id": "fix_grammar",
-            "buttonText": qsTr("Fix Grammar"),
-            "icon": "icon-m-edit",
-            "instruction": "Please review and correct the spelling, grammar, punctuation, and formatting in the active note while strictly preserving and enforcing proper AsciiDoc syntax. Call the edit_note tool with the complete corrected AsciiDoc content and filename."
-        },
-        {
-            "id": "expand_draft",
-            "buttonText": qsTr("Expand & Draft"),
-            "icon": "icon-m-document",
-            "instruction": "Please expand and draft the ideas in the active note into a well-structured AsciiDoc document with appropriate sections, headings, and detailed explanations. Call the edit_note tool with the complete expanded AsciiDoc content and filename."
-        },
-        {
-            "id": "analyze_external",
-            "buttonText": qsTr("External Text"),
-            "icon": "icon-m-website",
-            "instruction": "Please analyze the following external text or content, summarize key points, and extract relevant action items into structured AsciiDoc."
-        }
-    ]
+    property alias aiProvider: appSettings.aiProvider
+    property alias aiEndpoint: appSettings.aiEndpoint
+    property alias aiModel: appSettings.aiModel
+    property alias aiApiKey: appSettings.aiApiKey
+    property alias aiTimeout: appSettings.aiTimeout
+    property alias aiAutoAllowRead: appSettings.aiAutoAllowRead
+    property alias aiAutoAllowCreate: appSettings.aiAutoAllowCreate
+    property alias aiRequireConfirmEdit: appSettings.aiRequireConfirmEdit
+    property alias aiAllowFetchUrl: appSettings.aiAllowFetchUrl
+    property alias aiAllowSelfSigned: appSettings.aiAllowSelfSigned
 
-    property var customAiInstructions: {
-        var raw = customAiInstructionsConf.value
-        if (raw && typeof raw === "string" && raw.trim().length > 0) {
-            try {
-                var parsed = JSON.parse(raw)
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    return parsed
-                }
-            } catch (e) {
-                console.log("Error parsing custom AI instructions:", e)
-            }
-        }
-        return defaultCustomAiInstructions
-    }
+    readonly property var defaultCustomAiInstructions: AiInstructions.defaultCustomAiInstructions
+    property var customAiInstructions: AiInstructions.parseCustomAiInstructions(appSettings.customAiInstructionsRaw)
 
     function isDefaultAiInstruction(id) {
-        if (!id) return false
-        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
-            if (defaultCustomAiInstructions[i].id === id) {
-                return true
-            }
-        }
-        return false
+        return AiInstructions.isDefaultAiInstruction(id)
     }
 
     function getDefaultAiInstruction(id) {
-        if (!id) return null
-        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
-            if (defaultCustomAiInstructions[i].id === id) {
-                return defaultCustomAiInstructions[i]
-            }
-        }
-        return null
+        return AiInstructions.getDefaultAiInstruction(id)
     }
 
     function saveCustomAiInstruction(item) {
-        var list = []
-        var current = customAiInstructions
-        for (var i = 0; i < current.length; i++) {
-            list.push(current[i])
-        }
-        var foundIndex = -1
-        var targetId = item.id || ""
-        if (targetId.length > 0) {
-            for (var j = 0; j < list.length; j++) {
-                if (list[j].id === targetId) {
-                    foundIndex = j
-                    break
-                }
-            }
-        } else {
-            targetId = "custom_" + Date.now()
-            item.id = targetId
-        }
-
-        if (foundIndex >= 0) {
-            list[foundIndex] = item
-        } else {
-            list.push(item)
-        }
-        customAiInstructionsConf.value = JSON.stringify(list)
+        appSettings.setCustomAiInstructionsRaw(AiInstructions.saveCustomAiInstruction(customAiInstructions, item))
     }
 
     function deleteCustomAiInstruction(id) {
-        var current = customAiInstructions
-        var filtered = []
-        for (var i = 0; i < current.length; i++) {
-            if (current[i].id !== id) {
-                filtered.push(current[i])
-            }
-        }
-        customAiInstructionsConf.value = JSON.stringify(filtered)
+        appSettings.setCustomAiInstructionsRaw(AiInstructions.deleteCustomAiInstruction(customAiInstructions, id))
     }
 
     function resetSingleAiInstruction(id) {
@@ -337,97 +87,74 @@ ApplicationWindow {
     }
 
     function resetCustomAiInstructions() {
-        var current = customAiInstructions
-        var defaultIds = {}
-        for (var i = 0; i < defaultCustomAiInstructions.length; i++) {
-            defaultIds[defaultCustomAiInstructions[i].id] = true
-        }
-
-        // Retain all custom user-created instructions (non-vendored)
-        var userCustomList = []
-        for (var j = 0; j < current.length; j++) {
-            if (current[j] && current[j].id && !defaultIds[current[j].id]) {
-                userCustomList.push(current[j])
-            }
-        }
-
-        // Construct list: all original default vendored instructions + retained user custom instructions
-        var resultList = []
-        for (var k = 0; k < defaultCustomAiInstructions.length; k++) {
-            resultList.push(defaultCustomAiInstructions[k])
-        }
-        for (var m = 0; m < userCustomList.length; m++) {
-            resultList.push(userCustomList[m])
-        }
-
-        customAiInstructionsConf.value = JSON.stringify(resultList)
+        appSettings.setCustomAiInstructionsRaw(AiInstructions.resetCustomAiInstructions(customAiInstructions))
     }
 
     function setFontScale(scale) {
-        fontSizeScaleConf.value = scale
+        appSettings.setFontScale(scale)
     }
 
     function setFontFamily(family) {
-        fontFamilyConf.value = family
+        appSettings.setFontFamily(family)
     }
 
     function setCodeFontScale(scale) {
-        codeFontScaleConf.value = scale
+        appSettings.setCodeFontScale(scale)
     }
 
     function setTocCollapseThreshold(threshold) {
-        tocCollapseThresholdConf.value = threshold
+        appSettings.setTocCollapseThreshold(threshold)
     }
 
     function setPreviewScale(scale) {
-        previewScaleConf.value = scale
+        appSettings.setPreviewScale(scale)
     }
 
     function setGridColumns(cols) {
-        gridColumnsConf.value = cols
+        appSettings.setGridColumns(cols)
     }
 
     function setDropComments(drop) {
-        dropCommentsConf.value = drop
+        appSettings.setDropComments(drop)
         bridge.set_drop_comments(drop)
     }
 
     function setAllowExternalImages(allow) {
-        allowExternalImagesConf.value = allow
+        appSettings.setAllowExternalImages(allow)
     }
 
     function setAutostartWebServer(val) {
-        autostartWebServerConf.value = val
+        appSettings.setAutostartWebServer(val)
     }
 
     function setRejectPublicNetworks(val) {
-        rejectPublicNetworksConf.value = val
+        appSettings.setRejectPublicNetworks(val)
         bridge.set_reject_public_networks(val)
     }
 
     function setBindAddress(addr) {
-        bindAddressConf.value = addr
+        appSettings.setBindAddress(addr)
         bridge.set_bind_address(addr)
     }
 
     function setSessionExpiryHours(hours) {
-        sessionExpiryHoursConf.value = hours
+        appSettings.setSessionExpiryHours(hours)
         if (typeof bridge !== "undefined" && bridge && typeof bridge.set_session_expiry_hours === "function") {
             bridge.set_session_expiry_hours(hours)
         }
     }
 
     function setJournalEnabled(val) {
-        journalEnabledConf.value = val
+        appSettings.setJournalEnabled(val)
     }
 
     function setGroupDisplayDepth(val) {
-        groupDisplayDepthConf.value = val
+        appSettings.setGroupDisplayDepth(val)
         bridge.set_group_display_depth(val)
     }
 
     function setAiEnabled(val) {
-        aiEnabledConf.value = val
+        appSettings.setAiEnabled(val)
     }
 
     function syncAiConfig() {
@@ -471,61 +198,61 @@ ApplicationWindow {
     }
 
     function setAiProvider(provider) {
-        aiProviderConf.value = provider
+        appSettings.setAiProvider(provider)
         syncAiConfig()
     }
 
     function setAiEndpoint(endpoint) {
-        aiEndpointConf.value = endpoint
+        appSettings.setAiEndpoint(endpoint)
         syncAiConfig()
     }
 
     function setAiModel(model) {
-        aiModelConf.value = model
+        appSettings.setAiModel(model)
         syncAiConfig()
     }
 
     function setAiApiKey(key) {
-        aiApiKeyConf.value = key
+        appSettings.setAiApiKey(key)
         syncAiConfig()
     }
 
     function setAiTimeout(secs) {
-        aiTimeoutConf.value = secs
+        appSettings.setAiTimeout(secs)
         syncAiConfig()
     }
 
     function setAiAutoAllowRead(val) {
-        aiAutoAllowReadConf.value = val
+        appSettings.setAiAutoAllowRead(val)
         syncAiConfig()
     }
 
     function setAiAutoAllowCreate(val) {
-        aiAutoAllowCreateConf.value = val
+        appSettings.setAiAutoAllowCreate(val)
         syncAiConfig()
     }
 
     function setAiRequireConfirmEdit(val) {
-        aiRequireConfirmEditConf.value = val
+        appSettings.setAiRequireConfirmEdit(val)
         syncAiConfig()
     }
 
     function setAiAllowFetchUrl(val) {
-        aiAllowFetchUrlConf.value = val
+        appSettings.setAiAllowFetchUrl(val)
         syncAiConfig()
     }
 
     function setAiAllowSelfSigned(val) {
-        aiAllowSelfSignedConf.value = val
+        appSettings.setAiAllowSelfSigned(val)
         syncAiConfig()
     }
 
     function setSttEnabled(val) {
-        sttEnabledConf.value = val
+        appSettings.setSttEnabled(val)
     }
 
     function setSttModel(modelId) {
-        sttModelConf.value = modelId
+        appSettings.setSttModel(modelId)
         if (typeof speechBridge !== "undefined" && speechBridge && typeof speechBridge.set_active_model === "function") {
             speechBridge.set_active_model(modelId)
         }

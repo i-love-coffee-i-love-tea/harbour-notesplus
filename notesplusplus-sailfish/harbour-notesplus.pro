@@ -15,6 +15,7 @@ QMAKE_CXXFLAGS += -std=c++17
 # Source files
 SOURCES += \
     src/main.cpp \
+    src/bridge/BlockListModel.cpp \
     src/bridge/NotesBridge.cpp \
     src/bridge/AgentBridge.cpp \
     src/bridge/SpeechBridge.cpp
@@ -22,6 +23,7 @@ SOURCES += \
 HEADERS += \
     src/ffi/notesplusplus_core.h \
     src/ffi/ffi_raii.h \
+    src/bridge/BlockListModel.h \
     src/bridge/NotesBridge.h \
     src/bridge/AgentBridge.h \
     src/bridge/SpeechBridge.h

@@ -58,6 +58,10 @@ pub fn handle_http_client(mut request: tiny_http::Request, ctx: ServerContext) {
     }
 
     // SSE handlers need owned writer — handle before borrow-heavy dispatch
+    if (clean_path == API_ROUTE_EVENTS || clean_path == "api/events") && req.method == HttpMethod::Get {
+        pages::handle_events_sse(writer, &req, &ctx, &cors_origin);
+        return;
+    }
     if (clean_path == API_ROUTE_AI_CHAT || clean_path == "api/agent/chat") && req.method == HttpMethod::Post {
         agent::handle_agent_chat(writer, &req, &ctx, &cors_origin);
         return;

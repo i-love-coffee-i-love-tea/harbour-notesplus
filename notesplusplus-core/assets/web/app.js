@@ -769,6 +769,26 @@ createApp({
       return formatMarkdown(content);
     }
 
+    // ─── Live Companion Sync (SSE) ───────────────────────────────────
+
+    function initEventSource() {
+      if (typeof EventSource === 'undefined') return;
+      try {
+        const es = new EventSource('/api/events');
+        es.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'page_updated' || data.type === 'notes_changed') {
+              fetchNotesList();
+            }
+          } catch (_) {}
+        };
+        es.onerror = () => {
+          es.close();
+        };
+      } catch (_) {}
+    }
+
     // ─── Lifecycle ─────────────────────────────────────────────────────
 
     let heartbeatTimer = null;
@@ -790,6 +810,7 @@ createApp({
       if (authed) {
         await fetchNotesList();
         await ai.fetchAiConfig();
+        initEventSource();
       }
 
       heartbeatTimer = setInterval(() => checkConnection(true), 4000);

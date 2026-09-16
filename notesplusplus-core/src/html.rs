@@ -9,12 +9,14 @@ pub mod icons;
 pub mod preprocess;
 pub mod qt_html;
 pub mod render;
+pub mod silica_adapter;
 
 use render::HtmlRenderContext;
 
 pub use assets::{DOCUMENT_CSS, DOCUMENT_JS};
 pub use icons::{get_admonition_svg_icon, get_standard_svg_icon};
 pub use preprocess::preprocess_html;
+pub use silica_adapter::format_code_for_qml_richtext;
 
 /// Convert raw AsciiDoc content into a standalone HTML5 document.
 pub fn adoc_to_html5(adoc_content: &str, title: &str, notes_dir: Option<&Path>) -> String {

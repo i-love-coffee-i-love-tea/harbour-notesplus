@@ -1354,3 +1354,38 @@ fn test_theme_assets_and_contrast_rules() {
 
     server_handle.stop();
 }
+
+#[test]
+fn test_events_sse_endpoint() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_events.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&notes_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let server_handle = start_server_full(notes_dir, db_path, backup_dir, 18999, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    let res = ureq::get(&format!("http://127.0.0.1:{}/api/events", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    assert_eq!(res.header("Content-Type").unwrap(), "text/event-stream");
+
+    let mut reader = res.into_reader();
+    let mut buf = [0u8; 1024];
+    use std::io::Read;
+    let n = reader.read(&mut buf).unwrap();
+    let body = String::from_utf8_lossy(&buf[..n]);
+    assert!(body.contains("data:"));
+    assert!(body.contains("connected"));
+    assert!(body.contains("Notes Plus"));
+
+    server_handle.stop();
+}

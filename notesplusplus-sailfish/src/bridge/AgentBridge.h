@@ -183,6 +183,7 @@ private:
 
     /* ---- Helpers ---- */
     void reportError(const QString &msg);
+    void appendStreamingToken(const QString &token);
     void startPolling();
     void maybeStopPolling();
     void sendInBackground(const QString &prompt);

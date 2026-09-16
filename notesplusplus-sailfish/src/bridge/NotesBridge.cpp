@@ -70,6 +70,7 @@ static QString dbPathFor(const QString &dataDir)
 NotesBridge::NotesBridge(QObject *parent)
     : QObject(parent)
     , paths_(notes_core_app_paths_new())
+    , m_blockListModel(new BlockListModel(this))
 {
     m_notesPath = ffiStringToQString(
         notes_core_app_paths_notes_dir(paths_.get()));
@@ -143,6 +144,12 @@ void NotesBridge::ensureInit()
             m_initDone   = true;
         }
         m_initCv.notify_one();
+
+        QMetaObject::invokeMethod(this, [this]() {
+            if (this->pollInit()) {
+                this->load_main_page_data();
+            }
+        }, Qt::QueuedConnection);
     }).detach();
 }
 
@@ -283,6 +290,10 @@ void NotesBridge::rebuildTreeInBackground()
             std::lock_guard<std::mutex> lk(m_pendingMainMutex);
             m_pendingMainPage = std::move(data);
         }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_main_page_data();
+        }, Qt::QueuedConnection);
     }).detach();
 }
 
@@ -360,6 +371,10 @@ void NotesBridge::load_page(QString name)
             std::lock_guard<std::mutex> lk(m_pendingMutex);
             m_pendingPage = std::move(result);
         }
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_results();
+        }, Qt::QueuedConnection);
     }).detach();
 }
 
@@ -400,6 +415,9 @@ void NotesBridge::save_block_range(int start_index, int count, QString raw_text)
             qstrToFFI(buildOptionsJson()));
         m_currentBlocks = jsonArrayToQStringVariantList(
             ffiStringToQString(blocks));
+        if (m_blockListModel) {
+            m_blockListModel->setBlocks(m_currentBlocks);
+        }
         m_blocksVersion++;
         emit page_changed();
     }
@@ -569,6 +587,9 @@ void NotesBridge::delete_page(QString name)
         m_currentPageFullPath.clear();
         emit current_page_full_path_changed();
         m_currentBlocks.clear();
+        if (m_blockListModel) {
+            m_blockListModel->clear();
+        }
         m_isJournalPage = false;
         m_currentPageFilePath.clear();
         emit page_changed();
@@ -639,6 +660,9 @@ void NotesBridge::toggle_checkbox(int block_index, QString item_path)
     if (rc < 0) {
         reportError(QStringLiteral("Failed to toggle checkbox"));
         return;
+    }
+    if (m_blockListModel) {
+        m_blockListModel->toggleCheckbox(block_index, item_path);
     }
     load_page(pagePath);
 }
@@ -904,6 +928,10 @@ void NotesBridge::do_search(QString query)
                 m_pendingSearchHits = std::move(hits);
             }
 
+            QMetaObject::invokeMethod(this, [this]() {
+                this->poll_search();
+            }, Qt::QueuedConnection);
+
             /* Kick off background preview generation */
             std::thread([this, gen]() {
                 if (gen != m_searchGeneration.load()) return;
@@ -936,12 +964,20 @@ void NotesBridge::do_search(QString query)
                     std::lock_guard<std::mutex> lk(m_pendingPreviewMutex);
                     m_pendingPreviews = std::move(previewMap);
                 }
+
+                QMetaObject::invokeMethod(this, [this]() {
+                    this->poll_search_previews();
+                }, Qt::QueuedConnection);
             }).detach();
 
         } else {
             std::lock_guard<std::mutex> lk(m_pendingSearchMutex);
             m_pendingSearchError = QStringLiteral("Search failed");
             m_pendingSearchHits  = QList<SearchHit>();
+
+            QMetaObject::invokeMethod(this, [this]() {
+                this->poll_search();
+            }, Qt::QueuedConnection);
         }
 
         notes_core_search_free(engine);
@@ -1196,6 +1232,9 @@ bool NotesBridge::poll_results()
     }
 
     m_currentBlocks = result.blocks;
+    if (m_blockListModel) {
+        m_blockListModel->setBlocks(m_currentBlocks);
+    }
     m_blocksVersion++;
     emit page_changed();
     return true;

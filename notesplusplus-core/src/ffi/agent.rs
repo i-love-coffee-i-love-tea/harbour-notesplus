@@ -14,6 +14,14 @@ pub struct FfiAgentSession {
     pub streaming_buffer: Arc<Mutex<String>>,
 }
 
+pub type FfiTokenCallback = unsafe extern "C" fn(user_data: *mut std::os::raw::c_void, token: *const c_char, is_done: bool);
+
+struct SendCallback {
+    callback: Option<FfiTokenCallback>,
+    user_data_addr: usize,
+}
+unsafe impl Send for SendCallback {}
+
 pub struct WorkerResult {
     pub step_result: Result<AgentStepResult, String>,
     pub messages_json: String,
@@ -55,13 +63,33 @@ pub extern "C" fn notes_core_agent_new(
 }
 
 /// Send a prompt to the agent (background). Returns 0 on success.
+///
+/// # Safety
+///
+/// `ffi` must point to a valid `FfiAgentSession`. `prompt` must be a valid, null-terminated C string.
 #[no_mangle]
-pub extern "C" fn notes_core_agent_send(
+pub unsafe extern "C" fn notes_core_agent_send(
     ffi: *mut FfiAgentSession,
     prompt: *const c_char,
 ) -> i32 {
-    let ffi = unsafe { &mut *ffi };
-    let prompt = unsafe { cstr_to_string(prompt) };
+    notes_core_agent_send_streaming(ffi, prompt, None, std::ptr::null_mut())
+}
+
+/// Send a prompt to the agent with a streaming token callback (background). Returns 0 on success.
+///
+/// # Safety
+///
+/// `ffi` must point to a valid `FfiAgentSession`. `prompt` must be a valid, null-terminated C string.
+/// `callback` must be thread-safe or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn notes_core_agent_send_streaming(
+    ffi: *mut FfiAgentSession,
+    prompt: *const c_char,
+    callback: Option<FfiTokenCallback>,
+    user_data: *mut std::os::raw::c_void,
+) -> i32 {
+    let ffi = &mut *ffi;
+    let prompt = cstr_to_string(prompt);
 
     let session = ffi.session.clone();
     let result_slot = ffi.result.clone();
@@ -72,6 +100,11 @@ pub extern "C" fn notes_core_agent_send(
         b.clear();
     }
 
+    let cb_wrapper = SendCallback {
+        callback,
+        user_data_addr: user_data as usize,
+    };
+
     thread::spawn(move || {
         let step_result;
         let messages_json;
@@ -80,11 +113,24 @@ pub extern "C" fn notes_core_agent_send(
         let last_snapshot_id;
         let last_created_note;
 
+        let SendCallback {
+            callback: cb_opt,
+            user_data_addr,
+        } = cb_wrapper;
+        let udata = user_data_addr as *mut std::os::raw::c_void;
+
         {
             let mut sess = session.lock().unwrap();
             let result = sess.send_prompt_streaming(&prompt, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
+                }
+                if let Some(cb) = cb_opt {
+                    let c_tok = string_to_c(tok.to_string());
+                    unsafe {
+                        cb(udata, c_tok, false);
+                        crate::ffi::common::notes_core_free_string(c_tok);
+                    }
                 }
             });
             step_result = result;
@@ -94,6 +140,12 @@ pub extern "C" fn notes_core_agent_send(
             can_undo = sess.can_undo();
             last_snapshot_id = sess.last_snapshot_id();
             last_created_note = sess.last_created_note();
+        }
+
+        if let Some(cb) = cb_opt {
+            unsafe {
+                cb(udata, std::ptr::null(), true);
+            }
         }
 
         if let Ok(mut guard) = result_slot.lock() {

@@ -5,8 +5,10 @@ use std::thread;
 use crate::search as search_mod;
 use super::common::{cstr_to_path, cstr_to_string, string_to_c};
 
+type SearchResultSlot = Arc<Mutex<Option<Result<Vec<search_mod::SearchResult>, String>>>>;
+
 pub struct FfiSearchEngine {
-    result: Arc<Mutex<Option<Result<Vec<search_mod::SearchResult>, String>>>>,
+    result: SearchResultSlot,
     _handle: Option<thread::JoinHandle<()>>,
 }
 

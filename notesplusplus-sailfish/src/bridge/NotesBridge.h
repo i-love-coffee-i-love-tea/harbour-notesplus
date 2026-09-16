@@ -22,18 +22,20 @@
 #include <thread>
 #include <atomic>
 
+#include "BlockListModel.h"
 #include "../ffi/ffi_raii.h"
 
 class NotesBridge : public QObject
 {
     Q_OBJECT
 
-    /* ---- Properties (27) — exact names match Rust bridge ---- */
+    /* ---- Properties (28) — exact names match Rust bridge ---- */
     Q_PROPERTY(QString     current_page_name         MEMBER m_currentPageName         NOTIFY page_changed)
     Q_PROPERTY(QString     current_page_group_path   MEMBER m_currentPageGroupPath    NOTIFY current_page_group_path_changed)
     Q_PROPERTY(QString     current_page_full_path    MEMBER m_currentPageFullPath     NOTIFY current_page_full_path_changed)
     Q_PROPERTY(QString     current_page_file_path    MEMBER m_currentPageFilePath     NOTIFY page_changed)
     Q_PROPERTY(QVariantList current_blocks           MEMBER m_currentBlocks           NOTIFY page_changed)
+    Q_PROPERTY(BlockListModel* block_model           READ   blockModel                CONSTANT)
     Q_PROPERTY(bool        is_journal_page           MEMBER m_isJournalPage           NOTIFY page_changed)
     Q_PROPERTY(int         blocks_version            MEMBER m_blocksVersion           NOTIFY page_changed)
     Q_PROPERTY(QString     notes_dir                 MEMBER m_notesDir                NOTIFY page_changed)
@@ -60,6 +62,8 @@ class NotesBridge : public QObject
 public:
     explicit NotesBridge(QObject *parent = nullptr);
     ~NotesBridge() override;
+
+    BlockListModel* blockModel() const { return m_blockListModel; }
 
     /* ---- Q_INVOKABLE methods (54) — exact names match Rust bridge ---- */
 
@@ -240,12 +244,13 @@ private:
     bool    m_allowFetchUrl      = false;
     int     m_sessionExpirySecs  = 86400;
 
-    /* ---- Property storage (27) ---- */
+    /* ---- Property storage (28) ---- */
     QString      m_currentPageName;
     QString      m_currentPageGroupPath;
     QString      m_currentPageFullPath;
     QString      m_currentPageFilePath;
     QVariantList m_currentBlocks;
+    BlockListModel* m_blockListModel = nullptr;
     bool         m_isJournalPage       = false;
     int          m_blocksVersion       = 0;
     QString      m_notesDir;

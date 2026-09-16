@@ -125,6 +125,30 @@ void AgentBridge::appendUserMessage(const QString &text)
     emit messages_changed();
 }
 
+static void agentStreamingTokenCallback(void *userData, const char *token, int isDone)
+{
+    AgentBridge *bridge = static_cast<AgentBridge*>(userData);
+    if (!bridge) return;
+
+    if (token) {
+        QString tokenStr = QString::fromUtf8(token);
+        QMetaObject::invokeMethod(bridge, [bridge, tokenStr]() {
+            bridge->appendStreamingToken(tokenStr);
+        }, Qt::QueuedConnection);
+    }
+    if (isDone) {
+        QMetaObject::invokeMethod(bridge, [bridge]() {
+            bridge->poll_worker();
+        }, Qt::QueuedConnection);
+    }
+}
+
+void AgentBridge::appendStreamingToken(const QString &token)
+{
+    m_streamingText += token;
+    emit streaming_text_changed();
+}
+
 /* Start an agent send operation in a background thread and begin polling.
  * Shared by send_prompt, run_template, run_custom_instruction, import_text. */
 void AgentBridge::sendInBackground(const QString &prompt)
@@ -135,7 +159,11 @@ void AgentBridge::sendInBackground(const QString &prompt)
     emit streaming_text_changed();
 
     QtConcurrent::run([this, prompt]() {
-        notes_core_agent_send(m_session.get(), qstrToFFI(prompt));
+        notes_core_agent_send_streaming(
+            m_session.get(),
+            qstrToFFI(prompt),
+            &agentStreamingTokenCallback,
+            this);
     });
 
     startPolling();
@@ -423,6 +451,10 @@ void AgentBridge::fetch_url_content(QString url)
             m_fetchSuccess = false;
         }
         m_fetchReady = true;
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_worker();
+        }, Qt::QueuedConnection);
     });
 
     startPolling();
@@ -518,6 +550,10 @@ void AgentBridge::read_local_file(QString file_path)
         m_fetchContent = content;
         m_fetchSuccess = true;
         m_fetchReady   = true;
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_worker();
+        }, Qt::QueuedConnection);
     });
 
     startPolling();
@@ -575,6 +611,10 @@ void AgentBridge::undo_last_action()
             m_undoSuccess = false;
         }
         m_undoReady = true;
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_worker();
+        }, Qt::QueuedConnection);
     });
 
     startPolling();
@@ -739,6 +779,10 @@ void AgentBridge::fetch_models()
             m_modelsSuccess = false;
         }
         m_modelsReady = true;
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_models();
+        }, Qt::QueuedConnection);
     });
 }
 

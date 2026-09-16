@@ -147,10 +147,15 @@ int   notes_core_server_tls_is_custom(const char* cert_path);
 /* ------------------------------------------------------------------ */
 /* Agent session (background + poll)                                   */
 /* ------------------------------------------------------------------ */
+typedef void (*FfiTokenCallback)(void* user_data, const char* token, int is_done);
+
 FfiAgentSession* notes_core_agent_new(
     const char* notes_dir, const char* db_path,
     const char* backup_dir, const char* config_json);
 int   notes_core_agent_send(FfiAgentSession* ffi, const char* prompt);
+int   notes_core_agent_send_streaming(
+    FfiAgentSession* ffi, const char* prompt,
+    FfiTokenCallback callback, void* user_data);
 char* notes_core_agent_poll_streaming(FfiAgentSession* ffi);
 /* Returns: 0=running, 1=ready, -1=error. On ready, *out_json is set. */
 int   notes_core_agent_poll(FfiAgentSession* ffi, char** out_json);

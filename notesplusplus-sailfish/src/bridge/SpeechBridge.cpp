@@ -609,6 +609,10 @@ void SpeechBridge::beginTranscription(const QString &path)
             m_transcribeSuccess = false;
         }
         m_transcribeDone.store(true);
+
+        QMetaObject::invokeMethod(this, [this]() {
+            this->poll_worker();
+        }, Qt::QueuedConnection);
     });
 
     // Keep poll timer running while transcribing

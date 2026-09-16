@@ -763,3 +763,22 @@ pub fn handle_export_url<W: Write>(
     }
     send_json_error(stream, 404, "Not Found", "File not found", cors_origin);
 }
+
+pub fn handle_events_sse<W: Write>(
+    mut stream: W,
+    _req: &ParsedHttpRequest,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    use crate::server::http::{send_sse_done, send_sse_event, send_sse_header};
+    send_sse_header(&mut stream, cors_origin);
+
+    let is_busy = ctx.session.lock().map(|s| s.is_busy()).unwrap_or(false);
+    let connect_event = json!({
+        "type": "connected",
+        "app": "Notes Plus",
+        "agent_busy": is_busy
+    });
+    send_sse_event(&mut stream, &connect_event);
+    send_sse_done(&mut stream);
+}
