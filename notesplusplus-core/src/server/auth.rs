@@ -127,39 +127,34 @@ impl SessionStore {
                 let _ = std::fs::create_dir_all(parent);
             }
             if let Ok(json) = serde_json::to_string_pretty(map) {
-                let _ = std::fs::write(path, json.as_bytes());
+                let _ = crate::page::atomic_write(path, json.as_bytes());
             }
         }
     }
 
     /// Validates a session token. Returns the session if valid and not expired.
     pub fn validate_session(&self, token: &str) -> Option<Session> {
-        if token.trim().is_empty() {
+        let clean_token = token.trim();
+        if clean_token.is_empty() {
             return None;
         }
         let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let now = current_epoch_secs();
 
-        // Prune expired
-        let mut changed = false;
-        map.retain(|_, s| {
-            let valid = s.expires_at > now;
-            if !valid {
-                changed = true;
+        if let Some(session) = map.get(clean_token) {
+            if session.expires_at > now {
+                return Some(session.clone());
             }
-            valid
-        });
-        if changed {
+        }
+
+        // Clean up expired sessions if token was expired or not found
+        let initial_len = map.len();
+        map.retain(|_, s| s.expires_at > now);
+        if map.len() != initial_len {
             self.persist(&map);
         }
 
-        let mut matched = None;
-        for (id, sess) in map.iter() {
-            if constant_time_eq(id, token) {
-                matched = Some(sess.clone());
-            }
-        }
-        matched
+        None
     }
 
     /// Creates and stores a new active session for the given username and auth method.

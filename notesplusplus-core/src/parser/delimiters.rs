@@ -50,7 +50,8 @@ pub fn is_code_delimiter(t: &str) -> bool {
     if t.chars().all(|c| c == '-') {
         return true;
     }
-    t.len() > 4 && t[4..].chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    // Allow standard language identifier immediately following the delimiter (e.g. ----rust, ----python)
+    t.len() > 4 && t.len() <= 20 && t[4..].chars().all(|c| c.is_ascii_alphabetic())
 }
 
 pub fn is_literal_delimiter(t: &str) -> bool {

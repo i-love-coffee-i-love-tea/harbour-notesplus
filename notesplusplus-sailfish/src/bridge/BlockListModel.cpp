@@ -104,6 +104,39 @@ void BlockListModel::updateBlock(int index, const QVariantMap &data)
     emit dataChanged(modelIndex, modelIndex);
 }
 
+static QVariantMap toggleNestedCheckbox(QVariantMap node, const QStringList &parts, int depth)
+{
+    if (depth >= parts.size()) return node;
+    bool ok = false;
+    int childIdx = parts.at(depth).toInt(&ok);
+    if (!ok) return node;
+
+    if (depth == parts.size() - 1) {
+        if (node.contains(QStringLiteral("blocks"))) {
+            QVariantList subBlocks = node.value(QStringLiteral("blocks")).toList();
+            if (childIdx >= 0 && childIdx < subBlocks.size()) {
+                QVariantMap child = subBlocks.at(childIdx).toMap();
+                if (child.contains(QStringLiteral("checked"))) {
+                    child[QStringLiteral("checked")] = !child.value(QStringLiteral("checked")).toBool();
+                    subBlocks[childIdx] = child;
+                    node[QStringLiteral("blocks")] = subBlocks;
+                }
+            }
+        }
+        return node;
+    }
+
+    if (node.contains(QStringLiteral("blocks"))) {
+        QVariantList subBlocks = node.value(QStringLiteral("blocks")).toList();
+        if (childIdx >= 0 && childIdx < subBlocks.size()) {
+            QVariantMap child = subBlocks.at(childIdx).toMap();
+            subBlocks[childIdx] = toggleNestedCheckbox(child, parts, depth + 1);
+            node[QStringLiteral("blocks")] = subBlocks;
+        }
+    }
+    return node;
+}
+
 void BlockListModel::toggleCheckbox(int index, const QString &itemPath)
 {
     if (index < 0 || index >= m_blocks.size()) return;
@@ -116,21 +149,7 @@ void BlockListModel::toggleCheckbox(int index, const QString &itemPath)
         }
     } else {
         QStringList parts = itemPath.split(QLatin1Char('.'));
-        // Modify nested structure if present
-        if (block.contains(QStringLiteral("blocks"))) {
-            QVariantList subBlocks = block.value(QStringLiteral("blocks")).toList();
-            if (!parts.isEmpty()) {
-                int childIdx = parts.first().toInt();
-                if (childIdx >= 0 && childIdx < subBlocks.size()) {
-                    QVariantMap child = subBlocks.at(childIdx).toMap();
-                    if (child.contains(QStringLiteral("checked"))) {
-                        child[QStringLiteral("checked")] = !child.value(QStringLiteral("checked")).toBool();
-                        subBlocks[childIdx] = child;
-                        block[QStringLiteral("blocks")] = subBlocks;
-                    }
-                }
-            }
-        }
+        block = toggleNestedCheckbox(block, parts, 0);
     }
 
     m_blocks[index] = block;

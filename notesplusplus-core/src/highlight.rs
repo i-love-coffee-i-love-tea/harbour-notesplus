@@ -1,40 +1,37 @@
+use std::sync::LazyLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::html::{styled_line_to_highlighted_html, IncludeBackground};
 use syntect::parsing::SyntaxSet;
 use crate::escape::escape_html;
 
-thread_local! {
-    static SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
-    static THEME_SET: ThemeSet = ThemeSet::load_defaults();
-}
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
 /// Highlight code with syntax coloring and return HTML with inline `<span>` elements.
 /// Falls back to escaped plain text if the language is unknown.
 pub fn highlight_code(code: &str, language: &str) -> String {
-    SYNTAX_SET.with(|ss| {
-        THEME_SET.with(|ts| {
-            let syntax = ss
-                .find_syntax_by_token(language)
-                .unwrap_or_else(|| ss.find_syntax_plain_text());
-            let theme = &ts.themes["base16-ocean.dark"];
-            let mut h = HighlightLines::new(syntax, theme);
+    let ss = &*SYNTAX_SET;
+    let ts = &*THEME_SET;
+    let syntax = ss
+        .find_syntax_by_token(language)
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+    let theme = &ts.themes["base16-ocean.dark"];
+    let mut h = HighlightLines::new(syntax, theme);
 
-            let mut html = String::new();
-            for line in code.split('\n') {
-                let ranges = h.highlight_line(line, ss).unwrap_or_default();
-                let line_html = styled_line_to_highlighted_html(&ranges, IncludeBackground::No)
-                    .unwrap_or_else(|_| escape_html(line));
-                html.push_str(&line_html);
-                html.push('\n');
-            }
-            // Remove trailing newline added by the loop
-            if html.ends_with('\n') {
-                html.pop();
-            }
-            html
-        })
-    })
+    let mut html = String::new();
+    for line in code.split('\n') {
+        let ranges = h.highlight_line(line, ss).unwrap_or_default();
+        let line_html = styled_line_to_highlighted_html(&ranges, IncludeBackground::No)
+            .unwrap_or_else(|_| escape_html(line));
+        html.push_str(&line_html);
+        html.push('\n');
+    }
+    // Remove trailing newline added by the loop
+    if html.ends_with('\n') {
+        html.pop();
+    }
+    html
 }
 
 /// Map common AsciiDoc language aliases to syntect syntax tokens.

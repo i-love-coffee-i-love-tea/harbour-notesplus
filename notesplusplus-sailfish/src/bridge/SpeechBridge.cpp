@@ -20,7 +20,6 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
-#include <mutex>
 
 /* ======================================================================== */
 /* PulseAudio in-process capture (C++ port of Rust audio_recorder.rs)       */
@@ -97,7 +96,7 @@ public:
         spec.channels = static_cast<uint8_t>(CHANNELS);
 
         int paErr = 0;
-        void *simple = m_paNew(nullptr, "Notes++", PA_STREAM_RECORD, nullptr,
+        void *simple = m_paNew(nullptr, "Notes Plus", PA_STREAM_RECORD, nullptr,
                                "STT Voice Input", &spec, nullptr, nullptr, &paErr);
         if (!simple) {
             qWarning() << "[SpeechBridge] PulseAudio stream open failed, code" << paErr;

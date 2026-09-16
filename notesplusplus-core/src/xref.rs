@@ -1,5 +1,16 @@
 //! AsciiDoc cross-reference rewriting for page moves and renames.
 
+use std::sync::LazyLock;
+use regex::Regex;
+
+static XREF_STD_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"xref:([^\s#\[]+)([#][^\]]*)?\[([^\]]*)\]").unwrap()
+});
+
+static XREF_ANGLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<<([^\s#,>]+)([#][^,>]*)?(,[^>]*)?>>").unwrap()
+});
+
 /// Rewrites cross-references in AsciiDoc content from old_target to new_target.
 /// Handles:
 /// - Standard: `xref:old_target#anchor[label]`, `xref:old_target[label]`, `xref:old_target[]`
@@ -19,31 +30,35 @@ pub fn rewrite_xrefs(content: &str, old_target: &str, new_target: &str) -> Strin
     let old_adoc = if old_clean.ends_with(".adoc") { old_clean.to_string() } else { format!("{}.adoc", old_clean) };
     let new_adoc = if new_clean.ends_with(".adoc") { new_clean.to_string() } else { format!("{}.adoc", new_clean) };
 
-    let mut result = content.to_string();
+    // 1. Standard xref:target#anchor[label] or xref:target[label]
+    let result = XREF_STD_RE.replace_all(content, |caps: &regex::Captures| {
+        let target = &caps[1];
+        let anchor = caps.get(2).map_or("", |m| m.as_str());
+        let label = &caps[3];
 
-    // 1. Standard xref:old_adoc#anchor[label] or xref:old_adoc[label]
-    if let Ok(re_std) = regex::Regex::new(&format!(r"xref:{}([#][^\]]*)?\[", regex::escape(&old_adoc))) {
-        result = re_std.replace_all(&result, format!("xref:{}$1[", new_adoc).as_str()).to_string();
-    }
-
-    // 2. Standard xref:old_stem#anchor[label] or xref:old_stem[label]
-    if old_stem != old_adoc {
-        if let Ok(re_std_stem) = regex::Regex::new(&format!(r"xref:{}([#][^\]]*)?\[", regex::escape(old_stem))) {
-            result = re_std_stem.replace_all(&result, format!("xref:{}$1[", new_adoc).as_str()).to_string();
+        if target == old_adoc || target == old_stem {
+            format!("xref:{}{}[{}]", new_adoc, anchor, label)
+        } else {
+            caps.get(0).unwrap().as_str().to_string()
         }
-    }
+    });
 
-    // 3. Shorthand <<old_adoc#anchor,label>> or <<old_adoc>>
-    if let Ok(re_angle) = regex::Regex::new(&format!(r"<<{}([#][^,>]*)?(,[^>]*)?>>", regex::escape(&old_adoc))) {
-        result = re_angle.replace_all(&result, format!("<<{}$1$2>>", new_adoc).as_str()).to_string();
-    }
+    // 2. Shorthand <<target#anchor,label>> or <<target>>
+    let result = XREF_ANGLE_RE.replace_all(&result, |caps: &regex::Captures| {
+        let target = &caps[1];
+        let anchor = caps.get(2).map_or("", |m| m.as_str());
+        let label = caps.get(3).map_or("", |m| m.as_str());
 
-    // 4. Shorthand <<old_stem#anchor,label>> or <<old_stem>>
-    if let Ok(re_angle_stem) = regex::Regex::new(&format!(r"<<{}([#][^,>]*)?(,[^>]*)?>>", regex::escape(old_stem))) {
-        result = re_angle_stem.replace_all(&result, format!("<<{}$1$2>>", new_stem).as_str()).to_string();
-    }
+        if target == old_adoc {
+            format!("<<{}{}{}>>", new_adoc, anchor, label)
+        } else if target == old_stem {
+            format!("<<{}{}{}>>", new_stem, anchor, label)
+        } else {
+            caps.get(0).unwrap().as_str().to_string()
+        }
+    });
 
-    result
+    result.into_owned()
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 struct ClientHistory {
     timestamps: Vec<Instant>,
+    window: Duration,
 }
 
 /// Thread-safe in-memory rate limiter using sliding window algorithm.
@@ -35,10 +36,11 @@ impl RateLimiter {
         let mut map = self.limits.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
 
-        // Periodically cleanup stale entries when the map gets large
+        // Periodically cleanup stale entries using each entry's own window duration
         if map.len() > 200 {
             map.retain(|_, history| {
-                history.timestamps.retain(|&t| now.duration_since(t) < window);
+                let entry_window = history.window;
+                history.timestamps.retain(|&t| now.duration_since(t) < entry_window);
                 !history.timestamps.is_empty()
             });
         }
@@ -46,7 +48,9 @@ impl RateLimiter {
         let key = (action.to_string(), client_ip.to_string());
         let history = map.entry(key).or_insert_with(|| ClientHistory {
             timestamps: Vec::new(),
+            window,
         });
+        history.window = window;
 
         // Prune expired timestamps for this key
         history

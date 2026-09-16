@@ -27,8 +27,44 @@ pub enum AgentStepResult {
 pub struct SessionState {
     pub messages: Vec<ChatMessage>,
     pub pending_action: Option<PendingConfirmation>,
+    pub remaining_tool_calls: Vec<ToolCall>,
     pub last_snapshot_id: Option<String>,
     pub last_created_note: Option<String>,
+}
+
+const MAX_TOOL_OUTPUT_CHARS: usize = 16_000;
+const MAX_CONVERSATION_MESSAGES: usize = 28;
+
+fn truncate_tool_output(output: String) -> String {
+    if output.len() > MAX_TOOL_OUTPUT_CHARS {
+        let mut truncated: String = output.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
+        truncated.push_str("\n... [Output truncated to 16,000 characters]");
+        truncated
+    } else {
+        output
+    }
+}
+
+fn prune_history_if_needed(messages: &mut Vec<ChatMessage>) {
+    if messages.len() <= MAX_CONVERSATION_MESSAGES {
+        return;
+    }
+
+    let sys_msg = messages.first().cloned();
+    let target_keep = 18;
+    let mut drop_idx = messages.len().saturating_sub(target_keep);
+
+    // Ensure we don't start slicing on a tool result message (which requires preceding assistant tool_calls)
+    while drop_idx < messages.len() && (messages[drop_idx].role == "tool" || messages[drop_idx].tool_call_id.is_some()) {
+        drop_idx += 1;
+    }
+
+    let mut compacted = Vec::with_capacity(messages.len() - drop_idx + 1);
+    if let Some(sys) = sys_msg {
+        compacted.push(sys);
+    }
+    compacted.extend(messages.drain(drop_idx..));
+    *messages = compacted;
 }
 
 pub struct AgentSession {
@@ -111,6 +147,7 @@ impl AgentSession {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.messages.clear();
         state.pending_action = None;
+        state.remaining_tool_calls.clear();
         state.last_created_note = None;
         state.messages.push(ChatMessage::system(sys_prompt));
     }
@@ -143,24 +180,44 @@ impl AgentSession {
 
     /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.
     pub fn confirm_pending_action_streaming<F: FnMut(&str)>(&mut self, approved: bool, on_token: F) -> AgentStepResult {
-        let pending = match self.state.lock().unwrap_or_else(|e| e.into_inner()).pending_action.take() {
-            Some(p) => p,
-            None => return AgentStepResult::Error("No pending action to confirm".to_string()),
+        let (pending, remaining) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let p = match state.pending_action.take() {
+                Some(p) => p,
+                None => return AgentStepResult::Error("No pending action to confirm".to_string()),
+            };
+            let rem = std::mem::take(&mut state.remaining_tool_calls);
+            (p, rem)
         };
 
         if approved {
             let result_str = self.apply_note_edit(&pending.filename, &pending.new_content, &pending.reason);
-            self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::tool_result(
+            let result_str = truncate_tool_output(result_str);
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
                 result_str,
             ));
         } else {
-            self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::tool_result(
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
                 format!("User rejected the proposed changes to '{}'.", pending.filename),
             ));
+        }
+
+        // Add tool results for remaining tool calls in the same turn
+        if !remaining.is_empty() {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            for tc in remaining {
+                state.messages.push(ChatMessage::tool_result(
+                    tc.id,
+                    tc.function.name,
+                    "Skipped: previous tool edit required user confirmation and halted subsequent actions in the batch.".to_string(),
+                ));
+            }
         }
 
         self.run_loop_streaming(on_token)
@@ -179,6 +236,11 @@ impl AgentSession {
 
         while turns < self.max_tool_turns {
             turns += 1;
+
+            {
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                prune_history_if_needed(&mut state.messages);
+            }
 
             let messages = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.clone();
             let client = self.client.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -215,6 +277,7 @@ impl AgentSession {
                     match decision {
                         PermissionDecision::Allowed => {
                             let output = self.execute_tool(tool_call);
+                            let output = truncate_tool_output(output);
                             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                             state.messages.push(ChatMessage::tool_result(
                                 tool_call.id.clone(),
@@ -224,13 +287,12 @@ impl AgentSession {
                         }
                         PermissionDecision::RequiresConfirmation(pending) => {
                             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                            for remaining in response.tool_calls.iter().skip_while(|tc| tc.id != tool_call.id).skip(1) {
-                                state.messages.push(ChatMessage::tool_result(
-                                    remaining.id.clone(),
-                                    remaining.function.name.clone(),
-                                    "Skipped: waiting for user confirmation of prior edit".to_string(),
-                                ));
-                            }
+                            let remaining: Vec<ToolCall> = response.tool_calls.iter()
+                                .skip_while(|tc| tc.id != tool_call.id)
+                                .skip(1)
+                                .cloned()
+                                .collect();
+                            state.remaining_tool_calls = remaining;
                             state.pending_action = Some(pending.clone());
                             return AgentStepResult::RequiresConfirmation(pending);
                         }
