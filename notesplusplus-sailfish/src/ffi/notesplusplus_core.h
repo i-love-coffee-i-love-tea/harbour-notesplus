@@ -155,6 +155,7 @@ int   notes_core_server_auth_deny(const HttpServerHandle* handle, const char* ch
 /* Agent session (background + poll)                                   */
 /* ------------------------------------------------------------------ */
 typedef void (*FfiTokenCallback)(void* user_data, const char* token, int is_done);
+typedef void (*FfiStatusCallback)(void* user_data, const char* status, const char* detail);
 
 FfiAgentSession* notes_core_agent_new(
     const char* notes_dir, const char* db_path,
@@ -172,10 +173,10 @@ int   notes_core_agent_confirm_streaming(
     FfiTokenCallback callback, void* user_data);
 char* notes_core_agent_send_streaming_direct(
     FfiAgentSession* ffi, const char* prompt,
-    FfiTokenCallback callback, void* user_data);
+    FfiTokenCallback callback, FfiStatusCallback status_callback, void* user_data);
 char* notes_core_agent_confirm_streaming_direct(
     FfiAgentSession* ffi, int approved,
-    FfiTokenCallback callback, void* user_data);
+    FfiTokenCallback callback, FfiStatusCallback status_callback, void* user_data);
 char* notes_core_agent_undo_direct(FfiAgentSession* ffi);
 char* notes_core_agent_undo(FfiAgentSession* ffi);
 void  notes_core_agent_configure(FfiAgentSession* ffi, const char* config_json);

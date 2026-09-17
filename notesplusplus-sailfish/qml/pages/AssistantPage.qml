@@ -405,6 +405,8 @@ Page {
                 messagesJson: agentBridge.messages_json
                 agentBusy: agentBridge.agent_busy
                 streamingText: agentBridge.streaming_text
+                stepStatus: agentBridge.step_status
+                stepDetail: agentBridge.step_detail
                 onResendRequested: function(txt) {
                     if (txt && txt.trim().length > 0 && !agentBridge.agent_busy) {
                         assistantPage.applyConfig()
@@ -474,22 +476,39 @@ Page {
                 onDetachExtraContextRequested: assistantPage.detachExtraContext()
                 onClearAllContextRequested: assistantPage.clearAllContext()
                 onInstructionSelected: function(item) {
-                    if (!assistantPage.hasContextOrInput) {
-                        assistantPage.openAttachNoteDialog()
-                        return
-                    }
-                    assistantPage.applyConfig()
-                    var ctx = assistantPage.getCombinedNotesContent()
-                    if (assistantPage.extraContext.length > 0) {
-                        ctx = ctx.length > 0 ? (ctx + "\n\n" + assistantPage.extraContext) : assistantPage.extraContext
+                    var tmpl = item.instruction || ""
+                    if (!tmpl && typeof app !== "undefined" && app.getDefaultAiInstruction) {
+                        var def = app.getDefaultAiInstruction(item.id)
+                        if (def && def.instruction) {
+                            tmpl = def.instruction
+                        }
                     }
                     var fn = assistantPage.getCombinedFilenames()
-                    if (item.instruction && item.instruction.length > 0) {
-                        agentBridge.run_custom_instruction(item.instruction, promptBar.text, fn, ctx)
-                    } else if (item.id) {
-                        agentBridge.run_template(item.id, promptBar.text, fn, ctx)
+                    var ctx = assistantPage.getCombinedNotesContent()
+                    var extra = assistantPage.extraContext
+                    var inp = promptBar.text.trim()
+
+                    var resolvedPrompt = tmpl
+                    if (resolvedPrompt.indexOf("{filename}") !== -1) {
+                        resolvedPrompt = resolvedPrompt.replace(/\{filename\}/g, fn)
                     }
-                    promptBar.text = ""
+                    if (resolvedPrompt.indexOf("{content}") !== -1) {
+                        resolvedPrompt = resolvedPrompt.replace(/\{content\}/g, ctx)
+                    }
+                    if (resolvedPrompt.indexOf("{input}") !== -1) {
+                        resolvedPrompt = resolvedPrompt.replace(/\{input\}/g, inp)
+                    }
+                    if (resolvedPrompt.indexOf("{context}") !== -1) {
+                        var combinedContext = ctx
+                        if (extra.length > 0) {
+                            combinedContext = combinedContext.length > 0 ? (combinedContext + "\n\n" + extra) : extra
+                        }
+                        resolvedPrompt = resolvedPrompt.replace(/\{context\}/g, combinedContext)
+                    }
+
+                    // Populate prompt field directly for transparent inspection and tweaking
+                    promptBar.text = resolvedPrompt
+                    promptBar.showInstructions = false
                     assistantPage.scrollToBottom()
                 }
                 onEditInstructionRequested: function(item) {

@@ -433,7 +433,7 @@ Rectangle {
             // Tip / Instruction Hint
             Label {
                 width: parent.width
-                text: qsTr("Tip: Tap to run action, hold to view or edit prompt.")
+                text: qsTr("Tip: Tap to expand prompt into composer, hold to customize template.")
                 font.pixelSize: Theme.fontSizeExtraSmall - 2
                 color: Theme.secondaryColor
                 wrapMode: Text.Wrap

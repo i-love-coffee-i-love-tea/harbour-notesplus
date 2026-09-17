@@ -94,8 +94,11 @@ void AgentBridge::beginOperation()
     m_agentBusy = true;
     m_errorMessage.clear();
     m_streamingText.clear();
+    m_stepStatus = QStringLiteral("thinking");
+    m_stepDetail = QStringLiteral("Thinking...");
     emit busy_changed();
     emit streaming_text_changed();
+    emit step_status_changed();
 }
 
 /* Append a user message to the local messages_json for immediate UI feedback.
@@ -146,10 +149,32 @@ static void agentStreamingTokenCallback(void *userData, const char *token, int /
                               Q_ARG(QString, tokenStr));
 }
 
+static void agentStreamingStatusCallback(void *userData, const char *status, const char *detail)
+{
+    AgentBridge *bridge = static_cast<AgentBridge*>(userData);
+    if (!bridge || !status) return;
+
+    QString statusStr = QString::fromUtf8(status);
+    QString detailStr = detail ? QString::fromUtf8(detail) : QString();
+    QMetaObject::invokeMethod(bridge, "handleStepStatus",
+                              Qt::QueuedConnection,
+                              Q_ARG(QString, statusStr),
+                              Q_ARG(QString, detailStr));
+}
+
 void AgentBridge::appendStreamingToken(const QString &token)
 {
     m_streamingText += token;
     emit streaming_text_changed();
+}
+
+void AgentBridge::handleStepStatus(const QString &status, const QString &detail)
+{
+    if (m_stepStatus != status || m_stepDetail != detail) {
+        m_stepStatus = status;
+        m_stepDetail = detail;
+        emit step_status_changed();
+    }
 }
 
 /* ================================================================== */
@@ -165,6 +190,7 @@ void AgentBridge::sendInBackground(const QString &prompt)
             m_session.get(),
             qstrToFFI(prompt),
             &agentStreamingTokenCallback,
+            &agentStreamingStatusCallback,
             this);
 
         QString resultJson;
@@ -192,7 +218,10 @@ void AgentBridge::handleSendResult(const QString &resultJson)
     }
     m_agentBusy = false;
     m_streamingText.clear();
+    m_stepStatus.clear();
+    m_stepDetail.clear();
     emit streaming_text_changed();
+    emit step_status_changed();
     emit busy_changed();
 }
 
@@ -593,6 +622,7 @@ void AgentBridge::confirm_action(bool approved)
             m_session.get(),
             approvedInt,
             &agentStreamingTokenCallback,
+            &agentStreamingStatusCallback,
             this);
 
         QString resultJson;
@@ -620,7 +650,10 @@ void AgentBridge::handleConfirmResult(const QString &resultJson)
     }
     m_agentBusy = false;
     m_streamingText.clear();
+    m_stepStatus.clear();
+    m_stepDetail.clear();
     emit streaming_text_changed();
+    emit step_status_changed();
     emit busy_changed();
 }
 
@@ -660,6 +693,9 @@ void AgentBridge::handleUndoResult(const QString &resultJson)
         reportError(QStringLiteral("Undo failed"));
     }
     m_agentBusy = false;
+    m_stepStatus.clear();
+    m_stepDetail.clear();
+    emit step_status_changed();
     emit busy_changed();
 }
 
@@ -677,8 +713,11 @@ void AgentBridge::cancel_operation()
 
     m_agentBusy = false;
     m_streamingText.clear();
+    m_stepStatus.clear();
+    m_stepDetail.clear();
     m_isFetching = false;
     emit streaming_text_changed();
+    emit step_status_changed();
     emit busy_changed();
     emit fetching_changed();
 }

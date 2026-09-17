@@ -9,6 +9,8 @@ export const useAiStore = defineStore('ai', () => {
   const isAiBusy = ref(false);
   const isAiStreaming = ref(false);
   const streamingText = ref('');
+  const stepStatus = ref('');
+  const stepDetail = ref('');
   const aiPromptInput = ref('');
   const aiError = ref('');
   const messages = ref([]);
@@ -131,10 +133,15 @@ export const useAiStore = defineStore('ai', () => {
         response,
         (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
         async (payload) => {
-          if (payload.type === 'pending_confirmation') {
+          if (payload.type === 'step_status') {
+            stepStatus.value = payload.status || '';
+            stepDetail.value = payload.detail || '';
+          } else if (payload.type === 'pending_confirmation') {
             pendingAction.value = payload.action;
             openAiDrawer.value = true;
           } else if (payload.type === 'finished') {
+            stepStatus.value = '';
+            stepDetail.value = '';
             if (payload.content) fullAnswer = payload.content;
             if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
             if (payload.last_snapshot_id || payload.last_created_note) {
@@ -142,6 +149,8 @@ export const useAiStore = defineStore('ai', () => {
               await notesStore.loadNote(notesStore.currentFilename);
             }
           } else if (payload.type === 'error') {
+            stepStatus.value = '';
+            stepDetail.value = '';
             aiError.value = payload.error;
           }
         }
@@ -154,6 +163,8 @@ export const useAiStore = defineStore('ai', () => {
       isAiBusy.value = false;
       isAiStreaming.value = false;
       streamingText.value = '';
+      stepStatus.value = '';
+      stepDetail.value = '';
       scrollChatToBottom();
     }
   }
@@ -194,12 +205,19 @@ export const useAiStore = defineStore('ai', () => {
         response,
         (token) => { streamingText.value += token; fullAnswer += token; scrollChatToBottom(); },
         async (payload) => {
-          if (payload.type === 'finished') {
+          if (payload.type === 'step_status') {
+            stepStatus.value = payload.status || '';
+            stepDetail.value = payload.detail || '';
+          } else if (payload.type === 'finished') {
+            stepStatus.value = '';
+            stepDetail.value = '';
             if (payload.content) fullAnswer = payload.content;
             if (payload.can_undo !== undefined) canUndo.value = payload.can_undo;
             await notesStore.fetchNotesList();
             await notesStore.loadNote(notesStore.currentFilename);
           } else if (payload.type === 'error') {
+            stepStatus.value = '';
+            stepDetail.value = '';
             aiError.value = payload.error;
           }
         }
@@ -212,6 +230,8 @@ export const useAiStore = defineStore('ai', () => {
       isAiBusy.value = false;
       isAiStreaming.value = false;
       streamingText.value = '';
+      stepStatus.value = '';
+      stepDetail.value = '';
       scrollChatToBottom();
     }
   }
@@ -232,7 +252,7 @@ export const useAiStore = defineStore('ai', () => {
 
   return {
     openAiDrawer, showAiSettings, isAiBusy, isAiStreaming,
-    streamingText, aiPromptInput, aiError, messages,
+    streamingText, stepStatus, stepDetail, aiPromptInput, aiError, messages,
     pendingAction, canUndo, availableModels, isLoadingModels,
     modelsError, aiConfig, isCurrentModelInList, aiTab,
     chatMessagesContainer, scrollChatToBottom,

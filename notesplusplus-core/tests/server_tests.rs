@@ -458,7 +458,7 @@ fn test_server_reject_public_networks_toggle() {
 
 #[test]
 fn test_link_page_widget_web_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, STORES_LINK_STORE_JS};
 
     // 1. Verify index.html contains Link buttons and Link Dialog modal overlay
     assert!(INDEX_HTML.contains("openLinkDialog"));
@@ -469,17 +469,18 @@ fn test_link_page_widget_web_assets() {
     assert!(INDEX_HTML.contains("formattedLinkPreview"));
     assert!(INDEX_HTML.contains("confirmLinkInsert"));
 
-    // 2. Verify app.js contains link dialog state, computeds, and shortcut handlers
-    assert!(APP_JS.contains("openLinkModal"));
-    assert!(APP_JS.contains("linkSearchQuery"));
-    assert!(APP_JS.contains("filteredLinkPages"));
-    assert!(APP_JS.contains("formattedLinkPreview"));
+    // 2. Verify link store and app.js contain link dialog state, computeds, and shortcut handlers
+    assert!(APP_JS.contains("useLinkStore"));
     assert!(APP_JS.contains("openLinkDialog"));
-    assert!(APP_JS.contains("confirmLinkInsert"));
-    assert!(APP_JS.contains("handleLinkKeydown"));
-    assert!(APP_JS.contains("selectLinkTarget"));
-    assert!(APP_JS.contains("isExternalUrl"));
-    assert!(APP_JS.contains("computedCustomFilename"));
+    assert!(STORES_LINK_STORE_JS.contains("openLinkModal"));
+    assert!(STORES_LINK_STORE_JS.contains("linkSearchQuery"));
+    assert!(STORES_LINK_STORE_JS.contains("filteredLinkPages"));
+    assert!(STORES_LINK_STORE_JS.contains("formattedLinkPreview"));
+    assert!(STORES_LINK_STORE_JS.contains("confirmLinkInsert"));
+    assert!(STORES_LINK_STORE_JS.contains("handleLinkKeydown"));
+    assert!(STORES_LINK_STORE_JS.contains("selectLinkTarget"));
+    assert!(STORES_LINK_STORE_JS.contains("isExternalUrl"));
+    assert!(STORES_LINK_STORE_JS.contains("computedCustomFilename"));
 
     // 3. Verify style.css contains link modal classes
     assert!(STYLE_CSS.contains(".link-modal-card"));
@@ -491,7 +492,7 @@ fn test_link_page_widget_web_assets() {
 
 #[test]
 fn test_ai_model_selection_web_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, COMPOSABLE_USE_AI_ASSISTANT_JS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, STORES_AI_JS};
 
     // 1. Verify index.html contains model selection UI elements
     assert!(INDEX_HTML.contains("ai-model-select"));
@@ -507,22 +508,22 @@ fn test_ai_model_selection_web_assets() {
     assert!(!INDEX_HTML.contains("allow_self_signed"));
     assert!(!INDEX_HTML.contains("Accept Self-Signed"));
 
-    // 2. Verify app.js imports and re-exports AI composable
-    assert!(APP_JS.contains("useAiAssistant"));
-    assert!(APP_JS.contains("availableModels"));
-    assert!(APP_JS.contains("fetchAvailableModels"));
-    assert!(APP_JS.contains("onModelSelect"));
-    assert!(APP_JS.contains("isCurrentModelInList"));
+    // 2. Verify app.js imports and uses AI store
+    assert!(APP_JS.contains("useAiStore"));
+    assert!(STORES_AI_JS.contains("availableModels"));
+    assert!(STORES_AI_JS.contains("fetchAvailableModels"));
+    assert!(STORES_AI_JS.contains("onModelSelect"));
+    assert!(STORES_AI_JS.contains("isCurrentModelInList"));
 
-    // Verify AI composable contains provider, model fetching, system prompt state & methods
-    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("/api/ai/models"));
-    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.system_prompt"));
-    assert!(COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.provider"));
+    // Verify AI store contains provider, model fetching, system prompt state & methods
+    assert!(STORES_AI_JS.contains("/api/ai/models"));
+    assert!(STORES_AI_JS.contains("system_prompt"));
+    assert!(STORES_AI_JS.contains("provider"));
 
-    // Verify composable does not expose or send server endpoints, tokens, or self-signed cert flags
-    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.endpoint"));
-    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("aiConfig.value.apiKey"));
-    assert!(!COMPOSABLE_USE_AI_ASSISTANT_JS.contains("allow_self_signed"));
+    // Verify store does not expose or send server endpoints, tokens, or self-signed cert flags
+    assert!(!STORES_AI_JS.contains("aiConfig.endpoint"));
+    assert!(!STORES_AI_JS.contains("aiConfig.apiKey"));
+    assert!(!STORES_AI_JS.contains("allow_self_signed"));
 
     // 3. Verify style.css contains styling for the model select
     assert!(STYLE_CSS.contains(".ai-model-select"));
@@ -717,16 +718,16 @@ fn test_logout_flow_and_session_invalidation() {
 
 #[test]
 fn test_web_ui_logout_button_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, STORES_AUTH_JS};
 
     // 1. Verify index.html contains logout button and action bindings
     assert!(INDEX_HTML.contains("@click=\"logout\""));
     assert!(INDEX_HTML.contains("btn-logout"));
     assert!(INDEX_HTML.contains("Logout"));
 
-    // 2. Verify app.js imports auth composable and exports logout handler
-    assert!(APP_JS.contains("useAuth"));
-    assert!(APP_JS.contains("logout,"));
+    // 2. Verify app.js imports auth store and auth store exports logout handler
+    assert!(APP_JS.contains("useAuthStore"));
+    assert!(STORES_AUTH_JS.contains("logout"));
 
     // 3. Verify style.css defines styling for logout button
     assert!(STYLE_CSS.contains(".btn-logout"));
@@ -849,16 +850,16 @@ fn test_configurable_session_expiration_and_remaining_time() {
 
 #[test]
 fn test_web_ui_session_timer_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, STORES_AUTH_JS};
 
     // 1. Verify index.html contains session chip and remaining text
     assert!(INDEX_HTML.contains("session-chip"));
     assert!(INDEX_HTML.contains("sessionRemainingText"));
     assert!(INDEX_HTML.contains("session-time"));
 
-    // 2. Verify app.js imports auth composable and exports session timer state
-    assert!(APP_JS.contains("useAuth"));
-    assert!(APP_JS.contains("sessionRemainingText"));
+    // 2. Verify app.js imports auth store and store exports session timer state
+    assert!(APP_JS.contains("useAuthStore"));
+    assert!(STORES_AUTH_JS.contains("sessionRemainingText"));
 
     // 3. Verify style.css defines styling for session chip
     assert!(STYLE_CSS.contains(".session-chip"));
@@ -890,7 +891,7 @@ fn test_web_ui_responsive_header_and_account_dropdown_assets() {
 
 #[test]
 fn test_import_from_url_and_file_web_assets() {
-    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS};
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, APP_JS, STYLE_CSS, STORES_IMPORT_STORE_JS};
 
     // 1. Verify index.html contains import actions, URL inputs, server file path inputs, and file picker
     assert!(INDEX_HTML.contains("Fetch URL"));
@@ -907,18 +908,16 @@ fn test_import_from_url_and_file_web_assets() {
     assert!(INDEX_HTML.contains("isDraggingFile"));
     assert!(INDEX_HTML.contains("import-textarea-wrapper"));
 
-    // 2. Verify app.js defines handlers, state, and API routes
-    assert!(APP_JS.contains("importUrl"));
-    assert!(APP_JS.contains("showUrlInput"));
-    assert!(APP_JS.contains("useImport"));
-    assert!(APP_JS.contains("isFetchingUrl"));
-    assert!(APP_JS.contains("fetchUrlContent"));
-    assert!(APP_JS.contains("onFileSelect"));
-    assert!(APP_JS.contains("onFileDrop"));
-    assert!(APP_JS.contains("loadServerFile"));
-    assert!(APP_JS.contains("pasteClipboard"));
-    assert!(APP_JS.contains("fetchNotesList"));
-    assert!(!APP_JS.contains("loadNotesList"));
+    // 2. Verify app.js and importStore define handlers, state, and API routes
+    assert!(APP_JS.contains("useImportStore"));
+    assert!(STORES_IMPORT_STORE_JS.contains("importUrl"));
+    assert!(STORES_IMPORT_STORE_JS.contains("showUrlInput"));
+    assert!(STORES_IMPORT_STORE_JS.contains("isFetchingUrl"));
+    assert!(STORES_IMPORT_STORE_JS.contains("fetchUrlContent"));
+    assert!(STORES_IMPORT_STORE_JS.contains("onFileSelect"));
+    assert!(STORES_IMPORT_STORE_JS.contains("onFileDrop"));
+    assert!(STORES_IMPORT_STORE_JS.contains("loadServerFile"));
+    assert!(STORES_IMPORT_STORE_JS.contains("pasteClipboard"));
 
     // 3. Verify style.css contains import source action and dropzone classes
     assert!(STYLE_CSS.contains(".import-source-header"));
@@ -1114,13 +1113,14 @@ fn test_composable_js_files_served() {
     let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18997, None, None).expect("Server should start");
     let port = server_handle.port();
 
-    let composables = [
-        "composables/utils.js", "composables/useAuth.js", "composables/useTheme.js",
-        "composables/useHealthCheck.js", "composables/usePresentation.js",
-        "composables/useLinkModal.js", "composables/useAiAssistant.js", "composables/useImport.js",
+    let assets = [
+        "composables/utils.js", "stores/auth.js", "stores/theme.js",
+        "stores/health.js", "stores/presentationStore.js",
+        "stores/linkStore.js", "stores/ai.js", "stores/importStore.js",
+        "stores/notes.js", "stores/editorStore.js", "stores/ui.js",
     ];
 
-    for path in &composables {
+    for path in &assets {
         let res = ureq::get(&format!("http://127.0.0.1:{}/{}", port, path)).call().unwrap();
         assert_eq!(res.status(), 200, "Expected 200 for {}", path);
         let body = res.into_string().unwrap();
@@ -1345,11 +1345,11 @@ fn test_theme_assets_and_contrast_rules() {
     assert!(html.contains("Auto (OS Ambiance)"));
     assert!(html.contains("System (Browser)"));
 
-    // 3. Check useTheme composable is served
-    let theme_js_res = ureq::get(&format!("http://127.0.0.1:{}/composables/useTheme.js", port)).call().unwrap();
+    // 3. Check theme store is served
+    let theme_js_res = ureq::get(&format!("http://127.0.0.1:{}/stores/theme.js", port)).call().unwrap();
     assert_eq!(theme_js_res.status(), 200);
     let theme_js = theme_js_res.into_string().unwrap();
-    assert!(theme_js.contains("useTheme"));
+    assert!(theme_js.contains("useThemeStore"));
     assert!(theme_js.contains("notesplus_theme_preference"));
 
     server_handle.stop();

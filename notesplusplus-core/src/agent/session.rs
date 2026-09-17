@@ -7,8 +7,12 @@ use serde_json::json;
 use crate::agent::backup::BackupManager;
 use crate::agent::client::{ChatMessage, LlmClient};
 use crate::agent::permissions::{PendingConfirmation, PermissionDecision, PermissionManager};
-use crate::agent::prompt::build_system_prompt_with_custom;
-use crate::agent::tools::{ToolCall, TOOL_READ_NOTE, TOOL_LIST_NOTES, TOOL_SEARCH_NOTES, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_FETCH_URL};
+use crate::agent::prompt::{build_system_prompt_layered, EnvironmentContext};
+use crate::agent::tools::{
+    ToolCall, TOOL_APPEND_TO_NOTE, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_EDIT_SECTION,
+    TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_NOTES, TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT,
+    TOOL_SEARCH_NOTES,
+};
 use crate::error::NotesError;
 use crate::page;
 use crate::repository::NoteRepository;
@@ -138,10 +142,26 @@ impl AgentSession {
         extra_context: Option<&str>,
     ) {
         let custom_sys = self.client.lock().unwrap_or_else(|e| e.into_inner()).config().system_prompt.clone();
-        let sys_prompt = build_system_prompt_with_custom(
-            custom_sys.as_deref(),
-            active_note,
+        let total_notes = self.repository.list_pages().ok().map(|l| l.len());
+        let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+
+        let (filename, content) = match active_note {
+            Some((f, c)) => (Some(f), Some(c)),
+            None => (None, None),
+        };
+
+        let env = EnvironmentContext {
+            current_date_time: Some(&now_str),
+            active_note_filename: filename,
+            active_note_title: None,
+            active_note_content: content,
             extra_context,
+            total_notes_count: total_notes,
+        };
+
+        let sys_prompt = build_system_prompt_layered(
+            custom_sys.as_deref(),
+            &env,
         );
 
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -161,8 +181,13 @@ impl AgentSession {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::user(user_prompt));
     }
 
-    /// Appends a user prompt and drives the conversation loop with a streaming token callback.
-    pub fn send_prompt_streaming<F: FnMut(&str)>(&mut self, user_prompt: &str, on_token: F) -> AgentStepResult {
+    /// Appends a user prompt and drives the conversation loop with streaming token and status callbacks.
+    pub fn send_prompt_streaming_with_status<F: FnMut(&str), S: FnMut(&str, &str)>(
+        &mut self,
+        user_prompt: &str,
+        on_token: F,
+        on_status: S,
+    ) -> AgentStepResult {
         let needs_reset = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.is_empty();
         if needs_reset {
             self.reset_session(None, None);
@@ -175,11 +200,21 @@ impl AgentSession {
                 state.messages.push(ChatMessage::user(user_prompt));
             }
         }
-        self.run_loop_streaming(on_token)
+        self.run_loop_streaming_with_status(on_token, on_status)
     }
 
-    /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.
-    pub fn confirm_pending_action_streaming<F: FnMut(&str)>(&mut self, approved: bool, on_token: F) -> AgentStepResult {
+    /// Appends a user prompt and drives the conversation loop with a streaming token callback.
+    pub fn send_prompt_streaming<F: FnMut(&str)>(&mut self, user_prompt: &str, on_token: F) -> AgentStepResult {
+        self.send_prompt_streaming_with_status(user_prompt, on_token, |_, _| {})
+    }
+
+    /// Resolves pending confirmation and resumes the loop with streaming token and status callbacks.
+    pub fn confirm_pending_action_streaming_with_status<F: FnMut(&str), S: FnMut(&str, &str)>(
+        &mut self,
+        approved: bool,
+        on_token: F,
+        on_status: S,
+    ) -> AgentStepResult {
         let (pending, remaining) = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let p = match state.pending_action.take() {
@@ -220,22 +255,33 @@ impl AgentSession {
             }
         }
 
-        self.run_loop_streaming(on_token)
+        self.run_loop_streaming_with_status(on_token, on_status)
     }
 
-    /// Runs the LLM tool execution loop with token streaming until an answer or confirmation gate is reached.
-    fn run_loop_streaming<F: FnMut(&str)>(&self, mut on_token: F) -> AgentStepResult {
+    /// Resolves pending confirmation (approving or rejecting) and resumes the loop with a streaming token callback.
+    pub fn confirm_pending_action_streaming<F: FnMut(&str)>(&mut self, approved: bool, on_token: F) -> AgentStepResult {
+        self.confirm_pending_action_streaming_with_status(approved, on_token, |_, _| {})
+    }
+
+    /// Runs the LLM tool execution loop with token and status streaming until an answer or confirmation gate is reached.
+    fn run_loop_streaming_with_status<F: FnMut(&str), S: FnMut(&str, &str)>(&self, mut on_token: F, mut on_status: S) -> AgentStepResult {
         self.is_busy.store(true, Ordering::SeqCst);
-        let result = self.do_run_loop_streaming(&mut on_token);
+        let result = self.do_run_loop_streaming(&mut on_token, &mut on_status);
         self.is_busy.store(false, Ordering::SeqCst);
         result
     }
 
-    fn do_run_loop_streaming<F: FnMut(&str)>(&self, on_token: &mut F) -> AgentStepResult {
+    fn do_run_loop_streaming<F: FnMut(&str), S: FnMut(&str, &str)>(
+        &self,
+        on_token: &mut F,
+        on_status: &mut S,
+    ) -> AgentStepResult {
         let mut turns = 0;
 
         while turns < self.max_tool_turns {
             turns += 1;
+
+            on_status("thinking", "Thinking...");
 
             {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -261,12 +307,64 @@ impl AgentSession {
 
                 // Execute tool calls in order, pausing for confirmation if needed
                 for tool_call in &response.tool_calls {
-                    let file_content = if tool_call.function.name == TOOL_EDIT_NOTE {
-                        let filename = tool_call.function.arguments.get("filename")
-                            .and_then(|v| v.as_str()).unwrap_or("");
-                        self.repository.read_note_content(filename).ok()
-                    } else {
-                        None
+                    let tool_name = tool_call.function.name.as_str();
+                    let args = &tool_call.function.arguments;
+
+                    // Emit sub-step status for the active tool invocation
+                    match tool_name {
+                        TOOL_SEARCH_NOTES => {
+                            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("searching", &format!("Searching notes for '{}'...", q));
+                        }
+                        TOOL_RETRIEVE_CONTEXT => {
+                            let q = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("searching", &format!("Retrieving context for '{}'...", q));
+                        }
+                        TOOL_READ_NOTE => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("reading", &format!("Reading '{}'...", f));
+                        }
+                        TOOL_FETCH_URL => {
+                            let u = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("reading", &format!("Fetching URL '{}'...", u));
+                        }
+                        TOOL_LIST_NOTES => {
+                            on_status("reading", "Listing notes library...");
+                        }
+                        TOOL_EDIT_NOTE => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("editing", &format!("Updating '{}'...", f));
+                        }
+                        TOOL_EDIT_SECTION => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            let h = args.get("heading").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("editing", &format!("Editing section '{}' in '{}'...", h, f));
+                        }
+                        TOOL_APPEND_TO_NOTE => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            on_status("editing", &format!("Appending to '{}'...", f));
+                        }
+                        TOOL_INSERT_SECTION => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            let t = args.get("title").and_then(|v| v.as_str()).unwrap_or("Section");
+                            on_status("editing", &format!("Inserting section '{}' into '{}'...", t, f));
+                        }
+                        TOOL_CREATE_NOTE => {
+                            let t = args.get("title").and_then(|v| v.as_str()).unwrap_or("Note");
+                            on_status("editing", &format!("Creating note '{}'...", t));
+                        }
+                        _ => {
+                            on_status("thinking", &format!("Executing {}...", tool_name));
+                        }
+                    }
+
+                    let file_content = match tool_name {
+                        TOOL_EDIT_NOTE | TOOL_EDIT_SECTION | TOOL_APPEND_TO_NOTE | TOOL_INSERT_SECTION => {
+                            let filename = args.get("filename")
+                                .and_then(|v| v.as_str()).unwrap_or("");
+                            self.repository.read_note_content(filename).ok()
+                        }
+                        _ => None,
                     };
 
                     let decision = {
@@ -308,6 +406,7 @@ impl AgentSession {
                 }
             } else {
                 // Final textual answer
+                on_status("drafting", "Synthesizing response...");
                 let final_content = response.content.unwrap_or_default();
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
                 state.messages.push(ChatMessage::assistant(final_content.clone()));
@@ -354,6 +453,41 @@ impl AgentSession {
                         }
                     }
                     Err(e) => format!("Search error: {}", e),
+                }
+            }
+            TOOL_RETRIEVE_CONTEXT => {
+                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+                match self.repository.search_pages(query) {
+                    Ok(results) => {
+                        if results.is_empty() {
+                            format!("No relevant note context found in index for query '{}'.", query)
+                        } else {
+                            let limit = max_results.max(1).min(10);
+                            let mut retrieved = Vec::new();
+                            for hit in results.into_iter().take(limit) {
+                                let filename = hit.page.filename.clone();
+                                let title = hit.page.title.clone();
+                                let snippet = hit.snippet.clone();
+                                let full_content = self.repository.read_note_content(&filename).unwrap_or_default();
+                                let excerpt = if full_content.len() > 1200 {
+                                    let mut head: String = full_content.chars().take(1200).collect();
+                                    head.push_str("\n... [Excerpt truncated]");
+                                    head
+                                } else {
+                                    full_content
+                                };
+                                retrieved.push(json!({
+                                    "filename": filename,
+                                    "title": title,
+                                    "search_snippet": snippet,
+                                    "content_excerpt": excerpt,
+                                }));
+                            }
+                            serde_json::to_string_pretty(&retrieved).unwrap_or_else(|_| "[]".to_string())
+                        }
+                    }
+                    Err(e) => format!("Context retrieval error: {}", e),
                 }
             }
             TOOL_LIST_NOTES => {
@@ -403,6 +537,71 @@ impl AgentSession {
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note");
                 self.apply_note_edit(filename, content, reason)
+            }
+            TOOL_EDIT_SECTION => {
+                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let heading = args.get("heading").and_then(|v| v.as_str()).unwrap_or("");
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let new_heading = args.get("new_heading").and_then(|v| v.as_str());
+                let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note section");
+
+                let old_content = match self.repository.read_note_content(filename) {
+                    Ok(c) => c,
+                    Err(e) => return format!("Error reading note '{}': {}", filename, e),
+                };
+
+                match crate::agent::section_editor::edit_section(&old_content, heading, content, new_heading) {
+                    Ok(new_content) => self.apply_note_edit(filename, &new_content, reason),
+                    Err(e) => format!("Error editing section: {}", e),
+                }
+            }
+            TOOL_APPEND_TO_NOTE => {
+                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let heading = args.get("heading").and_then(|v| v.as_str());
+                let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Appended content to note");
+
+                let old_content = match self.repository.read_note_content(filename) {
+                    Ok(c) => c,
+                    Err(_) => String::new(),
+                };
+
+                match crate::agent::section_editor::append_to_note(&old_content, content, heading) {
+                    Ok(new_content) => self.apply_note_edit(filename, &new_content, reason),
+                    Err(e) => format!("Error appending to note: {}", e),
+                }
+            }
+            TOOL_INSERT_SECTION => {
+                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("New Section");
+                let level = args.get("level").and_then(|v| v.as_u64()).map(|l| l as usize).unwrap_or(2);
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let pos_str = args.get("position").and_then(|v| v.as_str()).unwrap_or("after_heading");
+                let target_heading = args.get("target_heading").and_then(|v| v.as_str()).unwrap_or("");
+                let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Inserted section into note");
+
+                let pos = match pos_str {
+                    "before_heading" => crate::agent::section_editor::InsertPosition::BeforeHeading(target_heading),
+                    "top" => crate::agent::section_editor::InsertPosition::Top,
+                    "bottom" => crate::agent::section_editor::InsertPosition::Bottom,
+                    _ => {
+                        if target_heading.is_empty() {
+                            crate::agent::section_editor::InsertPosition::Bottom
+                        } else {
+                            crate::agent::section_editor::InsertPosition::AfterHeading(target_heading)
+                        }
+                    }
+                };
+
+                let old_content = match self.repository.read_note_content(filename) {
+                    Ok(c) => c,
+                    Err(_) => String::new(),
+                };
+
+                match crate::agent::section_editor::insert_section(&old_content, title, level, content, pos) {
+                    Ok(new_content) => self.apply_note_edit(filename, &new_content, reason),
+                    Err(e) => format!("Error inserting section: {}", e),
+                }
             }
             TOOL_FETCH_URL => {
                 let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -732,5 +931,186 @@ mod tests {
         assert!(result.contains("Alpha"), "should list Alpha: {}", result);
         assert!(result.contains("Beta"), "should list Beta: {}", result);
         assert!(result.contains("Gamma"), "should list Gamma: {}", result);
+    }
+
+    #[test]
+    fn test_execute_edit_section_tool() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+        let note_path = notes_dir.join("roadmap.adoc");
+        fs::write(&note_path, "= Roadmap\n\n== Milestones\n* [ ] Alpha\n\n== Team\nAlice & Bob").unwrap();
+
+        let edit_sec_call = ToolCall {
+            id: Some("es1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "edit_section".to_string(),
+                arguments: json!({
+                    "filename": "roadmap.adoc",
+                    "heading": "Milestones",
+                    "content": "* [x] Alpha\n* [ ] Beta"
+                }),
+            },
+        };
+        let res = session.execute_tool(&edit_sec_call);
+        assert!(res.contains("Successfully updated note"), "{}", res);
+
+        let read_call = ToolCall {
+            id: Some("r1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "roadmap.adoc" }),
+            },
+        };
+        let content = session.execute_tool(&read_call);
+        assert!(content.contains("== Milestones\n* [x] Alpha\n* [ ] Beta"));
+        assert!(content.contains("== Team\nAlice & Bob"));
+    }
+
+    #[test]
+    fn test_execute_append_to_note_tool() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+        let note_path = notes_dir.join("journal.adoc");
+        fs::write(&note_path, "= Daily Journal\n\n== Morning\nStarted work.").unwrap();
+
+        let append_call = ToolCall {
+            id: Some("ap1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "append_to_note".to_string(),
+                arguments: json!({
+                    "filename": "journal.adoc",
+                    "content": "== Evening\nFinished release."
+                }),
+            },
+        };
+        let res = session.execute_tool(&append_call);
+        assert!(res.contains("Successfully updated note"), "{}", res);
+
+        let read_call = ToolCall {
+            id: Some("r1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "journal.adoc" }),
+            },
+        };
+        let content = session.execute_tool(&read_call);
+        assert!(content.contains("== Morning\nStarted work."));
+        assert!(content.contains("== Evening\nFinished release."));
+    }
+
+    #[test]
+    fn test_execute_insert_section_tool() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+        let note_path = notes_dir.join("doc.adoc");
+        fs::write(&note_path, "= Doc Title\n\n== Intro\nHello.\n\n== Conclusion\nBye.").unwrap();
+
+        let insert_call = ToolCall {
+            id: Some("ins1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "insert_section".to_string(),
+                arguments: json!({
+                    "filename": "doc.adoc",
+                    "title": "Body",
+                    "level": 2,
+                    "content": "Core analysis.",
+                    "position": "before_heading",
+                    "target_heading": "Conclusion"
+                }),
+            },
+        };
+        let res = session.execute_tool(&insert_call);
+        assert!(res.contains("Successfully updated note"), "{}", res);
+
+        let read_call = ToolCall {
+            id: Some("r1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "doc.adoc" }),
+            },
+        };
+        let content = session.execute_tool(&read_call);
+        assert!(content.contains("== Body\nCore analysis."));
+        assert!(content.find("== Body").unwrap() < content.find("== Conclusion").unwrap());
+    }
+
+    #[test]
+    fn test_execute_retrieve_context_tool() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+
+        let create_call = ToolCall {
+            id: Some("c1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "create_note".to_string(),
+                arguments: json!({
+                    "title": "Project Nebula",
+                    "content": "= Project Nebula\nQuantum computing research notes."
+                }),
+            },
+        };
+        session.execute_tool(&create_call);
+
+        let retrieve_call = ToolCall {
+            id: Some("rc1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "retrieve_context".to_string(),
+                arguments: json!({
+                    "query": "Quantum",
+                    "max_results": 3
+                }),
+            },
+        };
+        let result = session.execute_tool(&retrieve_call);
+        assert!(result.contains("Project Nebula"), "{}", result);
+        assert!(result.contains("Quantum computing"), "{}", result);
+    }
+
+    #[test]
+    fn test_react_loop_status_emission() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let mut session = make_session(&notes_dir, &backup_dir);
+
+        let mut statuses = Vec::new();
+        let _ = session.send_prompt_streaming_with_status(
+            "Hello test",
+            |_| {},
+            |status, detail| {
+                statuses.push((status.to_string(), detail.to_string()));
+            },
+        );
+
+        // At least the initial thinking status must have been emitted
+        assert!(!statuses.is_empty());
+        assert_eq!(statuses[0].0, "thinking");
+        assert_eq!(statuses[0].1, "Thinking...");
     }
 }

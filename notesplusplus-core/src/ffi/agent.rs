@@ -15,6 +15,7 @@ pub struct FfiAgentSession {
 }
 
 pub type FfiTokenCallback = unsafe extern "C" fn(user_data: *mut std::os::raw::c_void, token: *const c_char, is_done: bool);
+pub type FfiStatusCallback = unsafe extern "C" fn(user_data: *mut std::os::raw::c_void, status: *const c_char, detail: *const c_char);
 
 struct SendCallback {
     callback: Option<FfiTokenCallback>,
@@ -322,7 +323,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm(
     notes_core_agent_confirm_streaming(ffi, approved, None, std::ptr::null_mut())
 }
 
-/// Send a prompt to the agent with a streaming token callback synchronously on the calling thread.
+/// Send a prompt to the agent with streaming token and status callbacks synchronously on the calling thread.
 /// Returns allocated JSON string with WorkerResult details.
 ///
 /// # Safety
@@ -332,6 +333,7 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming_direct(
     ffi: *mut FfiAgentSession,
     prompt: *const c_char,
     callback: Option<FfiTokenCallback>,
+    status_callback: Option<FfiStatusCallback>,
     user_data: *mut std::os::raw::c_void,
 ) -> *mut c_char {
     if ffi.is_null() { return std::ptr::null_mut(); }
@@ -341,15 +343,29 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming_direct(
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
-        let step_result = sess.send_prompt_streaming(&prompt_str, |tok| {
-            if let Some(cb) = callback {
-                let c_tok = string_to_c(tok.to_string());
-                unsafe {
-                    cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
-                    crate::ffi::common::notes_core_free_string(c_tok);
+        let step_result = sess.send_prompt_streaming_with_status(
+            &prompt_str,
+            |tok| {
+                if let Some(cb) = callback {
+                    let c_tok = string_to_c(tok.to_string());
+                    unsafe {
+                        cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
+                        crate::ffi::common::notes_core_free_string(c_tok);
+                    }
                 }
-            }
-        });
+            },
+            |status, detail| {
+                if let Some(scb) = status_callback {
+                    let c_status = string_to_c(status.to_string());
+                    let c_detail = string_to_c(detail.to_string());
+                    unsafe {
+                        scb(udata_addr as *mut std::os::raw::c_void, c_status, c_detail);
+                        crate::ffi::common::notes_core_free_string(c_status);
+                        crate::ffi::common::notes_core_free_string(c_detail);
+                    }
+                }
+            },
+        );
 
         let messages_json = serde_json::to_string(&sess.messages())
             .unwrap_or_else(|_| "[]".to_string());
@@ -412,6 +428,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming_direct(
     ffi: *mut FfiAgentSession,
     approved: i32,
     callback: Option<FfiTokenCallback>,
+    status_callback: Option<FfiStatusCallback>,
     user_data: *mut std::os::raw::c_void,
 ) -> *mut c_char {
     if ffi.is_null() { return std::ptr::null_mut(); }
@@ -420,15 +437,29 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming_direct(
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
-        let step_result = sess.confirm_pending_action_streaming(approved != 0, |tok| {
-            if let Some(cb) = callback {
-                let c_tok = string_to_c(tok.to_string());
-                unsafe {
-                    cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
-                    crate::ffi::common::notes_core_free_string(c_tok);
+        let step_result = sess.confirm_pending_action_streaming_with_status(
+            approved != 0,
+            |tok| {
+                if let Some(cb) = callback {
+                    let c_tok = string_to_c(tok.to_string());
+                    unsafe {
+                        cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
+                        crate::ffi::common::notes_core_free_string(c_tok);
+                    }
                 }
-            }
-        });
+            },
+            |status, detail| {
+                if let Some(scb) = status_callback {
+                    let c_status = string_to_c(status.to_string());
+                    let c_detail = string_to_c(detail.to_string());
+                    unsafe {
+                        scb(udata_addr as *mut std::os::raw::c_void, c_status, c_detail);
+                        crate::ffi::common::notes_core_free_string(c_status);
+                        crate::ffi::common::notes_core_free_string(c_detail);
+                    }
+                }
+            },
+        );
 
         let messages_json = serde_json::to_string(&sess.messages())
             .unwrap_or_else(|_| "[]".to_string());

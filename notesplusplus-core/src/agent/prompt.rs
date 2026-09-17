@@ -1,7 +1,9 @@
-//! AsciiDoc Grammar System Prompt and Preset Action Templates.
+//! AsciiDoc Grammar System Prompt, Persona Identity, and Preset Action Templates.
+
+pub const ASSISTANT_IDENTITY: &str = "You are Notes Plus Assistant, the intelligent note-taking companion for Notes Plus on Sailfish OS.";
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
-You are an AI Assistant integrated into Notes Plus, an AsciiDoc note-taking application for Sailfish OS.\n\
+You are Notes Plus Assistant, the intelligent note-taking companion for Notes Plus on Sailfish OS.\n\
 Your job is to assist the user in drafting, editing, organizing, and analyzing notes.\n\n\
 === Communication & Response Guidelines ===\n\
 1. Conversational Chat & Tool Summaries:\n\
@@ -44,12 +46,90 @@ Your job is to assist the user in drafting, editing, organizing, and analyzing n
    - Cross references / Links: `https://example.com[Label]` or `xref:other_note.adoc[Note Title]`.\n\
    - Lists: Bulleted with `* item`, `** sub-item`; numbered with `. item`, `.. sub-item`.\n\n\
 === Available Note Tools ===\n\
-You have tools to manage notes: `read_note`, `list_notes`, `search_notes`, `create_note`, `edit_note`, and `fetch_url`.\n\
+You have tools to manage notes: `read_note`, `list_notes`, `search_notes`, `retrieve_context`, `create_note`, `edit_note`, `edit_section`, `append_to_note`, `insert_section`, and `fetch_url`.\n\
 - When asked to list notes or search notes, call `list_notes` or `search_notes`, then summarize the results in a friendly list.\n\
+- When answering broad questions spanning multiple notes, call `retrieve_context` to fetch relevant snippets from the local search index.\n\
 - When asked to read a note, use `read_note` and answer the user's questions based on its content.\n\
 - When creating a note, use `create_note` with valid AsciiDoc formatted content.\n\
-- When modifying an existing note, use `edit_note` with the complete updated AsciiDoc content and provide a clear one-sentence summary in `reason`.\n\
+- When modifying specific sections of an existing note, prefer `edit_section`, `append_to_note`, or `insert_section` instead of rewriting the entire note with `edit_note`. This saves tokens and preserves surrounding sections.\n\
+- When modifying an entire note, use `edit_note` with the complete updated AsciiDoc content and provide a clear one-sentence summary in `reason`.\n\
 - When external URL text is provided or requested, use `fetch_url` to inspect and analyze it.\n";
+
+/// Contextual environment information injected into the layered system prompt.
+#[derive(Debug, Clone, Default)]
+pub struct EnvironmentContext<'a> {
+    pub current_date_time: Option<&'a str>,
+    pub active_note_filename: Option<&'a str>,
+    pub active_note_title: Option<&'a str>,
+    pub active_note_content: Option<&'a str>,
+    pub extra_context: Option<&'a str>,
+    pub total_notes_count: Option<usize>,
+}
+
+/// Builds a layered system prompt ensuring core identity, AsciiDoc domain rules,
+/// dynamic environment context, and user custom preferences are harmoniously composed.
+pub fn build_system_prompt_layered(
+    custom_instructions: Option<&str>,
+    env: &EnvironmentContext,
+) -> String {
+    let mut prompt = String::with_capacity(2048);
+
+    // Layer 1: Core Persona, AsciiDoc Grammar, and Tool Rules
+    prompt.push_str(DEFAULT_SYSTEM_PROMPT);
+
+    // Layer 2: Dynamic Environment Context
+    let has_env_context = env.current_date_time.is_some() || env.total_notes_count.is_some();
+    if has_env_context {
+        prompt.push_str("\n=== Environment Context ===\n");
+        if let Some(dt) = env.current_date_time {
+            if !dt.trim().is_empty() {
+                prompt.push_str(&format!("Current Local Date/Time: {}\n", dt.trim()));
+            }
+        }
+        if let Some(count) = env.total_notes_count {
+            prompt.push_str(&format!("Total Notes in Library: {}\n", count));
+        }
+    }
+
+    // Active Note Metadata and Content
+    if env.active_note_filename.is_some() || env.active_note_content.is_some() {
+        prompt.push_str("\n=== Currently Active Note ===\n");
+        if let Some(filename) = env.active_note_filename {
+            prompt.push_str(&format!("Filename: {}\n", filename));
+        }
+        if let Some(title) = env.active_note_title {
+            if !title.trim().is_empty() {
+                prompt.push_str(&format!("Title: {}\n", title.trim()));
+            }
+        }
+        if let Some(content) = env.active_note_content {
+            prompt.push_str(&format!("Content:\n{}\n", content));
+        }
+        prompt.push_str("=== End Active Note ===\n");
+    }
+
+    // Additional Extra Context / Clipboard
+    if let Some(extra) = env.extra_context {
+        if !extra.trim().is_empty() {
+            prompt.push_str(&format!(
+                "\n=== Additional Context / Clipboard ===\n{}\n=== End Context ===\n",
+                extra
+            ));
+        }
+    }
+
+    // Layer 3: User Custom Instructions / Preferences (augment base rules)
+    if let Some(custom) = custom_instructions {
+        if !custom.trim().is_empty() {
+            prompt.push_str(&format!(
+                "\n=== User Preferences & Custom Instructions ===\n{}\n=== End Custom Instructions ===\n",
+                custom.trim()
+            ));
+        }
+    }
+
+    prompt
+}
 
 /// Builds the system prompt enforcing strict AsciiDoc syntax and providing context.
 pub fn build_system_prompt(
@@ -65,36 +145,19 @@ pub fn build_system_prompt_with_custom(
     active_note: Option<(&str, &str)>,
     extra_context: Option<&str>,
 ) -> String {
-    let mut prompt = String::with_capacity(2048);
-
-    if let Some(custom) = custom_prompt {
-        if !custom.trim().is_empty() {
-            prompt.push_str(custom.trim());
-            prompt.push_str("\n\n");
-        } else {
-            prompt.push_str(DEFAULT_SYSTEM_PROMPT);
-        }
-    } else {
-        prompt.push_str(DEFAULT_SYSTEM_PROMPT);
-    }
-
-    if let Some((filename, content)) = active_note {
-        prompt.push_str(&format!(
-            "\n=== Currently Active Note ===\nFilename: {}\nContent:\n{}\n=== End Active Note ===\n",
-            filename, content
-        ));
-    }
-
-    if let Some(extra) = extra_context {
-        if !extra.trim().is_empty() {
-            prompt.push_str(&format!(
-                "\n=== Additional Context / Clipboard ===\n{}\n=== End Context ===\n",
-                extra
-            ));
-        }
-    }
-
-    prompt
+    let (filename, content) = match active_note {
+        Some((f, c)) => (Some(f), Some(c)),
+        None => (None, None),
+    };
+    let env = EnvironmentContext {
+        current_date_time: None,
+        active_note_filename: filename,
+        active_note_title: None,
+        active_note_content: content,
+        extra_context,
+        total_notes_count: None,
+    };
+    build_system_prompt_layered(custom_prompt, &env)
 }
 
 /// Returns a pre-formulated user prompt and instruction for preset action templates.
@@ -420,5 +483,72 @@ mod tests {
         assert!(prompt.contains("Active Note: 'current.adoc'"));
         assert!(prompt.contains("New proposal version"));
         assert!(prompt.contains("Old version text"));
+    }
+
+    #[test]
+    fn test_system_prompt_identity() {
+        let env = EnvironmentContext::default();
+        let prompt = build_system_prompt_layered(None, &env);
+        assert!(prompt.contains(ASSISTANT_IDENTITY));
+        assert!(prompt.contains("Notes Plus Assistant"));
+        assert!(prompt.contains("Sailfish OS"));
+    }
+
+    #[test]
+    fn test_system_prompt_layered_with_datetime_and_library_count() {
+        let env = EnvironmentContext {
+            current_date_time: Some("2026-09-17 19:46"),
+            active_note_filename: None,
+            active_note_title: None,
+            active_note_content: None,
+            extra_context: None,
+            total_notes_count: Some(42),
+        };
+        let prompt = build_system_prompt_layered(None, &env);
+        assert!(prompt.contains("Current Local Date/Time: 2026-09-17 19:46"));
+        assert!(prompt.contains("Total Notes in Library: 42"));
+    }
+
+    #[test]
+    fn test_system_prompt_layered_with_active_note_metadata() {
+        let env = EnvironmentContext {
+            current_date_time: Some("2026-09-17 19:46"),
+            active_note_filename: Some("roadmap.adoc"),
+            active_note_title: Some("Project Roadmap"),
+            active_note_content: Some("= Project Roadmap\n== Q4 Goals\n* [ ] Ship agent"),
+            extra_context: Some("Meeting snippet from earlier"),
+            total_notes_count: Some(10),
+        };
+        let prompt = build_system_prompt_layered(None, &env);
+        assert!(prompt.contains("Filename: roadmap.adoc"));
+        assert!(prompt.contains("Title: Project Roadmap"));
+        assert!(prompt.contains("= Project Roadmap"));
+        assert!(prompt.contains("=== Additional Context / Clipboard ==="));
+        assert!(prompt.contains("Meeting snippet from earlier"));
+    }
+
+    #[test]
+    fn test_system_prompt_layered_preserves_rules_with_custom_instructions() {
+        let env = EnvironmentContext {
+            current_date_time: Some("2026-09-17 19:46"),
+            active_note_filename: Some("notes.adoc"),
+            active_note_title: None,
+            active_note_content: Some("= Notes\nContent here"),
+            extra_context: None,
+            total_notes_count: None,
+        };
+        let custom = "Always end answers with an encouraging emoji and be concise.";
+        let prompt = build_system_prompt_layered(Some(custom), &env);
+
+        // Custom instruction must be present
+        assert!(prompt.contains("=== User Preferences & Custom Instructions ==="));
+        assert!(prompt.contains("Always end answers with an encouraging emoji"));
+
+        // Base Persona, AsciiDoc rules, and tool guidelines must STILL be present
+        assert!(prompt.contains("Notes Plus Assistant"));
+        assert!(prompt.contains("= Document Title"));
+        assert!(prompt.contains("* [ ] Task item"));
+        assert!(prompt.contains("=== Communication & Response Guidelines ==="));
+        assert!(prompt.contains("Filename: notes.adoc"));
     }
 }

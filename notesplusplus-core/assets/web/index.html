@@ -768,8 +768,12 @@
 
         <!-- Live Streaming Output -->
         <div v-if="isAiStreaming" class="chat-bubble assistant streaming">
-          <div class="chat-bubble-header"><strong>Notes Plus AI</strong> <span class="typing-indicator">typing...</span></div>
-          <div class="chat-bubble-body" v-html="formatMessageContent(streamingText)"></div>
+          <div class="chat-bubble-header">
+            <strong>Notes Plus Assistant</strong>
+            <span v-if="stepDetail" class="typing-indicator">{{ stepDetail }}</span>
+            <span v-else class="typing-indicator">typing...</span>
+          </div>
+          <div v-if="streamingText" class="chat-bubble-body" v-html="formatMessageContent(streamingText)"></div>
         </div>
 
         <div v-if="aiError" class="chat-error-alert">

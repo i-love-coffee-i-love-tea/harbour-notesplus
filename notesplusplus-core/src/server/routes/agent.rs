@@ -188,15 +188,28 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
 
     let stream_mutex = Arc::new(Mutex::new(stream));
     let stream_for_tokens = stream_mutex.clone();
+    let stream_for_status = stream_mutex.clone();
 
-    let step_result = session_guard.send_prompt_streaming(&prompt, move |token| {
-        if let Ok(mut s) = stream_for_tokens.lock() {
-            send_sse_event(&mut *s, &json!({
-                "type": "token",
-                "text": token
-            }));
-        }
-    });
+    let step_result = session_guard.send_prompt_streaming_with_status(
+        &prompt,
+        move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        },
+        move |status, detail| {
+            if let Ok(mut s) = stream_for_status.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "step_status",
+                    "status": status,
+                    "detail": detail
+                }));
+            }
+        },
+    );
 
     if let Ok(mut s) = stream_mutex.lock() {
         send_step_result_sse(&mut *s, &step_result, &session_guard, true);
@@ -227,15 +240,28 @@ pub fn handle_agent_template<W: Write + Send + 'static>(
 
     let stream_mutex = Arc::new(Mutex::new(stream));
     let stream_for_tokens = stream_mutex.clone();
+    let stream_for_status = stream_mutex.clone();
 
-    let step_result = session_guard.send_prompt_streaming(&instruction, move |token| {
-        if let Ok(mut s) = stream_for_tokens.lock() {
-            send_sse_event(&mut *s, &json!({
-                "type": "token",
-                "text": token
-            }));
-        }
-    });
+    let step_result = session_guard.send_prompt_streaming_with_status(
+        &instruction,
+        move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        },
+        move |status, detail| {
+            if let Ok(mut s) = stream_for_status.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "step_status",
+                    "status": status,
+                    "detail": detail
+                }));
+            }
+        },
+    );
 
     if let Ok(mut s) = stream_mutex.lock() {
         send_step_result_sse(&mut *s, &step_result, &session_guard, false);
@@ -256,15 +282,28 @@ pub fn handle_agent_confirm<W: Write + Send + 'static>(
 
     let stream_mutex = Arc::new(Mutex::new(stream));
     let stream_for_tokens = stream_mutex.clone();
+    let stream_for_status = stream_mutex.clone();
 
-    let step_result = session_guard.confirm_pending_action_streaming(approved, move |token| {
-        if let Ok(mut s) = stream_for_tokens.lock() {
-            send_sse_event(&mut *s, &json!({
-                "type": "token",
-                "text": token
-            }));
-        }
-    });
+    let step_result = session_guard.confirm_pending_action_streaming_with_status(
+        approved,
+        move |token| {
+            if let Ok(mut s) = stream_for_tokens.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "token",
+                    "text": token
+                }));
+            }
+        },
+        move |status, detail| {
+            if let Ok(mut s) = stream_for_status.lock() {
+                send_sse_event(&mut *s, &json!({
+                    "type": "step_status",
+                    "status": status,
+                    "detail": detail
+                }));
+            }
+        },
+    );
 
     if let Ok(mut s) = stream_mutex.lock() {
         send_step_result_sse(&mut *s, &step_result, &session_guard, false);

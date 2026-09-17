@@ -10,6 +10,8 @@ Column {
     property string messagesJson: ""
     property bool agentBusy: false
     property string streamingText: ""
+    property string stepStatus: ""
+    property string stepDetail: ""
 
     signal resendRequested(string text)
     signal cancelRequested()
@@ -18,9 +20,13 @@ Column {
         if (!name) return qsTr("Tool")
         if (name === "read_note") return qsTr("Read Note")
         if (name === "search_notes") return qsTr("Search Notes")
+        if (name === "retrieve_context") return qsTr("Retrieve Context")
         if (name === "list_notes") return qsTr("List Notes")
         if (name === "create_note") return qsTr("Create Note")
         if (name === "edit_note") return qsTr("Edit Note")
+        if (name === "edit_section") return qsTr("Edit Section")
+        if (name === "append_to_note") return qsTr("Append Note")
+        if (name === "insert_section") return qsTr("Insert Section")
         if (name === "fetch_url") return qsTr("Fetch Web Page")
         return name
     }
@@ -28,10 +34,10 @@ Column {
     function getToolIcon(name) {
         if (!name) return "🔧"
         if (name === "read_note") return "📖"
-        if (name === "search_notes") return "🔍"
+        if (name === "search_notes" || name === "retrieve_context") return "🔍"
         if (name === "list_notes") return "📋"
         if (name === "create_note") return "📝"
-        if (name === "edit_note") return "✏️"
+        if (name === "edit_note" || name === "edit_section" || name === "append_to_note" || name === "insert_section") return "✏️"
         if (name === "fetch_url") return "🌐"
         return "🔧"
     }
@@ -366,7 +372,7 @@ Column {
                         spacing: Theme.paddingSmall
 
                         Label {
-                            text: "🤖 " + qsTr("Assistant")
+                            text: "🤖 " + qsTr("Notes Plus Assistant")
                             font.pixelSize: Theme.fontSizeExtraSmall
                             font.bold: true
                             color: Theme.primaryColor
@@ -393,6 +399,48 @@ Column {
                     }
                 }
 
+                // Live Step Status Chip / Badge (showing searching, reading, editing, drafting)
+                Rectangle {
+                    width: parent.width
+                    height: stepRow.height + Theme.paddingSmall * 2
+                    radius: Theme.paddingSmall / 2
+                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
+                    visible: conversationView.stepDetail.length > 0
+
+                    Row {
+                        id: stepRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.margins: Theme.paddingSmall
+                        spacing: Theme.paddingSmall
+
+                        Icon {
+                            source: {
+                                var s = conversationView.stepStatus
+                                if (s === "searching") return "image://theme/icon-m-search"
+                                if (s === "reading") return "image://theme/icon-m-document"
+                                if (s === "editing") return "image://theme/icon-m-edit"
+                                if (s === "drafting") return "image://theme/icon-m-chat"
+                                return "image://theme/icon-m-developer-mode"
+                            }
+                            width: Theme.iconSizeSmall
+                            height: Theme.iconSizeSmall
+                            color: Theme.highlightColor
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Label {
+                            width: parent.width - Theme.iconSizeSmall - Theme.paddingSmall
+                            text: conversationView.stepDetail
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            color: Theme.highlightColor
+                            truncationMode: TruncationMode.Fade
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                }
+
                 // Streaming Text Content (when LLM is generating text)
                 Label {
                     width: parent.width
@@ -403,11 +451,11 @@ Column {
                     wrapMode: Text.Wrap
                 }
 
-                // Status Label (when waiting for LLM or executing tools before streaming)
+                // Fallback Status Label (when waiting and no specific detail emitted yet)
                 Label {
                     width: parent.width
-                    visible: conversationView.streamingText.length === 0
-                    text: qsTr("AI is thinking & executing tools...")
+                    visible: conversationView.streamingText.length === 0 && conversationView.stepDetail.length === 0
+                    text: qsTr("AI is thinking...")
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.secondaryHighlightColor
                     wrapMode: Text.Wrap

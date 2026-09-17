@@ -11,8 +11,12 @@ pub use crate::net::{is_blocked_ip, parse_direct_ip};
 pub const TOOL_READ_NOTE: &str = "read_note";
 pub const TOOL_LIST_NOTES: &str = "list_notes";
 pub const TOOL_SEARCH_NOTES: &str = "search_notes";
+pub const TOOL_RETRIEVE_CONTEXT: &str = "retrieve_context";
 pub const TOOL_CREATE_NOTE: &str = "create_note";
 pub const TOOL_EDIT_NOTE: &str = "edit_note";
+pub const TOOL_EDIT_SECTION: &str = "edit_section";
+pub const TOOL_APPEND_TO_NOTE: &str = "append_to_note";
+pub const TOOL_INSERT_SECTION: &str = "insert_section";
 pub const TOOL_FETCH_URL: &str = "fetch_url";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -99,6 +103,27 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
+                name: TOOL_RETRIEVE_CONTEXT.to_string(),
+                description: "Retrieve relevant note snippets and excerpts from the local SQLite FTS5 index to answer questions across notes.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query or topics to find relevant notes for"
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of notes to retrieve snippets from (default: 5)"
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
                 name: TOOL_CREATE_NOTE.to_string(),
                 description: "Create a new note with a title and AsciiDoc formatted content.".to_string(),
                 parameters: json!({
@@ -121,7 +146,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
                 name: TOOL_EDIT_NOTE.to_string(),
-                description: "Update or replace the content of an existing note. Requires user confirmation before applying.".to_string(),
+                description: "Update or replace the entire content of an existing note. Requires user confirmation before applying.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -139,6 +164,109 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         }
                     },
                     "required": ["filename", "content", "reason"]
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: TOOL_EDIT_SECTION.to_string(),
+                description: "Modify or replace a specific section of an existing note by its heading text, preserving the rest of the document. Requires user confirmation before applying.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "The filename of the note to modify"
+                        },
+                        "heading": {
+                            "type": "string",
+                            "description": "The heading title of the section to replace (e.g. 'Overview' or 'Action Items')"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The updated AsciiDoc content for this section"
+                        },
+                        "new_heading": {
+                            "type": "string",
+                            "description": "Optional new heading title if renaming the section"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "A concise explanation of the section edit"
+                        }
+                    },
+                    "required": ["filename", "heading", "content"]
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: TOOL_APPEND_TO_NOTE.to_string(),
+                description: "Append text, checklist items, or notes to the end of a document or to the end of a specific named section. Requires user confirmation before applying.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "The filename of the note to append to"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The AsciiDoc content or checklist items to append"
+                        },
+                        "heading": {
+                            "type": "string",
+                            "description": "Optional section heading to append under; if omitted, appends to the end of the note"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "A concise explanation of what is being appended"
+                        }
+                    },
+                    "required": ["filename", "content"]
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: TOOL_INSERT_SECTION.to_string(),
+                description: "Insert a new AsciiDoc section before/after a target heading, at the top, or at the bottom. Requires user confirmation before applying.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "The filename of the note to insert a section into"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Title of the new section heading"
+                        },
+                        "level": {
+                            "type": "integer",
+                            "description": "Heading level (1 to 5, default 2 for '==')"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "AsciiDoc content of the new section"
+                        },
+                        "position": {
+                            "type": "string",
+                            "description": "Insertion position: 'after_heading', 'before_heading', 'top', or 'bottom' (default: 'after_heading')"
+                        },
+                        "target_heading": {
+                            "type": "string",
+                            "description": "Target section heading when using 'after_heading' or 'before_heading'"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "A concise explanation of the section insertion"
+                        }
+                    },
+                    "required": ["filename", "title", "content"]
                 }),
             },
         },
@@ -353,18 +481,26 @@ mod tests {
     #[test]
     fn test_tools_schema_validity() {
         let tools = get_available_tools();
-        assert_eq!(tools.len(), 6);
+        assert_eq!(tools.len(), 10);
 
         let names: Vec<String> = tools.iter().map(|t| t.function.name.clone()).collect();
         assert!(names.contains(&"read_note".to_string()));
         assert!(names.contains(&"list_notes".to_string()));
         assert!(names.contains(&"search_notes".to_string()));
+        assert!(names.contains(&"retrieve_context".to_string()));
         assert!(names.contains(&"create_note".to_string()));
         assert!(names.contains(&"edit_note".to_string()));
+        assert!(names.contains(&"edit_section".to_string()));
+        assert!(names.contains(&"append_to_note".to_string()));
+        assert!(names.contains(&"insert_section".to_string()));
         assert!(names.contains(&"fetch_url".to_string()));
 
         let serialized = serde_json::to_string(&tools).expect("Must serialize tools");
         assert!(serialized.contains("read_note"));
+        assert!(serialized.contains("retrieve_context"));
+        assert!(serialized.contains("edit_section"));
+        assert!(serialized.contains("append_to_note"));
+        assert!(serialized.contains("insert_section"));
         assert!(serialized.contains("parameters"));
     }
 

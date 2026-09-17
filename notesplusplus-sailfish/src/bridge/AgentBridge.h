@@ -34,6 +34,8 @@ class AgentBridge : public QObject
     Q_PROPERTY(QString last_created_note   READ lastCreatedNote   NOTIFY last_created_note_changed)
     Q_PROPERTY(QString error_message       READ errorMessage      NOTIFY error_occurred)
     Q_PROPERTY(QString streaming_text      READ streamingText     NOTIFY streaming_text_changed)
+    Q_PROPERTY(QString step_status         READ stepStatus        NOTIFY step_status_changed)
+    Q_PROPERTY(QString step_detail         READ stepDetail        NOTIFY step_status_changed)
     Q_PROPERTY(bool    is_fetching         READ isFetching        NOTIFY fetching_changed)
 
     // Configuration properties
@@ -55,6 +57,7 @@ public:
 
 public slots:
     void appendStreamingToken(const QString &token);
+    void handleStepStatus(const QString &status, const QString &detail);
     void handleSendResult(const QString &resultJson);
     void handleConfirmResult(const QString &resultJson);
     void handleUndoResult(const QString &resultJson);
@@ -71,6 +74,8 @@ public slots:
     QString lastCreatedNote()   const { return m_lastCreatedNote; }
     QString errorMessage()      const { return m_errorMessage; }
     QString streamingText()     const { return m_streamingText; }
+    QString stepStatus()        const { return m_stepStatus; }
+    QString stepDetail()        const { return m_stepDetail; }
     bool    isFetching()        const { return m_isFetching; }
     QString providerType()      const { return m_providerType; }
     QString endpointUrl()       const { return m_endpointUrl; }
@@ -135,6 +140,7 @@ signals:
     void response_finished(QString content);
     void undo_completed(QString message);
     void streaming_text_changed();
+    void step_status_changed();
     void fetching_changed();
     void fetch_completed(QString result);
     void fetch_error(QString message);
@@ -157,6 +163,8 @@ private:
     QString m_lastCreatedNote;
     QString m_errorMessage;
     QString m_streamingText;
+    QString m_stepStatus;
+    QString m_stepDetail;
     bool    m_isFetching        = false;
     QString m_providerType;
     QString m_endpointUrl;
