@@ -5,8 +5,9 @@
  *
  * Threading model:
  *   - Blocking FFI calls (send, confirm, undo, fetch) run via QtConcurrent::run.
- *   - A 100 ms QTimer drives poll_worker(), which reads streaming text and
- *     checks for completion from the main thread.
+ *   - Streaming tokens arrive via FfiTokenCallback → queued to main thread.
+ *   - Completion is signaled either by the streaming callback (isDone) or by
+ *     the worker thread itself (fetch/undo/confirm), both via QTimer::singleShot.
  *   - Shared state between background threads and the main thread is protected
  *     by QMutex.
  */
@@ -21,7 +22,6 @@
 #include <QStandardPaths>
 
 static constexpr int kDefaultAiTimeoutSecs = 90;
-static constexpr int kPollIntervalMs = 100;
 
 /* ================================================================== */
 /* Constructor / Destructor                                           */
@@ -29,7 +29,6 @@ static constexpr int kPollIntervalMs = 100;
 
 AgentBridge::AgentBridge(QObject *parent)
     : QObject(parent)
-    , m_pollTimer(new QTimer(this))
 {
     /* ---- Resolve application paths via FFI ---- */
     AppPathsPtr paths(notes_core_app_paths_new());
@@ -73,16 +72,10 @@ AgentBridge::AgentBridge(QObject *parent)
 
     /* ---- Initial messages are empty; populated on first interaction ---- */
     m_messagesJson = QStringLiteral("[]");
-
-    /* ---- Set up polling timer (not started yet) ---- */
-    m_pollTimer->setInterval(kPollIntervalMs);
-    m_pollTimer->setSingleShot(false);
-    connect(m_pollTimer, &QTimer::timeout, this, [this]() { poll_worker(); });
 }
 
 AgentBridge::~AgentBridge()
 {
-    m_pollTimer->stop();
     // m_session (AgentPtr) is freed automatically by RAII unique_ptr
 }
 
@@ -96,18 +89,14 @@ void AgentBridge::reportError(const QString &msg)
     emit error_occurred(m_errorMessage);
 }
 
-void AgentBridge::startPolling()
+void AgentBridge::beginOperation()
 {
-    if (!m_pollTimer->isActive()) {
-        m_pollTimer->start();
-    }
-}
-
-void AgentBridge::maybeStopPolling()
-{
-    if (!m_agentBusy && !m_isFetching) {
-        m_pollTimer->stop();
-    }
+    m_agentBusy = true;
+    m_streamingText.clear();
+    m_streamingActivity = false;
+    m_completionIdleRetries = 0;
+    emit busy_changed();
+    emit streaming_text_changed();
 }
 
 /* Append a user message to the local messages_json for immediate UI feedback.
@@ -127,6 +116,10 @@ void AgentBridge::appendUserMessage(const QString &text)
     emit messages_changed();
 }
 
+/* ================================================================== */
+/* Streaming callback (called from Rust worker thread)                 */
+/* ================================================================== */
+
 static void agentStreamingTokenCallback(void *userData, const char *token, int isDone)
 {
     AgentBridge *bridge = static_cast<AgentBridge*>(userData);
@@ -140,7 +133,7 @@ static void agentStreamingTokenCallback(void *userData, const char *token, int i
     }
     if (isDone) {
         QTimer::singleShot(0, bridge, [bridge]() {
-            bridge->poll_worker();
+            bridge->handleAgentCompletion();
         });
     }
 }
@@ -148,17 +141,82 @@ static void agentStreamingTokenCallback(void *userData, const char *token, int i
 void AgentBridge::appendStreamingToken(const QString &token)
 {
     m_streamingText += token;
+    m_streamingActivity = true;
     emit streaming_text_changed();
 }
 
-/* Start an agent send operation in a background thread and begin polling.
- * Shared by send_prompt, run_template, run_custom_instruction, import_text. */
+/* Called (via QTimer::singleShot) when the streaming callback reports
+ * isDone. Polls the Rust side for the final result.  In multi-step
+ * operations (tool calls), isDone fires after each LLM turn, but the
+ * agent continues executing.  We keep polling as long as streaming
+ * tokens keep arriving (m_streamingActivity resets the deadline).
+ * Once tokens stop, we wait up to 2 s for the final result. */
+void AgentBridge::handleAgentCompletion()
+{
+    if (!m_session) return;
+
+    char *outJson = nullptr;
+    int status = notes_core_agent_poll(m_session.get(), &outJson);
+
+    if (status == 0) {
+        /* Still running — check if tokens are still arriving. */
+        if (m_streamingActivity) {
+            /* New tokens arrived since the last check — the agent is
+             * actively working (e.g., executing tools).  Reset and
+             * retry soon. */
+            m_streamingActivity = false;
+            m_completionIdleRetries = 0;
+            QTimer::singleShot(50, this, [this]() {
+                handleAgentCompletion();
+            });
+        } else {
+            /* No new tokens — give the agent up to 2 s to finish. */
+            if (m_completionIdleRetries < 40) {   // 40 × 50 ms = 2 s
+                ++m_completionIdleRetries;
+                QTimer::singleShot(50, this, [this]() {
+                    handleAgentCompletion();
+                });
+            } else {
+                m_completionIdleRetries = 0;
+                /* Timed out — force completion. */
+                m_agentBusy = false;
+                m_streamingText.clear();
+                emit streaming_text_changed();
+                emit busy_changed();
+            }
+        }
+        return;
+    }
+
+    /* status == 1 (success) or status == -1 (error) — done. */
+    m_completionIdleRetries = 0;
+
+    QString resultJson;
+    if (status == 1 && outJson) {
+        resultJson = ffiStringToQString(outJson);
+    }
+
+    if (!resultJson.isEmpty()) {
+        processAgentResult(resultJson);
+    }
+
+    m_agentBusy = false;
+    m_streamingText.clear();
+    emit streaming_text_changed();
+    emit busy_changed();
+
+    if (status == -1) {
+        reportError(QStringLiteral("Agent operation failed"));
+    }
+}
+
+/* ================================================================== */
+/* Start an agent send (streaming) — tokens arrive via callback.       */
+/* ================================================================== */
+
 void AgentBridge::sendInBackground(const QString &prompt)
 {
-    m_agentBusy = true;
-    m_streamingText.clear();
-    emit busy_changed();
-    emit streaming_text_changed();
+    beginOperation();
 
     QtConcurrent::run([this, prompt]() {
         notes_core_agent_send_streaming(
@@ -167,8 +225,6 @@ void AgentBridge::sendInBackground(const QString &prompt)
             &agentStreamingTokenCallback,
             this);
     });
-
-    startPolling();
 }
 
 /* Format a prompt with optional context (active note content).
@@ -284,6 +340,58 @@ void AgentBridge::processAgentResult(const QString &resultJson)
         reportError(errMsg);
     }
     // type == "RequiresConfirmation" → pending_action already updated above
+}
+
+/* ================================================================== */
+/* One-shot completion handler for fetch/undo/confirm workers.         */
+/* Called once via QTimer::singleShot from the worker thread.          */
+/* ================================================================== */
+
+void AgentBridge::handleWorkerCompletion()
+{
+    /* ---- 1. Check fetch-worker result (URL / file) ---- */
+    {
+        QMutexLocker lock(&m_fetchMutex);
+        if (m_fetchReady) {
+            m_fetchReady = false;
+            bool ok       = m_fetchSuccess;
+            QString data  = m_fetchContent;
+            lock.unlock();
+
+            m_isFetching = false;
+            emit fetching_changed();
+            if (ok) {
+                emit fetch_completed(data);
+            } else {
+                emit fetch_error(data);
+            }
+        }
+    }
+
+    /* ---- 2. Check undo-worker result ---- */
+    {
+        QMutexLocker lock(&m_undoMutex);
+        if (m_undoReady) {
+            m_undoReady = false;
+            bool ok        = m_undoSuccess;
+            QString msg    = m_undoMessage;
+            lock.unlock();
+
+            if (ok) {
+                // Get updated session state
+                char *pollJson = nullptr;
+                int ps = notes_core_agent_poll(m_session.get(), &pollJson);
+                if (ps == 1 && pollJson) {
+                    processAgentResult(ffiStringToQString(pollJson));
+                }
+                emit undo_completed(msg);
+            } else {
+                reportError(msg);
+            }
+            m_agentBusy = false;
+            emit busy_changed();
+        }
+    }
 }
 
 /* ================================================================== */
@@ -455,11 +563,9 @@ void AgentBridge::fetch_url_content(QString url)
         m_fetchReady = true;
 
         QTimer::singleShot(0, this, [this]() {
-            this->poll_worker();
+            this->handleWorkerCompletion();
         });
     });
-
-    startPolling();
 }
 
 /* ================================================================== */
@@ -539,11 +645,9 @@ void AgentBridge::read_local_file(QString file_path)
         m_fetchReady   = true;
 
         QTimer::singleShot(0, this, [this]() {
-            this->poll_worker();
+            this->handleWorkerCompletion();
         });
     });
-
-    startPolling();
 }
 
 /* ================================================================== */
@@ -555,16 +659,29 @@ void AgentBridge::confirm_action(bool approved)
     if (m_agentBusy || !m_hasPendingAction) return;
     if (!m_session) { reportError(QStringLiteral("No agent session")); return; }
 
-    m_agentBusy = true;
-    m_streamingText.clear();
-    emit busy_changed();
-    emit streaming_text_changed();
+    beginOperation();
 
     QtConcurrent::run([this, approved]() {
         notes_core_agent_confirm(m_session.get(), approved ? 1 : 0);
-    });
 
-    startPolling();
+        /* Fetch final result immediately — confirm is a one-shot operation,
+         * no streaming callback to deliver it. */
+        char *outJson = nullptr;
+        int status = notes_core_agent_poll(m_session.get(), &outJson);
+        if (status == 1 && outJson) {
+            QString resultJson = ffiStringToQString(outJson);
+            QTimer::singleShot(0, this, [this, resultJson]() {
+                processAgentResult(resultJson);
+                m_agentBusy = false;
+                emit busy_changed();
+            });
+        } else {
+            QTimer::singleShot(0, this, [this]() {
+                m_agentBusy = false;
+                emit busy_changed();
+            });
+        }
+    });
 }
 
 /* ================================================================== */
@@ -576,10 +693,7 @@ void AgentBridge::undo_last_action()
     if (m_agentBusy || !m_canUndo) return;
     if (!m_session) { reportError(QStringLiteral("No agent session")); return; }
 
-    m_agentBusy = true;
-    m_streamingText.clear();
-    emit busy_changed();
-    emit streaming_text_changed();
+    beginOperation();
 
     {
         QMutexLocker lock(&m_undoMutex);
@@ -600,121 +714,25 @@ void AgentBridge::undo_last_action()
         m_undoReady = true;
 
         QTimer::singleShot(0, this, [this]() {
-            this->poll_worker();
+            this->handleWorkerCompletion();
         });
     });
-
-    startPolling();
 }
 
 /* ================================================================== */
-/* Q_INVOKABLE: poll_worker                                            */
+/* Q_INVOKABLE: cancel_operation                                       */
 /* ================================================================== */
 
-bool AgentBridge::poll_worker()
+void AgentBridge::cancel_operation()
 {
-    bool somethingCompleted = false;
+    if (!m_agentBusy) return;
 
-    /* ---- 1. Check fetch-worker result (URL / file) ---- */
-    {
-        QMutexLocker lock(&m_fetchMutex);
-        if (m_fetchReady) {
-            m_fetchReady = false;
-            bool ok       = m_fetchSuccess;
-            QString data  = m_fetchContent;
-            lock.unlock();
-
-            m_isFetching = false;
-            emit fetching_changed();
-            if (ok) {
-                emit fetch_completed(data);
-            } else {
-                emit fetch_error(data);
-            }
-            somethingCompleted = true;
-        }
-    }
-
-    /* ---- 2. Check undo-worker result ---- */
-    {
-        QMutexLocker lock(&m_undoMutex);
-        if (m_undoReady) {
-            m_undoReady = false;
-            bool ok        = m_undoSuccess;
-            QString msg    = m_undoMessage;
-            lock.unlock();
-
-            if (ok) {
-                // Try to get updated session state via poll
-                char *pollJson = nullptr;
-                int ps = notes_core_agent_poll(m_session.get(), &pollJson);
-                if (ps == 1 && pollJson) {
-                    processAgentResult(ffiStringToQString(pollJson));
-                }
-                emit undo_completed(msg);
-            } else {
-                reportError(msg);
-            }
-            m_agentBusy = false;
-            emit busy_changed();
-            somethingCompleted = true;
-        }
-    }
-
-    /* ---- 3. If no agent operation is running, nothing more to do ---- */
-    if (!m_agentBusy) {
-        if (somethingCompleted) maybeStopPolling();
-        return somethingCompleted;
-    }
-
-    /* ---- 4. Update streaming text ---- */
-    if (m_session) {
-        char *raw = notes_core_agent_poll_streaming(m_session.get());
-        if (raw) {
-            QString newText = ffiStringToQString(raw);
-            if (newText != m_streamingText) {
-                m_streamingText = newText;
-                emit streaming_text_changed();
-            }
-        }
-    }
-
-    /* ---- 5. Poll for agent-operation completion ---- */
-    if (!m_session) return false;
-
-    char *outJson = nullptr;
-    int status = notes_core_agent_poll(m_session.get(), &outJson);
-
-    if (status == 1) {
-        /* Operation completed successfully */
-        QString resultJson = outJson ? ffiStringToQString(outJson) : QString();
-
-        m_agentBusy = false;
-        m_streamingText.clear();
-        emit streaming_text_changed();
-
-        if (!resultJson.isEmpty()) {
-            processAgentResult(resultJson);
-        }
-
-        emit busy_changed();
-        maybeStopPolling();
-        return true;
-    }
-
-    if (status == -1) {
-        /* Operation failed */
-        m_agentBusy = false;
-        m_streamingText.clear();
-        emit streaming_text_changed();
-        emit busy_changed();
-        reportError(QStringLiteral("Agent operation failed"));
-        maybeStopPolling();
-        return true;
-    }
-
-    /* status == 0 → still running */
-    return false;
+    m_agentBusy = false;
+    m_streamingText.clear();
+    m_isFetching = false;
+    emit streaming_text_changed();
+    emit busy_changed();
+    emit fetching_changed();
 }
 
 /* ================================================================== */
@@ -728,9 +746,8 @@ void AgentBridge::fetch_models()
     m_modelsLoading = true;
     emit models_changed();
 
-    {
-        QMutexLocker lock(&m_modelsMutex);
-        m_modelsReady = false;
+    if (!m_netManager) {
+        m_netManager = new QNetworkAccessManager(this);
     }
 
     /* Build the models-listing URL from provider configuration.
@@ -740,61 +757,54 @@ void AgentBridge::fetch_models()
     if (m_providerType.toLower() == QStringLiteral("ollama")) {
         url = m_endpointUrl + QStringLiteral("/api/tags");
     } else {
-        // OpenAI-compatible (also covers "mimocode", "openai", etc.)
         url = m_endpointUrl;
         if (!url.endsWith(QLatin1Char('/'))) url += QLatin1Char('/');
         url += QStringLiteral("v1/models");
     }
 
-    // Capture values by value for thread safety
-    QString fetchUrl    = url;
-    QString apiKey      = m_internalApiKey;
-    bool    selfSigned  = m_allowSelfSigned;
+    qDebug("[AgentBridge] fetch_models: GET %s", url.toUtf8().constData());
 
-    QtConcurrent::run([this, fetchUrl, apiKey, selfSigned]() {
-        Q_UNUSED(apiKey);      // TODO: pass as Bearer header when FFI supports it
-        Q_UNUSED(selfSigned);  // TODO: honour allow_self_signed when FFI supports it
+    QNetworkRequest request;
+    request.setUrl(QUrl(url));
 
-        char *raw = notes_core_fetch_url(qstrToFFI(fetchUrl));
+    if (!m_internalApiKey.trimmed().isEmpty()) {
+        request.setRawHeader("Authorization",
+            QStringLiteral("Bearer %1").arg(m_internalApiKey).toUtf8());
+    }
 
-        QMutexLocker lock(&m_modelsMutex);
-        if (raw) {
-            m_modelsJson    = ffiStringToQString(raw);
-            m_modelsSuccess = true;
-        } else {
-            m_modelsJson    = QStringLiteral("[]");
-            m_modelsSuccess = false;
-        }
-        m_modelsReady = true;
+    QNetworkReply *reply = m_netManager->get(request);
 
-        QTimer::singleShot(0, this, [this]() {
-            this->poll_models();
-        });
+    /* Qt 5.6 has no built-in transfer timeout.  A request to an
+     * unreachable host hangs forever.  Start a timer that aborts the
+     * reply after 5 seconds. */
+    QTimer *timeoutTimer = new QTimer(this);
+    timeoutTimer->setSingleShot(true);
+    timeoutTimer->setInterval(5000);
+    connect(timeoutTimer, &QTimer::timeout, this, [reply, timeoutTimer]() {
+        reply->abort();
+        timeoutTimer->deleteLater();
     });
-}
+    timeoutTimer->start();
 
-/* ================================================================== */
-/* Q_INVOKABLE: poll_models                                            */
-/* ================================================================== */
+    connect(reply, &QNetworkReply::finished, this, [this, reply, timeoutTimer]() {
+        timeoutTimer->stop();
+        timeoutTimer->deleteLater();
+        reply->deleteLater();
 
-bool AgentBridge::poll_models()
-{
-    QMutexLocker lock(&m_modelsMutex);
-    if (!m_modelsReady) return false;
+        if (reply->error() != QNetworkReply::NoError) {
+            QString errMsg = QStringLiteral("Model fetch failed: %1").arg(reply->errorString());
+            qWarning("[AgentBridge] %s", errMsg.toUtf8().constData());
+            reportError(errMsg);
+            m_availableModels = QStringLiteral("[]");
+            m_modelsLoading = false;
+            emit models_changed();
+            return;
+        }
 
-    m_modelsReady = false;
-    bool ok    = m_modelsSuccess;
-    QString js = m_modelsJson;
-    lock.unlock();
+        QByteArray data = reply->readAll();
+        qDebug("[AgentBridge] fetch_models: got %d bytes", data.size());
 
-    if (ok) {
-        /* Normalise the provider-specific JSON into a flat array of
-         * { "name": "..." } objects that QML can consume.
-         *
-         * Ollama: { "models": [{ "name": "...", ... }, ...] }
-         * OpenAI: { "data":  [{ "id":  "...", ... }, ...] }
-         */
-        QJsonDocument doc = QJsonDocument::fromJson(js.toUtf8());
+        QJsonDocument doc = QJsonDocument::fromJson(data);
         QJsonArray models;
 
         if (doc.isObject()) {
@@ -823,12 +833,18 @@ bool AgentBridge::poll_models()
 
         m_availableModels = QString::fromUtf8(
             QJsonDocument(models).toJson(QJsonDocument::Compact));
-    } else {
-        reportError(QStringLiteral("Failed to fetch models"));
-        m_availableModels = QStringLiteral("[]");
-    }
 
-    m_modelsLoading = false;
-    emit models_changed();
+        m_modelsLoading = false;
+        emit models_changed();
+    });
+}
+
+/* ================================================================== */
+/* Q_INVOKABLE: poll_models (legacy — no-op, kept for QML compat)     */
+/* ================================================================== */
+
+bool AgentBridge::poll_models()
+{
+    if (m_modelsLoading) return false;
     return true;
 }

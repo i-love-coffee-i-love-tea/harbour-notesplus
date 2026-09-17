@@ -2,6 +2,7 @@
 
 pub const APP_JS: &str = include_str!("../../assets/web/app.js");
 pub const VUE_JS: &str = include_str!("../../assets/web/vue.esm-browser.prod.js");
+pub const VUE_DEMI_JS: &str = include_str!("../../assets/web/vue-demi.esm-browser.js");
 pub const PINIA_JS: &str = include_str!("../../assets/web/pinia.esm-browser.prod.js");
 pub const STYLE_CSS: &str = include_str!("../../assets/web/style.css");
 pub const INDEX_HTML: &str = include_str!("../../assets/web/index.html");
@@ -23,3 +24,6 @@ pub const STORES_EDITOR_STORE_JS: &str = include_str!("../../assets/web/stores/e
 
 // Shared utilities (still used by stores)
 pub const COMPOSABLE_UTILS_JS: &str = include_str!("../../assets/web/composables/utils.js");
+
+// Shims for Pinia bare-specifier dependencies
+pub const VUE_DEVTOOLS_API_JS: &str = include_str!("../../assets/web/vue-devtools-api-stub.js");

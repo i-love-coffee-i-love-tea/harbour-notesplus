@@ -9,12 +9,14 @@
 
 #include <QObject>
 #include <QString>
-#include <QTimer>
 #include <QMutex>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QtConcurrent/QtConcurrent>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 
 #include "../ffi/ffi_raii.h"
 
@@ -53,6 +55,7 @@ public:
 
     /* ---- Public helpers (called from FFI callbacks) ---- */
     void appendStreamingToken(const QString &token);
+    void handleAgentCompletion();
 
     /* ---- Property getters ---- */
     bool    agentBusy()         const { return m_agentBusy; }
@@ -110,7 +113,9 @@ public:
 
     Q_INVOKABLE void undo_last_action();
 
-    Q_INVOKABLE bool poll_worker();
+    Q_INVOKABLE void cancel_operation();
+
+    Q_INVOKABLE void handleWorkerCompletion();
 
     Q_INVOKABLE void fetch_models();
 
@@ -137,9 +142,6 @@ private:
     /* ---- FFI session handle (RAII) ---- */
     AgentPtr m_session;
 
-    /* ---- Polling timer ---- */
-    QTimer *m_pollTimer;
-
     /* ---- Internal config (not exposed to QML) ---- */
     QString m_internalApiKey;
 
@@ -153,6 +155,8 @@ private:
     QString m_lastCreatedNote;
     QString m_errorMessage;
     QString m_streamingText;
+    bool    m_streamingActivity = false;
+    int     m_completionIdleRetries = 0;
     bool    m_isFetching        = false;
     QString m_providerType;
     QString m_endpointUrl;
@@ -179,15 +183,11 @@ private:
     QString m_undoMessage;
 
     /* ---- Shared state for models worker ---- */
-    QMutex  m_modelsMutex;
-    bool    m_modelsReady   = false;
-    bool    m_modelsSuccess = false;
-    QString m_modelsJson;
+    QNetworkAccessManager *m_netManager = nullptr;
 
     /* ---- Helpers ---- */
     void reportError(const QString &msg);
-    void startPolling();
-    void maybeStopPolling();
+    void beginOperation();
     void sendInBackground(const QString &prompt);
     void appendUserMessage(const QString &text);
     void processAgentResult(const QString &resultJson);

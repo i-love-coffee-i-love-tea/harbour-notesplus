@@ -1,4 +1,5 @@
 use std::os::raw::c_char;
+use std::path::PathBuf;
 
 use crate::agent::LlmConfig;
 use crate::server;
@@ -18,10 +19,49 @@ pub extern "C" fn notes_core_server_start(
     let backup = unsafe { cstr_to_path(backup_dir) };
     let cfg_str = unsafe { cstr_to_string(config_json) };
 
-    let llm_config: Option<LlmConfig> = serde_json::from_str(&cfg_str).ok();
+    // Parse full config JSON to extract TLS and LLM settings
+    let parsed: Option<serde_json::Value> = serde_json::from_str(&cfg_str).ok();
+    let llm_config: Option<LlmConfig> = parsed.as_ref()
+        .and_then(|v| v.get("llm"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    match server::start_server_full(ndir, db, backup, port, llm_config, None) {
-        Ok(handle) => Box::into_raw(Box::new(handle)),
+    let enable_tls = parsed.as_ref()
+        .and_then(|v| v.get("enable_tls"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let tls_cert_path = parsed.as_ref()
+        .and_then(|v| v.get("tls_cert_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| PathBuf::from(s));
+
+    let tls_key_path = parsed.as_ref()
+        .and_then(|v| v.get("tls_key_path"))
+        .and_then(|v| v.as_str())
+        .map(|s| PathBuf::from(s));
+
+    // Parse auth config from JSON
+    let auth_expiry_secs = parsed.as_ref()
+        .and_then(|v| v.get("auth"))
+        .and_then(|v| v.get("session_expiry_secs"))
+        .and_then(|v| v.as_u64());
+
+    // Parse permissions from JSON
+    let permission_config = parsed.as_ref()
+        .and_then(|v| v.get("permissions"))
+        .and_then(|v| serde_json::from_value::<crate::agent::PermissionConfig>(v.clone()).ok());
+
+    match server::start_server_full_with_tls(
+        ndir, db, backup, port, llm_config, permission_config,
+        enable_tls, tls_cert_path, tls_key_path,
+    ) {
+        Ok(handle) => {
+            // Apply auth config if provided
+            if let Some(expiry) = auth_expiry_secs {
+                handle.context().set_session_expiry_secs(expiry);
+            }
+            Box::into_raw(Box::new(handle))
+        }
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -122,4 +162,62 @@ pub extern "C" fn notes_core_server_tls_is_custom(
 ) -> i32 {
     let cp = unsafe { cstr_to_path(cert_path) };
     if server::tls::is_custom_cert_installed(&cp) { 1 } else { 0 }
+}
+
+/// Take the pending auth challenge signal from the server.
+/// Returns JSON: {"challenge_id":"...","verification_code":"..."} or {"pending":false}
+/// The signal is cleared after taking.
+#[no_mangle]
+pub extern "C" fn notes_core_server_auth_take_challenge(
+    handle: *const server::HttpServerHandle,
+) -> *mut c_char {
+    if handle.is_null() {
+        return string_to_c(r#"{"pending":false}"#.to_string());
+    }
+    let h = unsafe { &*handle };
+    let ctx = h.context();
+    match ctx.take_auth_challenge() {
+        Some(challenge_id) => {
+            match ctx.auth_challenges.get_challenge(&challenge_id) {
+                Some(challenge) => {
+                    let json = serde_json::json!({
+                        "pending": true,
+                        "challenge_id": challenge.challenge_id,
+                        "verification_code": challenge.verification_code,
+                    });
+                    string_to_c(json.to_string())
+                }
+                None => string_to_c(r#"{"pending":false}"#.to_string()),
+            }
+        }
+        None => string_to_c(r#"{"pending":false}"#.to_string()),
+    }
+}
+
+/// Approve a pending auth challenge in the Rust challenge store.
+#[no_mangle]
+pub extern "C" fn notes_core_server_auth_approve(
+    handle: *const server::HttpServerHandle,
+    challenge_id: *const c_char,
+) -> i32 {
+    if handle.is_null() || challenge_id.is_null() {
+        return 0;
+    }
+    let h = unsafe { &*handle };
+    let id = unsafe { cstr_to_string(challenge_id) };
+    if h.context().auth_challenges.approve_challenge(&id) { 1 } else { 0 }
+}
+
+/// Deny a pending auth challenge in the Rust challenge store.
+#[no_mangle]
+pub extern "C" fn notes_core_server_auth_deny(
+    handle: *const server::HttpServerHandle,
+    challenge_id: *const c_char,
+) -> i32 {
+    if handle.is_null() || challenge_id.is_null() {
+        return 0;
+    }
+    let h = unsafe { &*handle };
+    let id = unsafe { cstr_to_string(challenge_id) };
+    if h.context().auth_challenges.deny_challenge(&id) { 1 } else { 0 }
 }

@@ -3,7 +3,7 @@ import { ref, computed, nextTick } from 'vue';
 import { isExternalUrlStr, computeFilenameFromQuery, buildLinkPreview } from '/composables/utils.js';
 import { useNotesStore } from './notes.js';
 import { useUiStore } from './ui.js';
-import { useEditorStore } from './editor.js';
+import { useEditorStore } from './editorStore.js';
 
 export const useLinkStore = defineStore('link', () => {
   const openLinkModal = ref(false);

@@ -18,6 +18,7 @@ Column {
     signal submitPrompt(string text)
     signal toggleMic()
     signal cancelRecording()
+    signal cancelOperation()
 
     // Input Area
     TextArea {
@@ -31,7 +32,7 @@ Column {
 
     // Voice Input with Submit
     VoiceInputBar {
-        visible: promptBar.sttEnabled
+        visible: !promptBar.agentBusy && promptBar.sttEnabled
         isSpeechRecording: promptBar.isSpeechRecording
         isSpeechTranscribing: promptBar.isSpeechTranscribing
         liveAudioLevel: promptBar.liveAudioLevel
@@ -46,5 +47,57 @@ Column {
                 promptBar.submitPrompt(promptField.text)
             }
         }
+    }
+
+    // Submit button when STT is disabled and agent not busy
+    IconButton {
+        visible: !promptBar.agentBusy && !promptBar.sttEnabled
+        anchors.right: parent.right
+        anchors.rightMargin: Theme.horizontalPageMargin
+        icon.source: "image://theme/icon-m-send"
+        enabled: promptField.text.trim().length > 0
+        onClicked: {
+            if (promptField.text.trim().length > 0) {
+                promptBar.submitPrompt(promptField.text)
+            }
+        }
+    }
+
+    // Cancel button when agent is busy
+    BackgroundItem {
+        visible: promptBar.agentBusy
+        width: parent.width - Theme.horizontalPageMargin * 2
+        anchors.horizontalCenter: parent.horizontalCenter
+        height: Theme.itemSizeSmall
+
+        Rectangle {
+            anchors.fill: parent
+            radius: Theme.paddingSmall
+            color: parent.pressed ? Theme.rgba(Theme.highlightColor, 0.3) : Theme.rgba(Theme.highlightColor, 0.15)
+            border.color: Theme.rgba(Theme.highlightColor, 0.4)
+            border.width: 1
+        }
+
+        Row {
+            anchors.centerIn: parent
+            spacing: Theme.paddingMedium
+
+            Icon {
+                source: "image://theme/icon-m-close"
+                width: Theme.iconSizeSmall
+                height: Theme.iconSizeSmall
+                color: Theme.highlightColor
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Label {
+                text: qsTr("Cancel")
+                color: Theme.highlightColor
+                font.pixelSize: Theme.fontSizeSmall
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
+        onClicked: promptBar.cancelOperation()
     }
 }

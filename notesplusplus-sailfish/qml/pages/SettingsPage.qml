@@ -37,19 +37,30 @@ Page {
         var list = serverModels || []
         var current = (typeof app !== "undefined" && app.aiModel) ? app.aiModel : ""
         if (current.length > 0) {
-            var found = false
-            for (var i = 0; i < list.length; i++) {
-                if (list[i].id === current) { found = true; break }
+            // Only flag "not on server" if the fetch actually succeeded
+            if (modelsLoaded && modelError.length === 0) {
+                var found = false
+                for (var i = 0; i < list.length; i++) {
+                    if ((list[i].id || list[i].name) === current) { found = true; break }
+                }
+                if (!found) {
+                    return [{id: current, name: current + " (not on server)"}].concat(list)
+                }
             }
-            if (!found) {
-                return [{id: current, name: current + " (not on server)"}].concat(list)
+            // Always ensure the configured model appears in the list
+            if (list.length === 0) {
+                return [{id: current, name: current}]
             }
         }
         return list
     }
 
+    property string modelError: ""
+
     function refreshModels() {
         if (typeof app === "undefined" || !app) return
+        console.log("[SettingsPage] refreshModels called, provider:", app.aiProvider, "endpoint:", app.aiEndpoint)
+        modelError = ""
         modelBridge.configure(
             app.aiProvider === "mimocode" ? "mimocode" : "ollama",
             app.aiEndpoint,
@@ -61,31 +72,27 @@ Page {
             true
         )
         modelBridge.fetch_models()
-        modelPollTimer.start()
-    }
-
-    function parseModelsAndUpdate() {
-        if (!modelBridge.poll_models()) return
-        modelPollTimer.stop()
-        try {
-            var list = JSON.parse(modelBridge.available_models)
-            serverModels = list
-            modelsLoaded = true
-        } catch (e) {
-            serverModels = []
-            modelsLoaded = true
-        }
     }
 
     AgentBridge {
         id: modelBridge
-    }
-
-    Timer {
-        id: modelPollTimer
-        interval: 200
-        repeat: true
-        onTriggered: settingsPage.parseModelsAndUpdate()
+        onError_occurred: {
+            console.log("[SettingsPage] modelBridge error_occurred:", message)
+            settingsPage.modelError = message
+        }
+        onModels_changed: {
+            console.log("[SettingsPage] models_changed, loading:", models_loading, "models:", available_models)
+            if (!models_loading) {
+                try {
+                    var list = JSON.parse(available_models)
+                    serverModels = list
+                    modelsLoaded = true
+                } catch (e) {
+                    serverModels = []
+                    modelsLoaded = true
+                }
+            }
+        }
     }
 
     onCurrentTabChanged: {

@@ -12,20 +12,27 @@
     {
       "imports": {
         "vue": "/vue.esm-browser.prod.js",
-        "pinia": "/pinia.esm-browser.prod.js"
+        "pinia": "/pinia.esm-browser.prod.js",
+        "vue-demi": "/vue-demi.esm-browser.js",
+        "@vue/devtools-api": "/vue-devtools-api-stub.js"
       }
     }
   </script>
 </head>
 <body>
-  <div id="app" v-cloak>
+  <!-- DIAG: if you see this, HTML rendering works -->
+  <div style="position:fixed;top:0;left:0;z-index:99999;background:red;color:white;padding:8px;font-size:12px;">HTML OK</div>
+  <div id="app">
+    <!-- Vue template diagnostic -->
+    <div style="position:fixed;top:40px;left:0;z-index:99999;background:blue;color:white;padding:8px;font-size:12px;">
+      auth={{ isAuthenticated }} | phone={{ isPhoneReachable }} | mode={{ viewMode }}
+    </div>
     <!-- Login Screen Overlay when Authentication is Required -->
-    <div v-if="!isAuthenticated" class="login-overlay">
-      <div class="login-card">
+    <div v-if="!isAuthenticated" class="login-overlay" style="background:rgba(0,0,0,0.85);">
+      <div class="login-card" style="background:#fff;color:#000;padding:32px;border-radius:8px;">
         <div class="login-header">
-          <img src="/icon.png" class="login-logo-img" alt="Notes Plus">
-          <h2>Notes Plus</h2>
-          <p class="login-subtitle">Web Access Authorization</p>
+          <h2 style="color:#000;">Notes Plus</h2>
+          <p style="color:#333;">Web Access Authorization</p>
         </div>
 
         <div v-if="authError" class="login-error-banner">
@@ -40,12 +47,13 @@
               <line x1="12" y1="18" x2="12.01" y2="18" stroke-width="2"/>
             </svg>
           </div>
-          <p class="phone-auth-instruction">Confirm login on your phone</p>
-          <div v-if="authVerificationCode" class="auth-code-display">
-            <p class="auth-code-label">Verify this code matches on your phone:</p>
-            <p class="auth-code">{{ authVerificationCode }}</p>
+          <p style="color:#333;font-size:16px;">Confirm login on your phone</p>
+          <div v-if="authVerificationCode" style="text-align:center;margin:16px 0;">
+            <p style="color:#666;font-size:14px;">Verify this code matches on your phone:</p>
+            <p style="color:#000;font-size:48px;font-weight:bold;font-family:monospace;letter-spacing:8px;">{{ authVerificationCode }}</p>
           </div>
-          <p class="auth-status">{{ authStatus }}</p>
+          <p style="color:#333;font-size:14px;">{{ authStatus }}</p>
+          <p style="color:#666;font-size:12px;">error: {{ authError }}</p>
           <button v-if="authCanRetry" type="button" class="btn-auth-retry" @click="startPhoneAuth()">
             Request New Code
           </button>

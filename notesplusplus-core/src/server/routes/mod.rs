@@ -135,6 +135,8 @@ fn is_public_path(p: &str) -> bool {
         || p == "vue.js"
         || p == "pinia.esm-browser.prod.js"
         || p == "pinia.js"
+        || p == "vue-demi.esm-browser.js"
+        || p == "vue-devtools-api-stub.js"
         || p == "style.css"
         || p == "icon.png"
         || p == "favicon.ico"

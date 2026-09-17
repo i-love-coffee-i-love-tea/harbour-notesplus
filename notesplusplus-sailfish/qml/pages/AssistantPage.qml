@@ -212,16 +212,6 @@ Page {
         }
     }
 
-    Timer {
-        id: pollTimer
-        interval: 50
-        running: agentBridge.agent_busy || agentBridge.is_fetching
-        repeat: true
-        onTriggered: {
-            agentBridge.poll_worker()
-        }
-    }
-
     SilicaFlickable {
         id: flickable
         anchors.fill: parent
@@ -297,34 +287,11 @@ Page {
                 messagesJson: agentBridge.messages_json
                 agentBusy: agentBridge.agent_busy
                 streamingText: agentBridge.streaming_text
-            }
-
-            // Active Processing Banner (immediate feedback)
-            Rectangle {
-                width: parent.width - Theme.horizontalPageMargin * 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                height: Theme.itemSizeExtraSmall
-                radius: Theme.paddingSmall
-                color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
-                border.color: Theme.rgba(Theme.primaryColor, 0.3)
-                border.width: 1
-                visible: agentBridge.agent_busy
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.paddingMedium
-
-                    BusyIndicator {
-                        size: BusyIndicatorSize.ExtraSmall
-                        running: agentBridge.agent_busy
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Label {
-                        text: agentBridge.streaming_text.length > 0 ? qsTr("AI is generating response...") : qsTr("AI is analyzing & processing...")
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.primaryColor
-                        anchors.verticalCenter: parent.verticalCenter
+                onResendRequested: function(txt) {
+                    if (txt && txt.trim().length > 0 && !agentBridge.agent_busy) {
+                        assistantPage.applyConfig()
+                        agentBridge.send_prompt(txt)
+                        assistantPage.scrollToBottom()
                     }
                 }
             }
@@ -420,6 +387,7 @@ Page {
                 }
                 onToggleMic: assistantPage.handleMicClick()
                 onCancelRecording: assistantPage.cancelActiveRecording()
+                onCancelOperation: agentBridge.cancel_operation()
             }
         }
     }

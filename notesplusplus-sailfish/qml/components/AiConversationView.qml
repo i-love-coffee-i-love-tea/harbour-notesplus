@@ -11,6 +11,8 @@ Column {
     property bool agentBusy: false
     property string streamingText: ""
 
+    signal resendRequested(string text)
+
     function getToolDisplayName(name) {
         if (!name) return qsTr("Tool")
         if (name === "read_note") return qsTr("Read Note")
@@ -74,10 +76,12 @@ Column {
             }
         }
 
-        delegate: Item {
+        delegate: ListItem {
             id: msgItem
             width: parent.width
-            height: msgBubble.height + Theme.paddingSmall
+            contentHeight: msgBubble.height + Theme.paddingSmall
+
+            menu: isUserMessage ? contextMenuComponent : undefined
 
             property bool isToolMessage: modelData.role === "tool"
             property bool isAssistantMessage: modelData.role === "assistant"
@@ -86,6 +90,18 @@ Column {
             property bool hasToolCalls: toolCalls.length > 0
             property bool hasContent: modelData.content && modelData.content.length > 0
             property bool isExpanded: false
+
+            Component {
+                id: contextMenuComponent
+                ContextMenu {
+                    MenuItem {
+                        text: qsTr("Resend")
+                        onClicked: {
+                            conversationView.resendRequested(modelData.content || "")
+                        }
+                    }
+                }
+            }
 
             Rectangle {
                 id: msgBubble

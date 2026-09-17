@@ -28,7 +28,7 @@ const app = createApp({
 
     // Wire API health callbacks
     setHealthCallbacks(
-      () => { health.markPhoneReachable(); notes.fetchNotesList(); },
+      () => { health.markPhoneReachable(); },
       (err) => health.markPhoneUnreachable(err)
     );
 
@@ -142,3 +142,6 @@ const app = createApp({
 
 app.use(pinia);
 app.mount('#app');
+// DIAGNOSTIC: confirm Vue mounted
+const diag = document.getElementById('diagnostic');
+if (diag) diag.textContent = 'Vue mounted OK';

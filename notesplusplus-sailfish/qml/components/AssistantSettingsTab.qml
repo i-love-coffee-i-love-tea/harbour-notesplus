@@ -54,7 +54,7 @@ Column {
             currentIndex: (app.aiProvider === "mimocode" || app.aiProvider === "openai") ? 1 : 0
             menu: ContextMenu {
                 MenuItem {
-                    text: qsTr("Local Ollama")
+                    text: qsTr("Ollama")
                     onClicked: {
                         app.setAiProvider("ollama")
                         if (endpointField.text === "https://api.mimocode.com") {
@@ -111,7 +111,7 @@ Column {
             width: parent.width
             label: qsTr("API Key (Bearer Token)")
             labelVisible: true
-            placeholderText: app.aiProvider === "ollama" ? qsTr("API Key (optional for local Ollama)") : qsTr("API Key (required for MiMoCode / Cloud APIs)")
+            placeholderText: app.aiProvider === "ollama" ? qsTr("API Key (optional for Ollama)") : qsTr("API Key (required for MiMoCode / Cloud APIs)")
             text: app.aiApiKey
             onTextChanged: {
                 if (typeof app !== "undefined" && app && app.setAiApiKey) {
@@ -149,11 +149,12 @@ Column {
             id: modelCombo
             width: parent.width
             label: qsTr("Model")
+            property bool userSelecting: false
             currentIndex: {
                 var models = page.displayModels
                 var current = (typeof app !== "undefined" && app.aiModel) ? app.aiModel : ""
                 for (var i = 0; i < models.length; i++) {
-                    if (models[i].id === current) return i
+                    if ((models[i].id || models[i].name) === current) return i
                 }
                 return models.length > 0 ? 0 : -1
             }
@@ -161,22 +162,37 @@ Column {
                 Repeater {
                     model: page.displayModels
                     MenuItem {
-                        text: modelData.id || modelData.name
+                        text: modelData.name || modelData.id || ""
+                        onClicked: modelCombo.userSelecting = true
                     }
                 }
             }
             onCurrentIndexChanged: {
+                if (!userSelecting) return
+                userSelecting = false
                 var models = page.displayModels
                 if (currentIndex >= 0 && currentIndex < models.length) {
-                    var selectedId = models[currentIndex].id
+                    var selectedId = models[currentIndex].id || models[currentIndex].name
                     if (typeof app !== "undefined" && app && app.setAiModel && selectedId !== app.aiModel) {
                         app.setAiModel(selectedId)
                     }
                 }
             }
-            description: modelBridge.models_loading
-                ? qsTr("Fetching models from server...")
-                : (page.displayModels.length === 0 ? qsTr("No models found — check endpoint") : "")
+            description: {
+                if (modelBridge.models_loading) return qsTr("Fetching models from server...")
+                if (page.displayModels.length === 0) return qsTr("No models found — check endpoint")
+                return ""
+            }
+        }
+
+        Label {
+            visible: page.modelError && page.modelError.length > 0
+            x: Theme.horizontalPageMargin
+            width: parent.width - Theme.horizontalPageMargin * 2
+            text: page.modelError
+            color: Theme.errorColor
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.Wrap
         }
 
         Row {

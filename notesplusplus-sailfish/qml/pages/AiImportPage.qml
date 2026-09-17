@@ -132,16 +132,6 @@ Page {
         }
     }
 
-    Timer {
-        id: pollTimer
-        interval: 50
-        running: agentBridge.agent_busy || agentBridge.is_fetching
-        repeat: true
-        onTriggered: {
-            agentBridge.poll_worker()
-        }
-    }
-
     SilicaFlickable {
         id: flickable
         anchors.fill: parent

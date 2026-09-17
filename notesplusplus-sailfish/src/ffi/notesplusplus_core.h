@@ -145,6 +145,13 @@ char* notes_core_server_tls_reset(const char* cert_path, const char* key_path);
 int   notes_core_server_tls_is_custom(const char* cert_path);
 
 /* ------------------------------------------------------------------ */
+/* Auth challenge (pending approval from browser login)                */
+/* ------------------------------------------------------------------ */
+char* notes_core_server_auth_take_challenge(const HttpServerHandle* handle);
+int   notes_core_server_auth_approve(const HttpServerHandle* handle, const char* challenge_id);
+int   notes_core_server_auth_deny(const HttpServerHandle* handle, const char* challenge_id);
+
+/* ------------------------------------------------------------------ */
 /* Agent session (background + poll)                                   */
 /* ------------------------------------------------------------------ */
 typedef void (*FfiTokenCallback)(void* user_data, const char* token, int is_done);

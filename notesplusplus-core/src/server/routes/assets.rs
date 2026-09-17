@@ -4,7 +4,7 @@ use std::io::Write;
 use crate::constants::MIME_HTML;
 use crate::server::http::{send_response, ParsedHttpRequest};
 use crate::server::web_assets::{
-    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, PINIA_JS,
+    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, VUE_DEMI_JS, VUE_DEVTOOLS_API_JS, PINIA_JS,
     STORES_INDEX_JS, STORES_API_JS, STORES_NOTES_JS, STORES_AUTH_JS,
     STORES_THEME_JS, STORES_HEALTH_JS, STORES_AI_JS, STORES_UI_JS,
     STORES_PRESENTATION_STORE_JS, STORES_IMPORT_STORE_JS,
@@ -20,7 +20,7 @@ pub fn handle_static_asset<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    if req.method != "GET" {
+    if req.method != "GET" && req.method != "HEAD" {
         send_response(stream, 404, "Not Found", MIME_HTML, b"<h1>404 Not Found</h1><p><a href=\"/\">Return to Notes++ Editor</a></p>", cors_origin);
         return;
     }
@@ -47,6 +47,16 @@ pub fn handle_static_asset<W: Write>(
 
     if clean_path == "pinia.esm-browser.prod.js" || clean_path == "pinia.js" {
         send_response(stream, 200, "OK", "application/javascript; charset=utf-8", PINIA_JS.as_bytes(), cors_origin);
+        return;
+    }
+
+    if clean_path == "vue-demi.esm-browser.js" {
+        send_response(stream, 200, "OK", "application/javascript; charset=utf-8", VUE_DEMI_JS.as_bytes(), cors_origin);
+        return;
+    }
+
+    if clean_path == "vue-devtools-api-stub.js" {
+        send_response(stream, 200, "OK", "application/javascript; charset=utf-8", VUE_DEVTOOLS_API_JS.as_bytes(), cors_origin);
         return;
     }
 

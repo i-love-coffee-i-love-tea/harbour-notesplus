@@ -328,6 +328,21 @@ pub fn start_server_full(
     llm_config: Option<LlmConfig>,
     permission_config: Option<PermissionConfig>,
 ) -> Result<HttpServerHandle, NotesError> {
+    start_server_full_with_tls(notes_dir, db_path, backup_dir, requested_port, llm_config, permission_config, false, None, None)
+}
+
+/// Like `start_server_full` but with TLS configuration.
+pub fn start_server_full_with_tls(
+    notes_dir: PathBuf,
+    db_path: PathBuf,
+    backup_dir: PathBuf,
+    requested_port: u16,
+    llm_config: Option<LlmConfig>,
+    permission_config: Option<PermissionConfig>,
+    enable_tls: bool,
+    tls_cert_path: Option<PathBuf>,
+    tls_key_path: Option<PathBuf>,
+) -> Result<HttpServerHandle, NotesError> {
     let assets_dir = notes_dir.parent().unwrap_or(&notes_dir).join(crate::constants::ASSETS_DIR_NAME);
     let config = ServerConfig {
         notes_dir,
@@ -339,9 +354,9 @@ pub fn start_server_full(
         llm_config: llm_config.unwrap_or_default(),
         permission_config: permission_config.unwrap_or_default(),
         auth_config: auth::AuthConfig::default(),
-        enable_tls: false,
-        tls_cert_path: None,
-        tls_key_path: None,
+        enable_tls,
+        tls_cert_path,
+        tls_key_path,
         reject_public_networks: true,
     };
     start_server_with_config(config)

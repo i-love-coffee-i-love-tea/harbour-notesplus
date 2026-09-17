@@ -245,15 +245,15 @@ void ServerManager::set_session_expiry_hours(int hours)
 
 bool ServerManager::check_auth_challenge()
 {
-    return m_authManager.check_auth_challenge();
+    return m_authManager.check_auth_challenge(m_server);
 }
 
 void ServerManager::approve_auth_challenge(const QString &challenge_id)
 {
-    m_authManager.approve_auth_challenge(challenge_id);
+    m_authManager.approve_auth_challenge(challenge_id, m_server);
 }
 
 void ServerManager::deny_auth_challenge(const QString &challenge_id)
 {
-    m_authManager.deny_auth_challenge(challenge_id);
+    m_authManager.deny_auth_challenge(challenge_id, m_server);
 }
