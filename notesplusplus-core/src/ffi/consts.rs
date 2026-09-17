@@ -23,6 +23,11 @@ pub extern "C" fn notes_core_const_default_ai_model() -> *mut c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn notes_core_const_default_system_prompt() -> *mut c_char {
+    string_to_c(crate::agent::prompt::DEFAULT_SYSTEM_PROMPT.to_string())
+}
+
+#[no_mangle]
 pub extern "C" fn notes_core_const_default_server_port() -> u16 {
     constants::DEFAULT_SERVER_PORT
 }

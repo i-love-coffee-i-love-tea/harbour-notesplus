@@ -27,12 +27,14 @@ Rectangle {
             spacing: Theme.paddingSmall
 
             Icon {
-                source: "image://theme/icon-m-edit"
+                source: (actionData && actionData.tool_name === "move_note")
+                        ? "image://theme/icon-m-folder"
+                        : "image://theme/icon-m-edit"
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Label {
-                text: actionData ? (qsTr("Proposed Edit: ") + (actionData.filename || "")) : qsTr("Action Confirmation")
+                text: actionData ? ((actionData.tool_name === "move_note" ? qsTr("Move Note: ") : qsTr("Proposed Edit: ")) + (actionData.filename || "")) : qsTr("Action Confirmation")
                 font.bold: true
                 font.pixelSize: Theme.fontSizeMedium
                 color: Theme.primaryColor

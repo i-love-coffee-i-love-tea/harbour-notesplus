@@ -83,6 +83,16 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
         }
     }
 
+    if !group_path.is_empty() {
+        let now = chrono::Utc::now().to_rfc3339();
+        let display_name = group_path.rsplit('/').next().unwrap_or(&group_path);
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO groups (path, display_name, collapsed, sort_order, note_sort, created_at)
+             VALUES (?1, ?2, 0, 0, 'newest', ?3)",
+            rusqlite::params![group_path, display_name, now],
+        );
+    }
+
     let clean_title = if is_journal {
         JOURNAL_TITLE.to_string()
     } else {

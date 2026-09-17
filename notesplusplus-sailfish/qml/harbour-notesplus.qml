@@ -60,6 +60,7 @@ ApplicationWindow {
     property alias aiRequireConfirmEdit: appSettings.aiRequireConfirmEdit
     property alias aiAllowFetchUrl: appSettings.aiAllowFetchUrl
     property alias aiAllowSelfSigned: appSettings.aiAllowSelfSigned
+    property alias aiSystemPrompt: appSettings.aiSystemPrompt
 
     readonly property var defaultCustomAiInstructions: AiInstructions.defaultCustomAiInstructions
     property var customAiInstructions: AiInstructions.parseCustomAiInstructions(appSettings.customAiInstructionsRaw)
@@ -245,6 +246,10 @@ ApplicationWindow {
     function setAiAllowSelfSigned(val) {
         appSettings.setAiAllowSelfSigned(val)
         syncAiConfig()
+    }
+
+    function setAiSystemPrompt(val) {
+        appSettings.setAiSystemPrompt(val)
     }
 
     function setSttEnabled(val) {

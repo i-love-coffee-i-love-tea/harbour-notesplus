@@ -31,13 +31,13 @@ Page {
 
             // ---- READING ----
             SectionHeader {
-                text: qsTr("Reading Your Notes")
+                text: qsTr("Reading & Context Retrieval")
             }
 
             InfoCard {
                 Label {
                     width: parent.width
-                    text: qsTr("The AI can read, search, and list your notes to answer questions or find information.")
+                    text: qsTr("The AI can read, search, and list your notes, as well as retrieve relevant snippets automatically using the local SQLite FTS5 full-text index.")
                     color: Theme.primaryColor
                     font.pixelSize: Theme.fontSizeSmall
                     wrapMode: Text.Wrap
@@ -45,7 +45,7 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("For example, you can ask \"What did I write about the garden project?\" and the AI will search your notes to find relevant content.")
+                    text: qsTr("For example, you can ask \"Summarize what I planned for Q4\" and the assistant uses hybrid retrieval across your note library to find relevant sections without needing manual attachments.")
                     color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
                     wrapMode: Text.Wrap
@@ -53,9 +53,9 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("By default, reading is allowed automatically. You can turn this off in the permissions above — the AI will then ask you each time before looking at a note.")
-                    color: Theme.secondaryColor
-                    font.pixelSize: Theme.fontSizeExtraSmall
+                    text: qsTr("Tools used: read_note, list_notes, search_notes, retrieve_context.")
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeExtraSmall - 2
                     wrapMode: Text.Wrap
                 }
             }
@@ -68,7 +68,7 @@ Page {
             InfoCard {
                 Label {
                     width: parent.width
-                    text: qsTr("The AI can create new notes for you. For example, you can ask it to draft a summary, write meeting notes, or save a recipe from a webpage.")
+                    text: qsTr("The AI can create new notes in valid AsciiDoc format. For example, you can ask it to draft a meeting summary, outline a project, or save recipes.")
                     color: Theme.primaryColor
                     font.pixelSize: Theme.fontSizeSmall
                     wrapMode: Text.Wrap
@@ -76,22 +76,30 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("New notes appear in your library like any other note. By default, the AI can create notes without asking — you can change this in the permissions above.")
+                    text: qsTr("New notes are saved directly into your note directory and automatically indexed for instant search.")
                     color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Tool used: create_note.")
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeExtraSmall - 2
                     wrapMode: Text.Wrap
                 }
             }
 
             // ---- EDITING ----
             SectionHeader {
-                text: qsTr("Editing Notes")
+                text: qsTr("Granular Section Editing & Appending")
             }
 
             InfoCard {
                 Label {
                     width: parent.width
-                    text: qsTr("The AI can change the content of existing notes. For example, it can fix spelling, reformat text, or add a section you asked for.")
+                    text: qsTr("The AI can modify existing notes either in full or by targeting specific AsciiDoc sections without touching the rest of your document.")
                     color: Theme.primaryColor
                     font.pixelSize: Theme.fontSizeSmall
                     wrapMode: Text.Wrap
@@ -99,18 +107,49 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("Before any edit is applied, you will always see exactly what changed — line by line — and can approve or reject it. This confirmation step cannot be turned off.")
-                    color: Theme.primaryColor
+                    text: qsTr("Specialized operations:\n• edit_section: Replaces or renames a single section by heading.\n• append_to_note: Appends checklist items or text to the end of a note or section.\n• insert_section: Inserts new AsciiDoc sections before or after existing headings.\n• edit_note: Replaces full document content when comprehensive restructuring is needed.")
+                    color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
-                    font.bold: true
                     wrapMode: Text.Wrap
                 }
 
                 Label {
                     width: parent.width
-                    text: qsTr("If you approve an edit and later change your mind, you can undo it from the assistant chat screen.")
+                    text: qsTr("Before any modification is applied, you will see a focused line-by-line diff preview to approve or reject. Automatic backup snapshots allow one-tap rollbacks.")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    font.bold: true
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            // ---- GROUPS & ORGANIZATION ----
+            SectionHeader {
+                text: qsTr("Groups & Note Organization")
+            }
+
+            InfoCard {
+                Label {
+                    width: parent.width
+                    text: qsTr("The AI understands hierarchical note groups and folders. You can ask it to explore categories or relocate notes between groups (e.g., move meeting notes to 'Work/Projects' or archive old drafts).")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Moving a note automatically updates all incoming and outgoing cross-references (`xref:...`) across your library so links never break.")
                     color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Tools used: list_groups, move_note.")
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeExtraSmall - 2
                     wrapMode: Text.Wrap
                 }
             }

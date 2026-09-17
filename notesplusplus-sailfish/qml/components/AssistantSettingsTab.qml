@@ -218,8 +218,8 @@ Column {
 
         TextSwitch {
             width: parent.width
-            text: qsTr("Auto-Allow Note Reading")
-            description: qsTr("Allow the assistant to search and read note contents automatically")
+            text: qsTr("Auto-Allow Note Reading & Context Retrieval")
+            description: qsTr("Allow the assistant to search notes, read note contents, list groups, and perform local SQLite FTS5 hybrid context retrieval automatically (read_note, list_notes, search_notes, retrieve_context, list_groups)")
             checked: app.aiAutoAllowRead
             onCheckedChanged: {
                 if (typeof app !== "undefined" && app && app.setAiAutoAllowRead) {
@@ -231,7 +231,7 @@ Column {
         TextSwitch {
             width: parent.width
             text: qsTr("Auto-Allow Note Creation")
-            description: qsTr("Allow the assistant to create new notes without extra confirmation")
+            description: qsTr("Allow the assistant to create new AsciiDoc notes without confirmation (create_note)")
             checked: app.aiAutoAllowCreate
             onCheckedChanged: {
                 if (typeof app !== "undefined" && app && app.setAiAutoAllowCreate) {
@@ -242,8 +242,8 @@ Column {
 
         TextSwitch {
             width: parent.width
-            text: qsTr("Require Confirmation for Edits")
-            description: qsTr("Display line-by-line diff preview and wait for approval before modifying existing notes")
+            text: qsTr("Require Confirmation for Note Modifications")
+            description: qsTr("Display confirmation and preview before modifying notes, editing sections, or moving notes between groups (edit_note, edit_section, append_to_note, insert_section, move_note)")
             checked: app.aiRequireConfirmEdit
             onCheckedChanged: {
                 if (typeof app !== "undefined" && app && app.setAiRequireConfirmEdit) {
@@ -255,7 +255,7 @@ Column {
         TextSwitch {
             width: parent.width
             text: qsTr("Allow Web Requests")
-            description: qsTr("Allow the assistant to fetch content from URLs you mention in your messages")
+            description: qsTr("Allow the assistant to fetch and analyze content from URLs you mention in messages (fetch_url)")
             checked: app.aiAllowFetchUrl
             onCheckedChanged: {
                 if (typeof app !== "undefined" && app && app.setAiAllowFetchUrl) {
@@ -266,7 +266,7 @@ Column {
     }
 
     SectionHeader {
-        text: qsTr("Custom AI Instructions")
+        text: qsTr("System Prompt & Persona")
     }
 
     Column {
@@ -277,7 +277,7 @@ Column {
         Label {
             width: parent.width - Theme.horizontalPageMargin * 2
             anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("Create custom action buttons with customizable icons and instruction prompt templates.")
+            text: qsTr("Inspect the base system prompt template (AsciiDoc syntax rules, persona, group organization, available tools) and add custom instructions (e.g., specific format or translation preferences) that apply across all chat turns.")
             font.pixelSize: Theme.fontSizeExtraSmall
             color: Theme.secondaryColor
             wrapMode: Text.Wrap
@@ -288,7 +288,38 @@ Column {
             spacing: Theme.paddingMedium
 
             Button {
-                text: qsTr("Manage Instructions (%1)").arg((typeof app !== "undefined" && app.customAiInstructions) ? app.customAiInstructions.length : 0)
+                text: ((typeof app !== "undefined" && app && app.aiSystemPrompt && app.aiSystemPrompt.trim().length > 0)
+                      ? qsTr("View & Edit System Prompt (Customized)")
+                      : qsTr("View & Edit System Prompt..."))
+                onClicked: pageStack.push(Qt.resolvedUrl("../pages/SystemPromptPage.qml"))
+            }
+        }
+    }
+
+    SectionHeader {
+        text: qsTr("Quick Action Templates")
+    }
+
+    Column {
+        width: parent.width
+        spacing: Theme.paddingMedium
+        visible: (typeof app !== "undefined" && app && app.aiEnabled !== undefined) ? app.aiEnabled : true
+
+        Label {
+            width: parent.width - Theme.horizontalPageMargin * 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: qsTr("Inspect and customize one-tap action templates (Beautify, Extract To-Dos, Fix Grammar, Expand & Draft) and custom prompt buttons.")
+            font.pixelSize: Theme.fontSizeExtraSmall
+            color: Theme.secondaryColor
+            wrapMode: Text.Wrap
+        }
+
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Theme.paddingMedium
+
+            Button {
+                text: qsTr("Manage Templates (%1)").arg((typeof app !== "undefined" && app.customAiInstructions) ? app.customAiInstructions.length : 0)
                 onClicked: pageStack.push(Qt.resolvedUrl("../pages/CustomInstructionsPage.qml"))
             }
 

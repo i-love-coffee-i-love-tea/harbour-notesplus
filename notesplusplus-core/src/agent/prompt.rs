@@ -8,14 +8,15 @@ Your job is to assist the user in drafting, editing, organizing, and analyzing n
 === Communication & Response Guidelines ===\n\
 1. Conversational Chat & Tool Summaries:\n\
    - In chat messages and answers to general questions, speak naturally, politely, and concisely.\n\
-   - Keep chat responses mobile-friendly and readable as plain text.\n\
-   - When you receive tool outputs (such as JSON from `list_notes`, `search_notes`, or raw text from `read_note`):\n\
-     * NEVER output or echo raw JSON payloads, keys, or technical database structures to the user.\n\
-     * Always synthesize the information into clear, natural bullet points or short conversational summaries.\n\
-     * For example, when listing notes, present them as readable bullet items: `• Title (filename.adoc) - Updated info`.\n\
-     * Conclude multi-step tool actions with a helpful, friendly summary of what was done.\n\n\
-2. Note Content Rules for `create_note` and `edit_note` (MANDATORY AsciiDoc):\n\
-   - When generating note content for the `content` parameter in `create_note` or `edit_note`, you MUST strictly produce valid AsciiDoc markup. NEVER use Markdown syntax.\n\
+   - Keep chat explanations concise, structured in bullet points, and directly to the point.\n\
+   - Keep chat responses mobile-friendly and readable as plain text or light AsciiDoc formatting.\n\
+   - CRITICAL OUTPUT RULE: Never output raw JSON or tool syntax in chat messages to the user. Always synthesize tool results into clean conversational text.\n\
+   - When speaking to the user in chat messages, NEVER output raw JSON, JSON function arguments, tool call payloads, or raw technical database keys. Always synthesize tool outputs into clean, natural bullet points or short conversational summaries.\n\
+   - For example, when listing notes, present them as readable bullet items: `• Title (filename.adoc) - Updated info`.\n\
+   - Conclude multi-step tool actions with a helpful, friendly summary of what was done.\n\n\
+2. Note Content Rules for Note Modifications (MANDATORY AsciiDoc):\n\
+   - When drafting or editing notes, match the existing tone, vocabulary, and heading structure of the note.\n\
+   - When generating note content for note modification tools (`create_note`, `edit_note`, `edit_section`, `append_to_note`, `insert_section`), you MUST strictly produce valid AsciiDoc markup. NEVER use Markdown syntax.\n\
    - Headings: Use `= Document Title` (Level 0/1), `== Section` (Level 2), `=== Subsection` (Level 3), `==== Heading 4` (Level 4). Do NOT use `#` or `##`.\n\
    - Task Lists / Checklists: Use `* [ ] Task item` for unchecked and `* [x] Task item` for checked. Do NOT use `- [ ]`.\n\
    - Inline Formatting:\n\
@@ -45,12 +46,21 @@ Your job is to assist the user in drafting, editing, organizing, and analyzing n
      ____\n\
    - Cross references / Links: `https://example.com[Label]` or `xref:other_note.adoc[Note Title]`.\n\
    - Lists: Bulleted with `* item`, `** sub-item`; numbered with `. item`, `.. sub-item`.\n\n\
+=== Note Organization & Groups ===\n\
+Notes in Notes Plus are organized in a clean hierarchical folder/group structure:\n\
+- Root notes have an empty group path \"\" (stored at the top level of the library).\n\
+- Grouped notes have a group path such as \"Work\", \"Projects/App\", or \"Personal\".\n\
+- Use `list_groups` to discover all existing groups, folders, and their note counts.\n\
+- Use `move_note` to relocate notes between groups (or to root \"\"). Moving a note automatically updates all incoming and outgoing cross-references.\n\
+- When creating notes with `create_note`, you can optionally specify the target `group` (e.g. \"Work\").\n\n\
 === Available Note Tools ===\n\
-You have tools to manage notes: `read_note`, `list_notes`, `search_notes`, `retrieve_context`, `create_note`, `edit_note`, `edit_section`, `append_to_note`, `insert_section`, and `fetch_url`.\n\
+You have tools to manage notes: `read_note`, `list_notes`, `search_notes`, `retrieve_context`, `list_groups`, `move_note`, `create_note`, `edit_note`, `edit_section`, `append_to_note`, `insert_section`, and `fetch_url`.\n\
 - When asked to list notes or search notes, call `list_notes` or `search_notes`, then summarize the results in a friendly list.\n\
 - When answering broad questions spanning multiple notes, call `retrieve_context` to fetch relevant snippets from the local search index.\n\
+- When asked to list or explore folders/categories, call `list_groups` to list existing groups.\n\
+- When asked to move or categorize a note, call `move_note` with the note's filename and target group.\n\
 - When asked to read a note, use `read_note` and answer the user's questions based on its content.\n\
-- When creating a note, use `create_note` with valid AsciiDoc formatted content.\n\
+- When creating a note, use `create_note` with valid AsciiDoc formatted content (and optional `group`).\n\
 - When modifying specific sections of an existing note, prefer `edit_section`, `append_to_note`, or `insert_section` instead of rewriting the entire note with `edit_note`. This saves tokens and preserves surrounding sections.\n\
 - When modifying an entire note, use `edit_note` with the complete updated AsciiDoc content and provide a clear one-sentence summary in `reason`.\n\
 - When external URL text is provided or requested, use `fetch_url` to inspect and analyze it.\n";
@@ -64,6 +74,7 @@ pub struct EnvironmentContext<'a> {
     pub active_note_content: Option<&'a str>,
     pub extra_context: Option<&'a str>,
     pub total_notes_count: Option<usize>,
+    pub existing_groups: Option<&'a [String]>,
 }
 
 /// Builds a layered system prompt ensuring core identity, AsciiDoc domain rules,
@@ -78,7 +89,7 @@ pub fn build_system_prompt_layered(
     prompt.push_str(DEFAULT_SYSTEM_PROMPT);
 
     // Layer 2: Dynamic Environment Context
-    let has_env_context = env.current_date_time.is_some() || env.total_notes_count.is_some();
+    let has_env_context = env.current_date_time.is_some() || env.total_notes_count.is_some() || env.existing_groups.is_some();
     if has_env_context {
         prompt.push_str("\n=== Environment Context ===\n");
         if let Some(dt) = env.current_date_time {
@@ -88,6 +99,11 @@ pub fn build_system_prompt_layered(
         }
         if let Some(count) = env.total_notes_count {
             prompt.push_str(&format!("Total Notes in Library: {}\n", count));
+        }
+        if let Some(groups) = env.existing_groups {
+            if !groups.is_empty() {
+                prompt.push_str(&format!("Existing Groups: {}\n", groups.join(", ")));
+            }
         }
     }
 
@@ -156,6 +172,7 @@ pub fn build_system_prompt_with_custom(
         active_note_content: content,
         extra_context,
         total_notes_count: None,
+        existing_groups: None,
     };
     build_system_prompt_layered(custom_prompt, &env)
 }
@@ -378,7 +395,7 @@ mod tests {
         assert!(prompt.contains("* [ ] Task item"));
         assert!(prompt.contains("NOTE:"));
         assert!(prompt.contains("|==="));
-        assert!(prompt.contains("NEVER output or echo raw JSON"));
+        assert!(prompt.contains("NEVER output raw JSON"));
         assert!(prompt.contains("NEVER use Markdown syntax"));
     }
 
@@ -503,6 +520,7 @@ mod tests {
             active_note_content: None,
             extra_context: None,
             total_notes_count: Some(42),
+            existing_groups: None,
         };
         let prompt = build_system_prompt_layered(None, &env);
         assert!(prompt.contains("Current Local Date/Time: 2026-09-17 19:46"));
@@ -518,6 +536,7 @@ mod tests {
             active_note_content: Some("= Project Roadmap\n== Q4 Goals\n* [ ] Ship agent"),
             extra_context: Some("Meeting snippet from earlier"),
             total_notes_count: Some(10),
+            existing_groups: None,
         };
         let prompt = build_system_prompt_layered(None, &env);
         assert!(prompt.contains("Filename: roadmap.adoc"));
@@ -529,13 +548,15 @@ mod tests {
 
     #[test]
     fn test_system_prompt_layered_preserves_rules_with_custom_instructions() {
+        let groups = vec!["Work".to_string(), "Projects/Sailfish".to_string(), "Archive".to_string()];
         let env = EnvironmentContext {
             current_date_time: Some("2026-09-17 19:46"),
             active_note_filename: Some("notes.adoc"),
             active_note_title: None,
             active_note_content: Some("= Notes\nContent here"),
             extra_context: None,
-            total_notes_count: None,
+            total_notes_count: Some(15),
+            existing_groups: Some(&groups),
         };
         let custom = "Always end answers with an encouraging emoji and be concise.";
         let prompt = build_system_prompt_layered(Some(custom), &env);
@@ -544,11 +565,18 @@ mod tests {
         assert!(prompt.contains("=== User Preferences & Custom Instructions ==="));
         assert!(prompt.contains("Always end answers with an encouraging emoji"));
 
-        // Base Persona, AsciiDoc rules, and tool guidelines must STILL be present
+        // Base Persona, AsciiDoc rules, tone matching, concise summaries, no-JSON rule, and tool guidelines must STILL be present
         assert!(prompt.contains("Notes Plus Assistant"));
         assert!(prompt.contains("= Document Title"));
         assert!(prompt.contains("* [ ] Task item"));
         assert!(prompt.contains("=== Communication & Response Guidelines ==="));
+        assert!(prompt.contains("CRITICAL OUTPUT RULE: Never output raw JSON"));
+        assert!(prompt.contains("Keep chat explanations concise, structured in bullet points"));
+        assert!(prompt.contains("match the existing tone, vocabulary, and heading structure"));
+        assert!(prompt.contains("=== Note Organization & Groups ==="));
+        assert!(prompt.contains("list_groups"));
+        assert!(prompt.contains("move_note"));
+        assert!(prompt.contains("Existing Groups: Work, Projects/Sailfish, Archive"));
         assert!(prompt.contains("Filename: notes.adoc"));
     }
 }

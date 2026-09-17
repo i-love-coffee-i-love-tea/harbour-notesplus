@@ -264,6 +264,11 @@ QString AgentBridge::buildConfigJson() const
     } else {
         cfg[QStringLiteral("api_key")]       = QJsonValue::Null;
     }
+    if (!m_systemPrompt.trimmed().isEmpty()) {
+        cfg[QStringLiteral("system_prompt")] = m_systemPrompt.trimmed();
+    } else {
+        cfg[QStringLiteral("system_prompt")] = QJsonValue::Null;
+    }
     cfg[QStringLiteral("timeout_secs")]      = m_timeoutSecs;
     cfg[QStringLiteral("allow_self_signed")] = m_allowSelfSigned;
     cfg[QStringLiteral("auto_allow_read")]   = m_autoAllowRead;
@@ -348,7 +353,8 @@ void AgentBridge::configure(QString provider, QString url, QString model,
                             QString key, int timeout,
                             bool auto_read, bool auto_create,
                             bool require_edit, bool allow_self_signed,
-                            bool allow_fetch)
+                            bool allow_fetch,
+                            QString system_prompt)
 {
     m_providerType       = provider;
     m_endpointUrl        = url;
@@ -360,12 +366,24 @@ void AgentBridge::configure(QString provider, QString url, QString model,
     m_requireConfirmEdit = require_edit;
     m_allowSelfSigned    = allow_self_signed;
     m_allowFetchUrl      = allow_fetch;
+    m_systemPrompt       = system_prompt;
 
     if (m_session) {
         notes_core_agent_configure(m_session.get(), qstrToFFI(buildConfigJson()));
     }
 
     emit config_changed();
+}
+
+/* ================================================================== */
+/* Q_INVOKABLE: defaultSystemPrompt                                   */
+/* ================================================================== */
+
+QString AgentBridge::defaultSystemPrompt() const
+{
+    char *c_str = notes_core_const_default_system_prompt();
+    QString res = ffiStringToQString(c_str);
+    return res;
 }
 
 /* ================================================================== */

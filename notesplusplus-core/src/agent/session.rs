@@ -10,8 +10,8 @@ use crate::agent::permissions::{PendingConfirmation, PermissionDecision, Permiss
 use crate::agent::prompt::{build_system_prompt_layered, EnvironmentContext};
 use crate::agent::tools::{
     ToolCall, TOOL_APPEND_TO_NOTE, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_EDIT_SECTION,
-    TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_NOTES, TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT,
-    TOOL_SEARCH_NOTES,
+    TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_GROUPS, TOOL_LIST_NOTES, TOOL_MOVE_NOTE,
+    TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT, TOOL_SEARCH_NOTES,
 };
 use crate::error::NotesError;
 use crate::page;
@@ -143,6 +143,9 @@ impl AgentSession {
     ) {
         let custom_sys = self.client.lock().unwrap_or_else(|e| e.into_inner()).config().system_prompt.clone();
         let total_notes = self.repository.list_pages().ok().map(|l| l.len());
+        let groups_list = self.repository.list_groups(None, None).ok().map(|groups| {
+            groups.into_iter().map(|g| g.path).collect::<Vec<_>>()
+        });
         let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
 
         let (filename, content) = match active_note {
@@ -157,6 +160,7 @@ impl AgentSession {
             active_note_content: content,
             extra_context,
             total_notes_count: total_notes,
+            existing_groups: groups_list.as_deref(),
         };
 
         let sys_prompt = build_system_prompt_layered(
@@ -226,7 +230,14 @@ impl AgentSession {
         };
 
         if approved {
-            let result_str = self.apply_note_edit(&pending.filename, &pending.new_content, &pending.reason);
+            let result_str = if pending.tool_name == TOOL_MOVE_NOTE {
+                match self.repository.move_page(&pending.filename, &pending.new_content) {
+                    Ok(p) => format!("Successfully moved note '{}' to group '{}' (full path: '{}')", pending.filename, p.group_path, p.full_path()),
+                    Err(e) => format!("Error moving note '{}': {}", pending.filename, e),
+                }
+            } else {
+                self.apply_note_edit(&pending.filename, &pending.new_content, &pending.reason)
+            };
             let result_str = truncate_tool_output(result_str);
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             state.messages.push(ChatMessage::tool_result(
@@ -330,6 +341,15 @@ impl AgentSession {
                         }
                         TOOL_LIST_NOTES => {
                             on_status("reading", "Listing notes library...");
+                        }
+                        TOOL_LIST_GROUPS => {
+                            on_status("reading", "Listing note groups and categories...");
+                        }
+                        TOOL_MOVE_NOTE => {
+                            let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                            let g = args.get("target_group").and_then(|v| v.as_str()).unwrap_or("root");
+                            let g_label = if g.is_empty() { "root" } else { g };
+                            on_status("editing", &format!("Moving note '{}' to '{}'...", f, g_label));
                         }
                         TOOL_EDIT_NOTE => {
                             let f = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
@@ -506,6 +526,30 @@ impl AgentSession {
                         serde_json::to_string_pretty(&page_list).unwrap_or_else(|_| "[]".to_string())
                     }
                     Err(e) => format!("List error: {}", e),
+                }
+            }
+            TOOL_LIST_GROUPS => {
+                match self.repository.list_groups(None, None) {
+                    Ok(groups) => {
+                        let group_list: Vec<serde_json::Value> = groups.iter().map(|g| {
+                            json!({
+                                "path": g.path,
+                                "display_name": g.display_name,
+                                "note_count": g.note_count,
+                                "child_group_count": g.child_group_count,
+                            })
+                        }).collect();
+                        serde_json::to_string_pretty(&group_list).unwrap_or_else(|_| "[]".to_string())
+                    }
+                    Err(e) => format!("List groups error: {}", e),
+                }
+            }
+            TOOL_MOVE_NOTE => {
+                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let target_group = args.get("target_group").and_then(|v| v.as_str()).unwrap_or("");
+                match self.repository.move_page(filename, target_group) {
+                    Ok(p) => format!("Successfully moved note '{}' to group '{}' (full path: '{}')", filename, p.group_path, p.full_path()),
+                    Err(e) => format!("Error moving note '{}': {}", filename, e),
                 }
             }
             TOOL_CREATE_NOTE => {
@@ -1112,5 +1156,83 @@ mod tests {
         assert!(!statuses.is_empty());
         assert_eq!(statuses[0].0, "thinking");
         assert_eq!(statuses[0].1, "Thinking...");
+    }
+
+    #[test]
+    fn test_execute_list_groups_and_move_note_tool() {
+        let tmp = tempdir().unwrap();
+        let notes_dir = tmp.path().join("notes");
+        let backup_dir = tmp.path().join("backups");
+        fs::create_dir_all(&notes_dir).unwrap();
+
+        let session = make_session(&notes_dir, &backup_dir);
+
+        // Create a note in root and a note in Work
+        let create_call1 = ToolCall {
+            id: Some("c1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "create_note".to_string(),
+                arguments: json!({
+                    "title": "Meeting",
+                    "content": "= Meeting\nNotes here.",
+                    "group": "Work"
+                }),
+            },
+        };
+        session.execute_tool(&create_call1);
+
+        let create_call2 = ToolCall {
+            id: Some("c2".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "create_note".to_string(),
+                arguments: json!({
+                    "title": "Journal",
+                    "content": "= Journal\nMy thoughts."
+                }),
+            },
+        };
+        session.execute_tool(&create_call2);
+
+        // 1. Test list_groups
+        let list_groups_call = ToolCall {
+            id: Some("lg1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "list_groups".to_string(),
+                arguments: json!({}),
+            },
+        };
+        let groups_json = session.execute_tool(&list_groups_call);
+        assert!(groups_json.contains("\"path\": \"Work\""), "{}", groups_json);
+
+        // 2. Test move_note
+        let move_call = ToolCall {
+            id: Some("m1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "move_note".to_string(),
+                arguments: json!({
+                    "filename": "Journal",
+                    "target_group": "Personal/Daily",
+                    "reason": "Organize journal into Personal/Daily"
+                }),
+            },
+        };
+        let move_result = session.execute_tool(&move_call);
+        assert!(move_result.contains("Successfully moved note"), "{}", move_result);
+
+        // Verify moved note location
+        let read_call = ToolCall {
+            id: Some("r1".to_string()),
+            tool_type: "function".to_string(),
+            function: crate::agent::tools::FunctionCall {
+                name: "read_note".to_string(),
+                arguments: json!({ "filename": "Personal/Daily/Journal" }),
+            },
+        };
+        let content = session.execute_tool(&read_call);
+        assert!(content.contains("= Journal\nMy thoughts."));
     }
 }

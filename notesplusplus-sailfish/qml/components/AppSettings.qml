@@ -163,6 +163,12 @@ Item {
     }
 
     ConfigurationValue {
+        id: aiSystemPromptConf
+        key: "/apps/harbour-notesplus/ai_system_prompt"
+        defaultValue: ""
+    }
+
+    ConfigurationValue {
         id: sttEnabledConf
         key: "/apps/harbour-notesplus/stt_enabled"
         defaultValue: true
@@ -202,6 +208,7 @@ Item {
     property bool aiAllowFetchUrl: aiAllowFetchUrlConf.value !== undefined ? aiAllowFetchUrlConf.value : true
     property bool aiAllowSelfSigned: aiAllowSelfSignedConf.value !== undefined ? aiAllowSelfSignedConf.value : false
     property string customAiInstructionsRaw: customAiInstructionsConf.value !== undefined ? customAiInstructionsConf.value : ""
+    property string aiSystemPrompt: aiSystemPromptConf.value !== undefined ? aiSystemPromptConf.value : ""
 
     property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
     property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""
@@ -234,6 +241,7 @@ Item {
     function setAiAllowFetchUrl(v) { aiAllowFetchUrlConf.value = v; }
     function setAiAllowSelfSigned(v) { aiAllowSelfSignedConf.value = v; }
     function setCustomAiInstructionsRaw(v) { customAiInstructionsConf.value = v; }
+    function setAiSystemPrompt(v) { aiSystemPromptConf.value = v; }
 
     function setSttEnabled(v) { sttEnabledConf.value = v; }
     function setSttModel(v) { sttModelConf.value = v; }

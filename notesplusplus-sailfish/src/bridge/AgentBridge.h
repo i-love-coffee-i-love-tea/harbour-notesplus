@@ -42,6 +42,7 @@ class AgentBridge : public QObject
     Q_PROPERTY(QString provider_type       READ providerType      NOTIFY config_changed)
     Q_PROPERTY(QString endpoint_url        READ endpointUrl       NOTIFY config_changed)
     Q_PROPERTY(QString model_name          READ modelName         NOTIFY config_changed)
+    Q_PROPERTY(QString system_prompt       READ systemPrompt      NOTIFY config_changed)
     Q_PROPERTY(int     timeout_secs        READ timeoutSecs       NOTIFY config_changed)
     Q_PROPERTY(bool    auto_allow_read     READ autoAllowRead     NOTIFY config_changed)
     Q_PROPERTY(bool    auto_allow_create   READ autoAllowCreate   NOTIFY config_changed)
@@ -80,6 +81,7 @@ public slots:
     QString providerType()      const { return m_providerType; }
     QString endpointUrl()       const { return m_endpointUrl; }
     QString modelName()         const { return m_modelName; }
+    QString systemPrompt()      const { return m_systemPrompt; }
     int     timeoutSecs()       const { return m_timeoutSecs; }
     bool    autoAllowRead()     const { return m_autoAllowRead; }
     bool    autoAllowCreate()   const { return m_autoAllowCreate; }
@@ -89,12 +91,15 @@ public slots:
     QString availableModels()   const { return m_availableModels; }
     bool    modelsLoading()     const { return m_modelsLoading; }
 
-    /* ---- Q_INVOKABLE methods (13) ---- */
+    /* ---- Q_INVOKABLE methods (14) ---- */
     Q_INVOKABLE void configure(QString provider, QString url, QString model,
                                QString key, int timeout,
                                bool auto_read, bool auto_create,
                                bool require_edit, bool allow_self_signed,
-                               bool allow_fetch);
+                               bool allow_fetch,
+                               QString system_prompt = QString());
+
+    Q_INVOKABLE QString defaultSystemPrompt() const;
 
     Q_INVOKABLE void reset_session(QString context_filename,
                                    QString context_content,
@@ -169,6 +174,7 @@ private:
     QString m_providerType;
     QString m_endpointUrl;
     QString m_modelName;
+    QString m_systemPrompt;
     int     m_timeoutSecs       = 90;
     bool    m_autoAllowRead     = true;
     bool    m_autoAllowCreate   = true;

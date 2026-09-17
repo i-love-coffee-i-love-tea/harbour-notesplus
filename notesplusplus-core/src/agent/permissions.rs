@@ -6,8 +6,8 @@ use crate::agent::diff::{compute_line_diff, DiffSummary};
 use crate::agent::section_editor::{append_to_note, edit_section, insert_section, InsertPosition};
 use crate::agent::tools::{
     ToolCall, TOOL_APPEND_TO_NOTE, TOOL_CREATE_NOTE, TOOL_EDIT_NOTE, TOOL_EDIT_SECTION,
-    TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_NOTES, TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT,
-    TOOL_SEARCH_NOTES,
+    TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_GROUPS, TOOL_LIST_NOTES, TOOL_MOVE_NOTE,
+    TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT, TOOL_SEARCH_NOTES,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +73,7 @@ impl PermissionManager {
     ) -> PermissionDecision {
         let name = tool_call.function.name.as_str();
         match name {
-            TOOL_READ_NOTE | TOOL_LIST_NOTES | TOOL_SEARCH_NOTES | TOOL_RETRIEVE_CONTEXT => {
+            TOOL_READ_NOTE | TOOL_LIST_NOTES | TOOL_SEARCH_NOTES | TOOL_RETRIEVE_CONTEXT | TOOL_LIST_GROUPS => {
                 if self.config.auto_allow_read {
                     PermissionDecision::Allowed
                 } else {
@@ -85,6 +85,39 @@ impl PermissionManager {
                     PermissionDecision::Allowed
                 } else {
                     PermissionDecision::Denied("Web requests are currently disabled by user configuration.".to_string())
+                }
+            }
+            TOOL_MOVE_NOTE => {
+                let filename = tool_call.function.arguments.get("filename")
+                    .and_then(|v| v.as_str()).unwrap_or("unknown.adoc");
+                let target_group = tool_call.function.arguments.get("target_group")
+                    .and_then(|v| v.as_str()).unwrap_or("");
+                let reason = tool_call.function.arguments.get("reason")
+                    .and_then(|v| v.as_str())
+                    .map(|r| r.to_string())
+                    .unwrap_or_else(|| {
+                        if target_group.is_empty() {
+                            format!("Move note '{}' to root library", filename)
+                        } else {
+                            format!("Move note '{}' to group '{}'", filename, target_group)
+                        }
+                    });
+
+                if !self.config.require_confirm_edit {
+                    PermissionDecision::Allowed
+                } else {
+                    let target_desc = if target_group.is_empty() { "Root library".to_string() } else { format!("Group '{}'", target_group) };
+                    let diff = compute_line_diff("Location: Current", &format!("Location: {}", target_desc));
+                    let action_id = format!("act_move_{}", Utc::now().timestamp_millis());
+                    PermissionDecision::RequiresConfirmation(PendingConfirmation {
+                        action_id,
+                        tool_call_id: tool_call.id.clone(),
+                        tool_name: TOOL_MOVE_NOTE.to_string(),
+                        filename: filename.to_string(),
+                        reason,
+                        new_content: target_group.to_string(),
+                        diff,
+                    })
                 }
             }
             TOOL_CREATE_NOTE => {
@@ -433,5 +466,42 @@ mod tests {
             },
         };
         assert_eq!(pm.evaluate(&call, None), PermissionDecision::Allowed);
+    }
+
+    #[test]
+    fn test_auto_allow_list_groups_and_confirm_move_note() {
+        let pm = PermissionManager::new(PermissionConfig::default());
+        let list_groups_call = ToolCall {
+            id: None,
+            tool_type: "function".to_string(),
+            function: FunctionCall {
+                name: "list_groups".to_string(),
+                arguments: json!({}),
+            },
+        };
+        assert_eq!(pm.evaluate(&list_groups_call, None), PermissionDecision::Allowed);
+
+        let move_call = ToolCall {
+            id: None,
+            tool_type: "function".to_string(),
+            function: FunctionCall {
+                name: "move_note".to_string(),
+                arguments: json!({
+                    "filename": "meeting.adoc",
+                    "target_group": "Work/Projects",
+                    "reason": "Organize into Work/Projects"
+                }),
+            },
+        };
+        let decision = pm.evaluate(&move_call, None);
+        match decision {
+            PermissionDecision::RequiresConfirmation(pending) => {
+                assert_eq!(pending.tool_name, "move_note");
+                assert_eq!(pending.filename, "meeting.adoc");
+                assert_eq!(pending.new_content, "Work/Projects");
+                assert_eq!(pending.reason, "Organize into Work/Projects");
+            }
+            other => panic!("Expected RequiresConfirmation for move_note, got {:?}", other),
+        }
     }
 }

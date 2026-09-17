@@ -35,13 +35,68 @@ Page {
             spacing: Theme.paddingMedium
 
             PageHeader {
-                title: qsTr("AI Instructions")
+                title: qsTr("Action Templates")
+                description: qsTr("One-tap prompts & action buttons")
+            }
+
+            // Global System Prompt Card
+            BackgroundItem {
+                width: parent.width
+                height: globalPromptRow.height + Theme.paddingMedium * 2
+                onClicked: pageStack.push(Qt.resolvedUrl("SystemPromptPage.qml"))
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin
+                    anchors.topMargin: Theme.paddingSmall
+                    anchors.bottomMargin: Theme.paddingSmall
+                    color: Theme.rgba(Theme.highlightBackgroundColor, 0.15)
+                    radius: Theme.paddingSmall
+                    border.color: Theme.rgba(Theme.highlightColor, 0.3)
+                    border.width: 1
+
+                    Row {
+                        id: globalPromptRow
+                        anchors.centerIn: parent
+                        width: parent.width - Theme.paddingMedium * 2
+                        spacing: Theme.paddingSmall
+
+                        Icon {
+                            source: "image://theme/icon-m-developer-mode"
+                            color: Theme.highlightColor
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Column {
+                            width: parent.width - Theme.iconSizeMedium - Theme.paddingSmall
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+
+                            Label {
+                                width: parent.width
+                                text: qsTr("Base System Prompt & Persona")
+                                color: Theme.highlightColor
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.bold: true
+                            }
+
+                            Label {
+                                width: parent.width
+                                text: qsTr("View the base AsciiDoc prompt template or add custom rules for all chat turns")
+                                color: Theme.secondaryColor
+                                font.pixelSize: Theme.fontSizeExtraSmall - 2
+                                wrapMode: Text.Wrap
+                            }
+                        }
+                    }
+                }
             }
 
             Label {
                 width: parent.width - Theme.horizontalPageMargin * 2
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Customize prompt buttons displayed above the AI chat input. Each instruction can have its own button label, icon, and custom prompt.")
+                text: qsTr("Customize prompt buttons displayed in the AI chat composer. Tapping a template expands its text into the composer for review and editing.")
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryColor
                 wrapMode: Text.Wrap
@@ -49,12 +104,12 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("+ Add AI Instruction")
+                text: qsTr("+ Add Action Template")
                 onClicked: pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"))
             }
 
             SectionHeader {
-                text: qsTr("Configured Instructions (%1)").arg(listView.count)
+                text: qsTr("Configured Templates (%1)").arg(listView.count)
             }
         }
 

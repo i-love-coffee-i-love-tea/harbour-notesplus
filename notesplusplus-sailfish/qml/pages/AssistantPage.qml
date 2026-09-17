@@ -268,7 +268,8 @@ Page {
                 app.aiAutoAllowCreate !== undefined ? app.aiAutoAllowCreate : true,
                 app.aiRequireConfirmEdit !== undefined ? app.aiRequireConfirmEdit : true,
                 app.aiAllowSelfSigned !== undefined ? app.aiAllowSelfSigned : false,
-                app.aiAllowFetchUrl !== undefined ? app.aiAllowFetchUrl : true
+                app.aiAllowFetchUrl !== undefined ? app.aiAllowFetchUrl : true,
+                app.aiSystemPrompt || ""
             )
         }
     }
@@ -356,6 +357,11 @@ Page {
             MenuItem {
                 text: qsTr("Manage AI Instructions...")
                 onClicked: pageStack.push(Qt.resolvedUrl("CustomInstructionsPage.qml"))
+            }
+
+            MenuItem {
+                text: qsTr("System Prompt & Persona...")
+                onClicked: pageStack.push(Qt.resolvedUrl("SystemPromptPage.qml"))
             }
 
             MenuItem {

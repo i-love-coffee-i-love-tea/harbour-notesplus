@@ -12,6 +12,8 @@ pub const TOOL_READ_NOTE: &str = "read_note";
 pub const TOOL_LIST_NOTES: &str = "list_notes";
 pub const TOOL_SEARCH_NOTES: &str = "search_notes";
 pub const TOOL_RETRIEVE_CONTEXT: &str = "retrieve_context";
+pub const TOOL_LIST_GROUPS: &str = "list_groups";
+pub const TOOL_MOVE_NOTE: &str = "move_note";
 pub const TOOL_CREATE_NOTE: &str = "create_note";
 pub const TOOL_EDIT_NOTE: &str = "edit_note";
 pub const TOOL_EDIT_SECTION: &str = "edit_section";
@@ -124,8 +126,44 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             tool_type: "function".to_string(),
             function: FunctionDefinition {
+                name: TOOL_LIST_GROUPS.to_string(),
+                description: "List all existing note groups and folders with their path, display name, and note count.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {}
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
+                name: TOOL_MOVE_NOTE.to_string(),
+                description: "Move an existing note to a target group/folder (e.g. 'Work/Projects' or '' for root/top-level). Automatically creates the target group if needed and rewrites cross-references. Requires user confirmation.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "Filename or path of the note to move (e.g. 'meeting.adoc' or 'Work/meeting.adoc')"
+                        },
+                        "target_group": {
+                            "type": "string",
+                            "description": "Destination group path (e.g. 'Archive', 'Work/Projects', or '' for root library level)"
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "A concise explanation of why the note is being moved"
+                        }
+                    },
+                    "required": ["filename", "target_group"]
+                }),
+            },
+        },
+        ToolDefinition {
+            tool_type: "function".to_string(),
+            function: FunctionDefinition {
                 name: TOOL_CREATE_NOTE.to_string(),
-                description: "Create a new note with a title and AsciiDoc formatted content.".to_string(),
+                description: "Create a new note with a title and AsciiDoc formatted content in an optional group.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {
@@ -136,6 +174,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "content": {
                             "type": "string",
                             "description": "The complete AsciiDoc content for the new note"
+                        },
+                        "group": {
+                            "type": "string",
+                            "description": "Optional destination group/folder path (e.g. 'Work' or 'Projects/App'; empty for root)"
                         }
                     },
                     "required": ["title", "content"]
@@ -481,13 +523,15 @@ mod tests {
     #[test]
     fn test_tools_schema_validity() {
         let tools = get_available_tools();
-        assert_eq!(tools.len(), 10);
+        assert_eq!(tools.len(), 12);
 
         let names: Vec<String> = tools.iter().map(|t| t.function.name.clone()).collect();
         assert!(names.contains(&"read_note".to_string()));
         assert!(names.contains(&"list_notes".to_string()));
         assert!(names.contains(&"search_notes".to_string()));
         assert!(names.contains(&"retrieve_context".to_string()));
+        assert!(names.contains(&"list_groups".to_string()));
+        assert!(names.contains(&"move_note".to_string()));
         assert!(names.contains(&"create_note".to_string()));
         assert!(names.contains(&"edit_note".to_string()));
         assert!(names.contains(&"edit_section".to_string()));
@@ -498,6 +542,8 @@ mod tests {
         let serialized = serde_json::to_string(&tools).expect("Must serialize tools");
         assert!(serialized.contains("read_note"));
         assert!(serialized.contains("retrieve_context"));
+        assert!(serialized.contains("list_groups"));
+        assert!(serialized.contains("move_note"));
         assert!(serialized.contains("edit_section"));
         assert!(serialized.contains("append_to_note"));
         assert!(serialized.contains("insert_section"));

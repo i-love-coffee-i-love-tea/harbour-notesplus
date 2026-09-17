@@ -36,6 +36,7 @@ char* notes_core_const_db_filename(void);
 char* notes_core_const_journal_filename(void);
 char* notes_core_const_default_ai_endpoint(void);
 char* notes_core_const_default_ai_model(void);
+char* notes_core_const_default_system_prompt(void);
 uint16_t notes_core_const_default_server_port(void);
 
 /* ------------------------------------------------------------------ */
