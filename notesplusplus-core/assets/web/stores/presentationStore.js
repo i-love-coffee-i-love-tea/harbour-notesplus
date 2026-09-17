@@ -93,7 +93,8 @@ export const usePresentationStore = defineStore('presentation', () => {
       if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
       else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     }
-    uiStore.viewMode = previousViewMode.value || 'split';
+    const prev = previousViewMode.value;
+    uiStore.viewMode = (prev === 'inplace' || !prev) ? 'split' : prev;
     showSlideOverview.value = false;
   }
 

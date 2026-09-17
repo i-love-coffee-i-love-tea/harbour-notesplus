@@ -1530,3 +1530,46 @@ fn test_tree_api_and_adr_path_fetching() {
 
     server_handle.stop();
 }
+
+#[test]
+fn test_contextual_navbar_and_blocks_mode_removal() {
+    use notesplusplus_core::server::web_assets::{
+        INDEX_HTML, STYLE_CSS, STORES_EDITOR_STORE_JS, STORES_LINK_STORE_JS, STORES_NOTES_JS,
+    };
+
+    // 1. Verify index.html contains contextual navbar bindings
+    assert!(INDEX_HTML.contains("v-if=\"viewMode === 'gallery'\""));
+    assert!(INDEX_HTML.contains("btn-new"));
+    assert!(INDEX_HTML.contains("btn-back-gallery"));
+    assert!(INDEX_HTML.contains("current-note-title"));
+    assert!(INDEX_HTML.contains("v-if=\"viewMode !== 'gallery'\""));
+    assert!(INDEX_HTML.contains("btn-save"));
+    assert!(INDEX_HTML.contains("export-dropdown"));
+
+    // 2. Verify Blocks (inplace) mode is removed from index.html
+    assert!(!INDEX_HTML.contains("switchToInPlaceMode"));
+    assert!(!INDEX_HTML.contains("inplace-container"));
+    assert!(!INDEX_HTML.contains("inplace-editor-card"));
+    assert!(!INDEX_HTML.contains("inPlaceBlocks"));
+
+    // 3. Verify editorStore.js has in-place logic removed while preserving core helpers
+    assert!(!STORES_EDITOR_STORE_JS.contains("inPlaceBlocks"));
+    assert!(!STORES_EDITOR_STORE_JS.contains("switchToInPlaceMode"));
+    assert!(!STORES_EDITOR_STORE_JS.contains("editBlock"));
+    assert!(STORES_EDITOR_STORE_JS.contains("insertPrefix"));
+    assert!(STORES_EDITOR_STORE_JS.contains("wrapSelection"));
+    assert!(STORES_EDITOR_STORE_JS.contains("insertTab"));
+    assert!(STORES_EDITOR_STORE_JS.contains("insertTableTemplate"));
+    assert!(STORES_EDITOR_STORE_JS.contains("handlePreviewClick"));
+
+    // 4. Verify linkStore.js and notes.js do not reference inplace
+    assert!(!STORES_LINK_STORE_JS.contains("inplace"));
+    assert!(!STORES_NOTES_JS.contains("inplace-rendered-card"));
+
+    // 5. Verify style.css contains contextual navigation styles and no inplace blocks
+    assert!(!STYLE_CSS.contains(".inplace-container"));
+    assert!(!STYLE_CSS.contains(".inplace-editor-card"));
+    assert!(STYLE_CSS.contains(".btn-back-gallery"));
+    assert!(STYLE_CSS.contains(".current-note-title"));
+    assert!(STYLE_CSS.contains(".btn-new"));
+}

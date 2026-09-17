@@ -262,7 +262,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   function setupInteractiveFeatures() {
-    const codeBlocks = document.querySelectorAll('.preview-pane pre, .full-preview-pane pre, .inplace-rendered-card pre, .mini-doc-preview pre');
+    const codeBlocks = document.querySelectorAll('.preview-pane pre, .full-preview-pane pre, .mini-doc-preview pre');
     codeBlocks.forEach(pre => {
       if (pre.querySelector('.copy-code-btn')) return;
       pre.style.position = 'relative';

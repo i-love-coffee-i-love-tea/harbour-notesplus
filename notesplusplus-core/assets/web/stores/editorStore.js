@@ -1,89 +1,8 @@
 import { defineStore } from 'pinia';
-import { ref, nextTick } from 'vue';
-import { apiJson } from './api.js';
-import { parseBlocksFromText } from '/composables/utils.js';
+import { nextTick } from 'vue';
 import { useNotesStore } from './notes.js';
-import { useUiStore } from './ui.js';
 
 export const useEditorStore = defineStore('editor', () => {
-  const inPlaceBlocks = ref([]);
-  const editingBlockIndex = ref(-1);
-  const activeBlockText = ref('');
-
-  // ─── In-Place Block Editor ───────────────────────────────
-  async function loadInPlaceBlocks(text) {
-    const notesStore = useNotesStore();
-    const content = text !== undefined ? text : notesStore.rawContent;
-    try {
-      const data = await apiJson('/api/blocks/parse', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
-      });
-      inPlaceBlocks.value = data.blocks || [];
-      nextTick(() => notesStore.setupInteractiveFeatures());
-      return;
-    } catch (e) { console.error('Failed to parse blocks from server:', e); }
-    const raw = parseBlocksFromText(content);
-    inPlaceBlocks.value = raw.map((r, i) => ({ index: i, raw: r, html: r }));
-  }
-
-  async function switchToInPlaceMode() {
-    const notesStore = useNotesStore();
-    const uiStore = useUiStore();
-    await loadInPlaceBlocks(notesStore.rawContent);
-    editingBlockIndex.value = -1;
-    uiStore.viewMode = 'inplace';
-  }
-
-  function editBlock(index) {
-    editingBlockIndex.value = index;
-    const b = inPlaceBlocks.value[index];
-    activeBlockText.value = (typeof b === 'object' && b?.raw !== undefined) ? b.raw : (b || '');
-    nextTick(() => { const el = document.querySelector('.inplace-editor-card textarea'); if (el) el.focus(); });
-  }
-
-  async function saveBlockEdit(index) {
-    const notesStore = useNotesStore();
-    if (index < 0 || index >= inPlaceBlocks.value.length) return;
-    if (typeof inPlaceBlocks.value[index] === 'object') {
-      inPlaceBlocks.value[index].raw = activeBlockText.value;
-      notesStore.rawContent = inPlaceBlocks.value.map(b => typeof b === 'object' ? b.raw : b).join('\n\n');
-    } else {
-      inPlaceBlocks.value[index] = activeBlockText.value;
-      notesStore.rawContent = inPlaceBlocks.value.join('\n\n');
-    }
-    editingBlockIndex.value = -1;
-    notesStore.saveCurrentNote();
-    await loadInPlaceBlocks(notesStore.rawContent);
-  }
-
-  function cancelBlockEdit() { editingBlockIndex.value = -1; activeBlockText.value = ''; }
-
-  async function insertBlockAfter(index) {
-    const notesStore = useNotesStore();
-    inPlaceBlocks.value.splice(index + 1, 0, { index: index + 1, raw: 'New paragraph content...', html: '<p>New paragraph content...</p>' });
-    notesStore.rawContent = inPlaceBlocks.value.map(b => typeof b === 'object' ? b.raw : b).join('\n\n');
-    notesStore.saveCurrentNote();
-    editBlock(index + 1);
-  }
-
-  async function deleteBlock(index) {
-    const notesStore = useNotesStore();
-    if (!confirm('Delete this block?')) return;
-    inPlaceBlocks.value.splice(index, 1);
-    notesStore.rawContent = inPlaceBlocks.value.map(b => typeof b === 'object' ? b.raw : b).join('\n\n');
-    notesStore.saveCurrentNote();
-    await loadInPlaceBlocks(notesStore.rawContent);
-  }
-
-  async function addBlockAtEnd() {
-    const notesStore = useNotesStore();
-    inPlaceBlocks.value.push({ index: inPlaceBlocks.value.length, raw: 'New paragraph content...', html: '<p>New paragraph content...</p>' });
-    notesStore.rawContent = inPlaceBlocks.value.map(b => typeof b === 'object' ? b.raw : b).join('\n\n');
-    notesStore.saveCurrentNote();
-    editBlock(inPlaceBlocks.value.length - 1);
-  }
-
   // ─── Toolbar Helpers ─────────────────────────────────────
   async function insertPrefix(prefix) {
     const notesStore = useNotesStore();
@@ -107,9 +26,6 @@ export const useEditorStore = defineStore('editor', () => {
     notesStore.onContentChange();
     nextTick(() => { el.focus(); el.setSelectionRange(s + before.length, e + before.length); });
   }
-
-  function insertInPlacePrefix(prefix) { activeBlockText.value = prefix + activeBlockText.value; }
-  function wrapInPlaceSelection(before, after) { activeBlockText.value = before + activeBlockText.value + after; }
 
   async function insertTab() {
     const notesStore = useNotesStore();
@@ -135,7 +51,7 @@ export const useEditorStore = defineStore('editor', () => {
     const notesStore = useNotesStore();
     const checkbox = e.target.closest('input[type="checkbox"]');
     if (checkbox) {
-      const all = Array.from(document.querySelectorAll('.preview-pane input[type="checkbox"], .full-preview-pane input[type="checkbox"], .inplace-container input[type="checkbox"]'));
+      const all = Array.from(document.querySelectorAll('.preview-pane input[type="checkbox"], .full-preview-pane input[type="checkbox"]'));
       const idx = all.indexOf(checkbox);
       if (idx >= 0) { e.preventDefault(); notesStore.toggleChecklistItem(idx, !checkbox.checked); }
       return;
@@ -154,10 +70,7 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   return {
-    inPlaceBlocks, editingBlockIndex, activeBlockText,
-    loadInPlaceBlocks, switchToInPlaceMode, editBlock, saveBlockEdit, cancelBlockEdit,
-    insertBlockAfter, deleteBlock, addBlockAtEnd,
-    insertPrefix, wrapSelection, insertInPlacePrefix, wrapInPlaceSelection,
+    insertPrefix, wrapSelection,
     insertTab, insertTableTemplate,
     handlePreviewClick,
   };

@@ -2,8 +2,6 @@ import { defineStore } from 'pinia';
 import { ref, computed, nextTick } from 'vue';
 import { isExternalUrlStr, computeFilenameFromQuery, buildLinkPreview } from '/composables/utils.js';
 import { useNotesStore } from './notes.js';
-import { useUiStore } from './ui.js';
-import { useEditorStore } from './editorStore.js';
 
 export const useLinkStore = defineStore('link', () => {
   const openLinkModal = ref(false);
@@ -12,7 +10,7 @@ export const useLinkStore = defineStore('link', () => {
   const selectedLinkTitle = ref('');
   const linkDisplayText = ref('');
   const linkFocusedIndex = ref(0);
-  const linkEditorContext = ref({ mode: 'split', start: 0, end: 0, blockIndex: null });
+  const linkEditorContext = ref({ start: 0, end: 0 });
   const linkSearchInputRef = ref(null);
   const linkPagesListRef = ref(null);
 
@@ -56,26 +54,14 @@ export const useLinkStore = defineStore('link', () => {
   // ─── Link Dialog ─────────────────────────────────────────
   async function openLinkDialog() {
     const notesStore = useNotesStore();
-    const uiStore = useUiStore();
-    const editorStore = useEditorStore();
     let initialText = '';
-    let ctx = { mode: 'split', start: 0, end: 0, blockIndex: null };
+    let ctx = { start: 0, end: 0 };
 
-    if (uiStore.viewMode === 'inplace' && editorStore.editingBlockIndex >= 0) {
-      ctx.mode = 'inplace'; ctx.blockIndex = editorStore.editingBlockIndex;
-      const blockEl = document.querySelector('.inplace-editor-card textarea');
-      if (blockEl) {
-        ctx.start = blockEl.selectionStart || 0; ctx.end = blockEl.selectionEnd || 0;
-        if (ctx.start !== ctx.end) initialText = (editorStore.activeBlockText || '').substring(ctx.start, ctx.end);
-      } else { ctx.start = (editorStore.activeBlockText || '').length; ctx.end = ctx.start; }
-    } else {
-      ctx.mode = 'split';
-      const el = notesStore.editorTextarea;
-      if (el) {
-        ctx.start = el.selectionStart || 0; ctx.end = el.selectionEnd || 0;
-        if (ctx.start !== ctx.end) initialText = (notesStore.rawContent || '').substring(ctx.start, ctx.end);
-      } else { ctx.start = (notesStore.rawContent || '').length; ctx.end = ctx.start; }
-    }
+    const el = notesStore.editorTextarea;
+    if (el) {
+      ctx.start = el.selectionStart || 0; ctx.end = el.selectionEnd || 0;
+      if (ctx.start !== ctx.end) initialText = (notesStore.rawContent || '').substring(ctx.start, ctx.end);
+    } else { ctx.start = (notesStore.rawContent || '').length; ctx.end = ctx.start; }
 
     linkEditorContext.value = ctx;
     linkDisplayText.value = initialText;
@@ -88,27 +74,16 @@ export const useLinkStore = defineStore('link', () => {
 
   async function confirmLinkInsert() {
     const notesStore = useNotesStore();
-    const editorStore = useEditorStore();
     const linkText = formattedLinkPreview.value;
     if (!linkText) return;
     const ctx = linkEditorContext.value;
 
-    if (ctx.mode === 'inplace') {
-      const s = ctx.start, e = ctx.end;
-      editorStore.activeBlockText = (editorStore.activeBlockText || '').slice(0, s) + linkText + (editorStore.activeBlockText || '').slice(e);
-      openLinkModal.value = false;
-      nextTick(() => {
-        const blockEl = document.querySelector('.inplace-editor-card textarea');
-        if (blockEl) { blockEl.focus(); blockEl.setSelectionRange(s + linkText.length, s + linkText.length); }
-      });
-    } else {
-      const el = notesStore.editorTextarea;
-      const s = ctx.start, e = ctx.end;
-      notesStore.rawContent = (notesStore.rawContent || '').slice(0, s) + linkText + (notesStore.rawContent || '').slice(e);
-      notesStore.onContentChange();
-      openLinkModal.value = false;
-      nextTick(() => { if (el) { el.focus(); el.setSelectionRange(s + linkText.length, s + linkText.length); } });
-    }
+    const el = notesStore.editorTextarea;
+    const s = ctx.start, e = ctx.end;
+    notesStore.rawContent = (notesStore.rawContent || '').slice(0, s) + linkText + (notesStore.rawContent || '').slice(e);
+    notesStore.onContentChange();
+    openLinkModal.value = false;
+    nextTick(() => { if (el) { el.focus(); el.setSelectionRange(s + linkText.length, s + linkText.length); } });
   }
 
   function selectLinkTarget(note) {

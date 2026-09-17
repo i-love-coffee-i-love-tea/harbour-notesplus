@@ -76,9 +76,21 @@
           <img src="/icon.png" class="brand-icon" alt="Notes Plus">
           <span class="brand-name">Notes Plus</span>
         </a>
+
+        <!-- New Note button: only visible in Gallery mode -->
+        <div class="nav-group" v-if="viewMode === 'gallery'">
+          <button type="button" @click="openNewNoteModal = true" class="btn-group-action btn-new" title="Create New Note">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span class="btn-label">New</span>
+          </button>
+        </div>
         
-        <div class="nav-group current-doc-info" v-if="viewMode !== 'gallery'">
-          <button type="button" @click="viewMode = 'gallery'" class="btn-group-action btn-back-gallery" title="Back to Note Cards Gallery">
+        <!-- Document navigation & Title: only visible in Note modes -->
+        <div class="current-doc-info" v-if="viewMode !== 'gallery'">
+          <button type="button" @click="viewMode = 'gallery'" class="btn-back-gallery" title="Back to Note Cards Gallery">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
@@ -86,42 +98,17 @@
           </button>
           <span class="current-note-title" :title="currentFilename">{{ currentNoteTitle || currentFilename }}</span>
         </div>
-
-        <button type="button" @click="openNewNoteModal = true" class="btn-group-action btn-new" title="Create New Note">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span class="btn-label">New</span>
-        </button>
       </div>
 
       <div class="nav-center">
-        <div class="nav-group view-mode-tabs">
-          <button type="button" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'" title="Cards / Gallery View">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="7" height="9" x="3" y="3" rx="1"></rect>
-              <rect width="7" height="5" x="14" y="3" rx="1"></rect>
-              <rect width="7" height="9" x="14" y="12" rx="1"></rect>
-              <rect width="7" height="5" x="3" y="16" rx="1"></rect>
-            </svg>
-            <span class="tab-label">Gallery</span>
-          </button>
+        <!-- Document View Mode Tabs: only visible in Note modes -->
+        <div class="nav-group view-mode-tabs" v-if="viewMode !== 'gallery'">
           <button type="button" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'" title="Side-by-side Editor & Preview">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <path d="M12 3v18"></path>
             </svg>
             <span class="tab-label">Split</span>
-          </button>
-          <button type="button" :class="{ active: viewMode === 'inplace' }" @click="switchToInPlaceMode" title="Block-by-Block In-Place Editing">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            <span class="tab-label">Blocks</span>
           </button>
           <button type="button" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'" title="Full Rendered Document Preview">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -144,8 +131,8 @@
       <div class="nav-right">
         <!-- Action buttons group -->
         <div class="nav-group nav-actions-group">
-          <!-- Save Document Action with Integrated Status Indicator -->
-          <button type="button" @click="saveCurrentNote" class="nav-group-item btn-group-action btn-save" :class="saveStatusClass" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : ('Save document (Ctrl+S) — ' + saveStatusText)">
+          <!-- Save Document Action with Integrated Status Indicator: only visible in Note modes -->
+          <button v-if="viewMode !== 'gallery'" type="button" @click="saveCurrentNote" class="nav-group-item btn-group-action btn-save" :class="saveStatusClass" :disabled="isSaving || !isPhoneReachable" :title="!isPhoneReachable ? 'Cannot save while phone is unreachable' : ('Save document (Ctrl+S) — ' + saveStatusText)">
             <span class="status-dot save-dot" :class="saveStatusClass"></span>
             <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -155,8 +142,8 @@
             <span class="btn-label">{{ isSaving ? 'Saving...' : 'Save' }}</span>
           </button>
 
-          <!-- Export Dropdown -->
-          <div class="nav-group-item export-dropdown">
+          <!-- Export Dropdown: only visible in Note modes -->
+          <div v-if="viewMode !== 'gallery'" class="nav-group-item export-dropdown">
             <button type="button" class="btn-group-action btn-export" @click="showExportMenu = !showExportMenu" title="Export document">
               <svg class="btn-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -350,70 +337,7 @@
         </section>
       </template>
 
-      <!-- MODE 2: In-Place Block Editor (Notes Plus style) -->
-      <template v-else-if="viewMode === 'inplace'">
-        <section class="inplace-container" @click="handlePreviewClick">
-          <div class="inplace-header">
-            <h3>Block Editor: <code>{{ currentFilename }}</code></h3>
-            <p class="subtitle">Click any block to edit in place. Changes sync directly with the AsciiDoc source.</p>
-          </div>
-
-          <div class="blocks-list">
-            <div 
-              v-for="(block, idx) in inPlaceBlocks" 
-              :key="idx" 
-              class="inplace-block-wrapper"
-              :class="{ 'is-editing': editingBlockIndex === idx }"
-            >
-              <!-- Block Rendered Mode -->
-              <div v-if="editingBlockIndex !== idx" class="inplace-rendered-card" @dblclick="editBlock(idx)">
-                <div class="block-actions">
-                  <button @click="editBlock(idx)" class="btn-block-edit" title="Edit this block">✏️ Edit</button>
-                  <button @click="insertBlockAfter(idx)" class="btn-block-add" title="Insert block below">➕</button>
-                  <button @click="deleteBlock(idx)" class="btn-block-del" title="Delete block">🗑️</button>
-                </div>
-                <div class="block-html notes-body" v-html="typeof block === 'object' ? block.html : block"></div>
-              </div>
-
-              <!-- Block Active Edit Mode -->
-              <div v-else class="inplace-editor-card">
-                <div class="inplace-toolbar">
-                  <div class="inplace-toolbar-left">
-                    <button @click="insertInPlacePrefix('= ')" title="Heading 1">H1</button>
-                    <button @click="insertInPlacePrefix('== ')" title="Heading 2">H2</button>
-                    <button @click="insertInPlacePrefix('=== ')" title="Heading 3">H3</button>
-                    <button @click="insertInPlacePrefix('* ')" title="Bullet">•</button>
-                    <button @click="insertInPlacePrefix('. ')" title="Numbered">1.</button>
-                    <button @click="insertInPlacePrefix('* [ ] ')" title="Task Checkbox">☑</button>
-                    <button @click="wrapInPlaceSelection('[NOTE]\n====\n', '\n====')" title="Admonition">Note</button>
-                    <button @click="wrapInPlaceSelection('[source,rust]\n----\n', '\n----')" title="Code">Code</button>
-                    <button @click="openLinkDialog" title="Insert Link / Cross reference (Ctrl+K)">Link</button>
-                  </div>
-                  <div class="inplace-toolbar-right">
-                    <button @click="saveBlockEdit(idx)" class="btn-block-save" title="Save block">✔ Done</button>
-                    <button @click="cancelBlockEdit" class="btn-block-cancel" title="Cancel edit">✖ Cancel</button>
-                  </div>
-                </div>
-                <textarea 
-                  :ref="'blockEditor_' + idx"
-                  v-model="activeBlockText" 
-                  @keydown.esc="cancelBlockEdit"
-                  @keydown.ctrl.enter="saveBlockEdit(idx)"
-                  placeholder="Block content..."
-                  rows="6"
-                ></textarea>
-              </div>
-            </div>
-
-            <!-- Add Block at Bottom -->
-            <div class="add-bottom-block">
-              <button @click="addBlockAtEnd" class="btn-add-block-large">➕ Add New Block</button>
-            </div>
-          </div>
-        </section>
-      </template>
-
-      <!-- MODE 3: Full Document Preview -->
+      <!-- MODE 2: Full Document Preview -->
       <template v-else-if="viewMode === 'preview'">
         <section class="full-preview-pane" @click="handlePreviewClick">
           <div class="preview-container">
@@ -422,7 +346,7 @@
         </section>
       </template>
 
-      <!-- MODE 4: Presentation Mode (Slides) -->
+      <!-- MODE 3: Presentation Mode (Slides) -->
       <template v-else-if="viewMode === 'present'">
         <section class="presentation-stage" :class="{ 'is-fullscreen': isPresentationFullscreen }" ref="presentationStageRef">
           <!-- Presentation Top Floating Controls Bar -->
