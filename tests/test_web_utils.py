@@ -222,3 +222,33 @@ def test_extractSlides_multiple_headings(engine):
 def test_extractSlides_page_break(engine):
     res = json.loads(engine.evaluate('JSON.stringify(extractSlides("Part 1\\n\\n<<<\\n\\nPart 2"))').toString())
     assert len(res) == 2
+
+
+# ── highlightSearchTerms ─────────────────────────────────────
+
+def test_highlightSearchTerms_empty(engine):
+    assert engine.evaluate('highlightSearchTerms("", "term")').toString() == ""
+    assert engine.evaluate('highlightSearchTerms(null, "term")').toString() == ""
+    assert engine.evaluate('highlightSearchTerms("<p>Hello</p>", "")').toString() == "<p>Hello</p>"
+    assert engine.evaluate('highlightSearchTerms("<p>Hello</p>", "   ")').toString() == "<p>Hello</p>"
+
+def test_highlightSearchTerms_basic(engine):
+    js = 'highlightSearchTerms("<p>Hello world</p>", "world")'
+    assert engine.evaluate(js).toString() == '<p>Hello <mark class="search-match">world</mark></p>'
+
+def test_highlightSearchTerms_case_insensitive(engine):
+    js = 'highlightSearchTerms("<p>HELLO WORLD</p>", "world")'
+    assert engine.evaluate(js).toString() == '<p>HELLO <mark class="search-match">WORLD</mark></p>'
+
+def test_highlightSearchTerms_skips_tags(engine):
+    js = 'highlightSearchTerms(\'<a href="https://example.com/world" title="world">world text</a>\', "world")'
+    assert engine.evaluate(js).toString() == '<a href="https://example.com/world" title="world"><mark class="search-match">world</mark> text</a>'
+
+def test_highlightSearchTerms_multi_term(engine):
+    js = 'highlightSearchTerms("<p>The quick brown fox jumps</p>", "quick fox")'
+    res = engine.evaluate(js).toString()
+    assert res == '<p>The <mark class="search-match">quick</mark> brown <mark class="search-match">fox</mark> jumps</p>'
+
+def test_highlightSearchTerms_regex_special_chars(engine):
+    js = 'highlightSearchTerms("<p>Price is $10.00 (tax included)</p>", "$10.00")'
+    assert engine.evaluate(js).toString() == '<p>Price is <mark class="search-match">$10.00</mark> (tax included)</p>'

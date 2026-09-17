@@ -582,6 +582,29 @@ fn test_gallery_view_and_rendered_cards_web_assets() {
     assert!(STYLE_CSS.contains(".card-footer"));
     assert!(STYLE_CSS.contains(".note-color-bar"));
     assert!(STYLE_CSS.contains(".note-id-label"));
+
+    // 4. Verify search UI enhancements
+    assert!(INDEX_HTML.contains("placeholder=\"Search notes by title or content...\""));
+    assert!(INDEX_HTML.contains("btn-clear-search"));
+    assert!(INDEX_HTML.contains("gallery-search-results"));
+    assert!(INDEX_HTML.contains("search-note-card"));
+    assert!(INDEX_HTML.contains("search-highlight-bar"));
+    assert!(INDEX_HTML.contains("clearDocumentHighlight"));
+
+    assert!(STORES_NOTES_JS.contains("searchResults"));
+    assert!(STORES_NOTES_JS.contains("isSearching"));
+    assert!(STORES_NOTES_JS.contains("activeSearchTerm"));
+    assert!(STORES_NOTES_JS.contains("performSearch"));
+    assert!(STORES_NOTES_JS.contains("clearSearch"));
+    assert!(STORES_NOTES_JS.contains("selectSearchResultNote"));
+    assert!(STORES_NOTES_JS.contains("clearDocumentHighlight"));
+
+    assert!(STYLE_CSS.contains(".btn-clear-search"));
+    assert!(STYLE_CSS.contains(".search-results-header"));
+    assert!(STYLE_CSS.contains(".search-note-card"));
+    assert!(STYLE_CSS.contains(".card-group-tag"));
+    assert!(STYLE_CSS.contains(".search-highlight-bar"));
+    assert!(STYLE_CSS.contains(".search-match"));
 }
 
 #[test]
@@ -1572,4 +1595,80 @@ fn test_contextual_navbar_and_blocks_mode_removal() {
     assert!(STYLE_CSS.contains(".btn-back-gallery"));
     assert!(STYLE_CSS.contains(".current-note-title"));
     assert!(STYLE_CSS.contains(".btn-new"));
+}
+
+#[test]
+fn test_api_search_content_and_payload() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_search.db");
+    let backup_dir = tmp.path().join("backups");
+    let docs_dir = notes_dir.join("Guides");
+    fs::create_dir_all(&docs_dir).unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19002, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    // Create notes with distinct content keywords
+    let note1_content = "= SQLite Full Text Indexing\n\nWe utilize SQLite FTS5 for lightning fast full-text searching across all pages.\n";
+    let note1_path = docs_dir.join("sqlite-fts5-guide.adoc");
+    fs::write(&note1_path, note1_content).unwrap();
+
+    let note2_content = "= Machine Learning Notebook\n\nDeep neural networks trained with stochastic gradient descent.\n";
+    let note2_path = notes_dir.join("ml-notes.adoc");
+    fs::write(&note2_path, note2_content).unwrap();
+
+    // Sync and index into SQLite & FTS5
+    server_handle.context().repository.sync_all().unwrap();
+
+    // Authenticate session
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // 1. Test searching content with ?q=
+    let search_res = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=lightning", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(search_res.status(), 200);
+    let items: serde_json::Value = search_res.into_json().unwrap();
+    let arr = items.as_array().expect("Expected JSON array");
+    assert_eq!(arr.len(), 1);
+    let item = &arr[0];
+    assert_eq!(item["title"], "SQLite Full Text Indexing");
+    assert_eq!(item["name"], "SQLite Full Text Indexing");
+    assert_eq!(item["filename"], "sqlite-fts5-guide.adoc");
+    assert_eq!(item["group_path"], "Guides");
+    assert_eq!(item["full_path"], "Guides/sqlite-fts5-guide.adoc");
+    assert!(item["color"].is_string());
+    assert!(item["id"].is_number());
+    assert!(item["created_at"].is_string());
+    assert!(item["updated_at"].is_string());
+    assert!(item["snippet"].as_str().unwrap().contains("<b>lightning</b>"));
+
+    // 2. Test searching content with ?search= (alias)
+    let search_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/search?search=neural", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(search_res2.status(), 200);
+    let items2: serde_json::Value = search_res2.into_json().unwrap();
+    let arr2 = items2.as_array().expect("Expected JSON array");
+    assert_eq!(arr2.len(), 1);
+    let item2 = &arr2[0];
+    assert_eq!(item2["title"], "Machine Learning Notebook");
+    assert_eq!(item2["group_path"], "");
+    assert_eq!(item2["full_path"], "ml-notes.adoc");
+    assert!(item2["snippet"].as_str().unwrap().contains("<b>neural</b>"));
+
+    // 3. Test searching nonexistent query returns empty array
+    let search_res3 = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=nonexistentterm12345", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(search_res3.status(), 200);
+    let items3: serde_json::Value = search_res3.into_json().unwrap();
+    assert_eq!(items3.as_array().unwrap().len(), 0);
+
+    server_handle.stop();
 }

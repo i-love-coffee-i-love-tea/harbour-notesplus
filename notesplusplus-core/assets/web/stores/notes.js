@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, nextTick, watch } from 'vue';
 import { apiFetch, apiJson, apiText } from './api.js';
-import { getRequestedNote } from '/composables/utils.js';
+import { getRequestedNote, highlightSearchTerms } from '/composables/utils.js';
 import { useUiStore } from './ui.js';
 
 export const useNotesStore = defineStore('notes', () => {
@@ -9,6 +9,10 @@ export const useNotesStore = defineStore('notes', () => {
   const notesList = ref([]);
   const groupTree = ref([]);
   const gallerySearchQuery = ref('');
+  const searchResults = ref([]);
+  const isSearching = ref(false);
+  const activeSearchTerm = ref('');
+  let searchTimer = null;
   const collapsedGroups = ref(new Set());
   const rawContent = ref('= Welcome to Notes Plus\n\nStart writing documentation in AsciiDoc.\n');
   const isSaving = ref(false);
@@ -42,11 +46,15 @@ export const useNotesStore = defineStore('notes', () => {
   async function updateRenderedHtml(text) {
     if (text === undefined || text === null) return;
     try {
-      renderedHtml.value = await apiText('/api/render', {
+      let html = await apiText('/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: text, full: false })
       });
+      if (activeSearchTerm.value) {
+        html = highlightSearchTerms(html, activeSearchTerm.value);
+      }
+      renderedHtml.value = html;
       nextTick(() => { setupInteractiveFeatures(); });
     } catch (e) {
       console.error('Render error:', e);
@@ -174,11 +182,74 @@ export const useNotesStore = defineStore('notes', () => {
 
   async function selectNote(filename, targetViewMode = 'split') {
     if (!filename) return;
+    if (!isSearchActive.value) {
+      activeSearchTerm.value = '';
+    }
     await loadNote(filename);
     const ui = useUiStore();
     if (ui.viewMode === 'gallery') {
       ui.viewMode = targetViewMode;
     }
+  }
+
+  async function selectSearchResultNote(page) {
+    if (!page) return;
+    activeSearchTerm.value = (gallerySearchQuery.value || '').trim();
+    const target = page.full_path || page.filename;
+    await selectNote(target);
+  }
+
+  const isSearchActive = computed(() => !!(gallerySearchQuery.value || '').trim());
+
+  async function performSearch(query) {
+    const q = (query !== undefined ? query : gallerySearchQuery.value || '').trim();
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    if (!q) {
+      searchResults.value = [];
+      isSearching.value = false;
+      return;
+    }
+
+    isSearching.value = true;
+    searchTimer = setTimeout(async () => {
+      try {
+        const results = await apiJson('/api/search?q=' + encodeURIComponent(q));
+        if ((gallerySearchQuery.value || '').trim() === q) {
+          searchResults.value = Array.isArray(results) ? results : [];
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+        if ((gallerySearchQuery.value || '').trim() === q) {
+          searchResults.value = [];
+        }
+      } finally {
+        if ((gallerySearchQuery.value || '').trim() === q) {
+          isSearching.value = false;
+        }
+      }
+    }, 250);
+  }
+
+  watch(gallerySearchQuery, (newVal) => {
+    performSearch(newVal);
+  });
+
+  function clearSearch() {
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+    gallerySearchQuery.value = '';
+    searchResults.value = [];
+    isSearching.value = false;
+  }
+
+  function clearDocumentHighlight() {
+    activeSearchTerm.value = '';
+    updateRenderedHtml(rawContent.value);
   }
 
   async function saveCurrentNote() {
@@ -281,13 +352,22 @@ export const useNotesStore = defineStore('notes', () => {
       };
       pre.appendChild(copyBtn);
     });
+
+    if (activeSearchTerm.value) {
+      const firstMatch = document.querySelector('.preview-pane mark.search-match, .full-preview-pane mark.search-match');
+      if (firstMatch) {
+        firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
   }
 
   return {
     currentFilename, notesList, groupTree, gallerySearchQuery, collapsedGroups,
+    searchResults, isSearching, activeSearchTerm, isSearchActive,
     rawContent, isSaving, saveStatusText, saveStatusClass,
     renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle,
     updateRenderedHtml, fetchNotesList, fetchGroupTree, toggleGroupCollapse, isGroupCollapsed,
+    performSearch, clearSearch, selectSearchResultNote, clearDocumentHighlight,
     loadNote, selectNote, onNoteSelect, saveCurrentNote, onContentChange,
     createNote, toggleChecklistItem, setupInteractiveFeatures,
   };

@@ -333,6 +333,10 @@
         </section>
 
         <section class="preview-pane" @click="handlePreviewClick">
+          <div v-if="activeSearchTerm" class="search-highlight-bar">
+            <span>Highlighting: <strong>{{ activeSearchTerm }}</strong></span>
+            <button type="button" @click="clearDocumentHighlight" class="btn-dismiss-highlight">Clear</button>
+          </div>
           <article class="notes-body" v-html="renderedHtml"></article>
         </section>
       </template>
@@ -341,6 +345,10 @@
       <template v-else-if="viewMode === 'preview'">
         <section class="full-preview-pane" @click="handlePreviewClick">
           <div class="preview-container">
+            <div v-if="activeSearchTerm" class="search-highlight-bar">
+              <span>Highlighting: <strong>{{ activeSearchTerm }}</strong></span>
+              <button type="button" @click="clearDocumentHighlight" class="btn-dismiss-highlight">Clear</button>
+            </div>
             <article class="notes-body" v-html="renderedHtml"></article>
           </div>
         </section>
@@ -466,87 +474,143 @@
                 <input 
                   type="search" 
                   v-model="gallerySearchQuery" 
-                  placeholder="Filter note cards..." 
+                  placeholder="Search notes by title or content..." 
                   class="gallery-search-input"
+                  @keydown.esc="clearSearch"
                 >
+                <button 
+                  v-if="gallerySearchQuery" 
+                  type="button" 
+                  @click="clearSearch" 
+                  class="btn-clear-search" 
+                  title="Clear search"
+                >✕</button>
               </div>
             </div>
           </div>
 
-          <!-- Empty state when no notes exist -->
-          <div v-if="filteredGroupTree.length === 0" class="gallery-empty-state">
-            <div class="empty-icon">📝</div>
-            <h3>No notes found</h3>
-            <p v-if="gallerySearchQuery">No documents matching "{{ gallerySearchQuery }}"</p>
-            <p v-else>Get started by creating your first AsciiDoc note.</p>
-            <button type="button" @click="openNewNoteModal = true" class="btn-create-note-empty">Create Note</button>
-          </div>
+          <!-- Default: Hierarchical Group Accordion List -->
+          <div v-if="!isSearchActive">
+            <!-- Empty state when no notes exist -->
+            <div v-if="filteredGroupTree.length === 0" class="gallery-empty-state">
+              <div class="empty-icon">📝</div>
+              <h3>No notes found</h3>
+              <p>Get started by creating your first AsciiDoc note.</p>
+              <button type="button" @click="openNewNoteModal = true" class="btn-create-note-empty">Create Note</button>
+            </div>
 
-          <!-- Group Sections List -->
-          <div v-else class="gallery-groups-list">
-            <div 
-              v-for="group in filteredGroupTree" 
-              :key="group.path !== undefined ? group.path : (group.full_display_name || group.name || 'root')"
-              class="note-group-section"
-              :class="{ 'is-collapsed': isGroupCollapsed(group.path) }"
-            >
-              <!-- Group Section Header with Collapse Toggle -->
-              <div class="group-section-header" @click="toggleGroupCollapse(group.path)">
-                <div class="group-header-left">
-                  <span class="group-chevron" :class="{ 'is-open': !isGroupCollapsed(group.path) }">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="9 18 15 12 9 6"></polyline>
-                    </svg>
-                  </span>
-                  <h3 class="group-section-title">{{ group.full_display_name || group.display_name || group.name || 'Notes' }}</h3>
-                  <span class="group-count-badge">{{ (group.pages && group.pages.length) || 0 }}</span>
+            <!-- Group Sections List -->
+            <div v-else class="gallery-groups-list">
+              <div 
+                v-for="group in filteredGroupTree" 
+                :key="group.path !== undefined ? group.path : (group.full_display_name || group.name || 'root')"
+                class="note-group-section"
+                :class="{ 'is-collapsed': isGroupCollapsed(group.path) }"
+              >
+                <!-- Group Section Header with Collapse Toggle -->
+                <div class="group-section-header" @click="toggleGroupCollapse(group.path)">
+                  <div class="group-header-left">
+                    <span class="group-chevron" :class="{ 'is-open': !isGroupCollapsed(group.path) }">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                      </svg>
+                    </span>
+                    <h3 class="group-section-title">{{ group.full_display_name || group.display_name || group.name || 'Notes' }}</h3>
+                    <span class="group-count-badge">{{ (group.pages && group.pages.length) || 0 }}</span>
+                  </div>
                 </div>
-              </div>
 
-              <!-- Rendered Note Cards Grid -->
-              <div v-if="!isGroupCollapsed(group.path)" class="notes-card-grid">
-                <div 
-                  v-for="page in group.pages" 
-                  :key="page.id || page.full_path || page.filename"
-                  class="note-card"
-                  @click="selectNote(page.full_path || page.filename)"
-                  :title="page.name || page.title"
-                >
-                  <!-- Card Scaled Miniature Rendered Preview Area -->
-                  <div class="card-preview-area">
-                    <div class="mini-doc-preview">
-                      <div class="mini-doc-content notes-body">
-                        <template v-if="page.preview_blocks && page.preview_blocks.length > 0">
-                          <div 
-                            v-for="(pb, pidx) in page.preview_blocks" 
-                            :key="pidx" 
-                            class="preview-block-item"
-                            v-html="pb.html || pb.text || pb.raw || ''"
-                          ></div>
-                        </template>
-                        <template v-else-if="page.snippet">
-                          <p class="preview-snippet-text">{{ page.snippet }}</p>
-                        </template>
-                        <div v-else class="empty-doc-placeholder">
-                          <span>Empty document</span>
+                <!-- Rendered Note Cards Grid -->
+                <div v-if="!isGroupCollapsed(group.path)" class="notes-card-grid">
+                  <div 
+                    v-for="page in group.pages" 
+                    :key="page.id || page.full_path || page.filename"
+                    class="note-card"
+                    @click="selectNote(page.full_path || page.filename)"
+                    :title="page.name || page.title"
+                  >
+                    <!-- Card Scaled Miniature Rendered Preview Area -->
+                    <div class="card-preview-area">
+                      <div class="mini-doc-preview">
+                        <div class="mini-doc-content notes-body">
+                          <template v-if="page.preview_blocks && page.preview_blocks.length > 0">
+                            <div 
+                              v-for="(pb, pidx) in page.preview_blocks" 
+                              :key="pidx" 
+                              class="preview-block-item"
+                              v-html="pb.html || pb.text || pb.raw || ''"
+                            ></div>
+                          </template>
+                          <template v-else-if="page.snippet">
+                            <p class="preview-snippet-text">{{ page.snippet }}</p>
+                          </template>
+                          <div v-else class="empty-doc-placeholder">
+                            <span>Empty document</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <!-- Card Bottom Footer with Accent Color Bar and ID -->
-                  <div class="card-footer">
-                    <div class="card-footer-left">
-                      <span 
-                        class="note-color-bar" 
-                        :style="{ backgroundColor: page.color || '#3498db' }"
-                        :title="'Color: ' + (page.color || '#3498db')"
-                      ></span>
-                      <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
+                    <!-- Card Bottom Footer with Accent Color Bar and ID -->
+                    <div class="card-footer">
+                      <div class="card-footer-left">
+                        <span 
+                          class="note-color-bar" 
+                          :style="{ backgroundColor: page.color || '#3498db' }"
+                          :title="'Color: ' + (page.color || '#3498db')"
+                        ></span>
+                        <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
+                      </div>
+                      <div class="card-footer-right">
+                        <span class="note-id-label">{{ page.id !== undefined && page.id !== null ? page.id : '' }}</span>
+                      </div>
                     </div>
-                    <div class="card-footer-right">
-                      <span class="note-id-label">{{ page.id !== undefined && page.id !== null ? page.id : '' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Search Active: Unified Ranked Results Grid -->
+          <div v-else class="gallery-search-results">
+            <div class="search-results-header">
+              <h3>Search Results ({{ searchResults.length }})</h3>
+              <span v-if="isSearching" class="search-spinner">Searching...</span>
+            </div>
+            
+            <div v-if="searchResults.length === 0 && !isSearching" class="gallery-empty-state">
+              <div class="empty-icon">🔍</div>
+              <h3>No notes found</h3>
+              <p>No documents matching "{{ gallerySearchQuery }}"</p>
+            </div>
+
+            <div v-else class="notes-card-grid search-card-grid">
+              <div 
+                v-for="page in searchResults" 
+                :key="page.id || page.full_path || page.filename" 
+                class="note-card search-note-card" 
+                @click="selectSearchResultNote(page)"
+                :title="page.name || page.title || page.filename"
+              >
+                <div class="card-preview-area">
+                  <div class="mini-doc-preview">
+                    <div class="mini-doc-content notes-body">
+                      <p v-if="page.snippet" class="preview-snippet-text" v-html="page.snippet"></p>
+                      <div v-else class="empty-doc-placeholder"><span>No preview available</span></div>
                     </div>
+                  </div>
+                </div>
+                <div class="card-footer">
+                  <div class="card-footer-left">
+                    <span 
+                      class="note-color-bar" 
+                      :style="{ backgroundColor: page.color || '#3498db' }"
+                      :title="'Color: ' + (page.color || '#3498db')"
+                    ></span>
+                    <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
+                  </div>
+                  <div class="card-footer-right">
+                    <span class="card-group-tag">{{ page.group_path || 'General' }}</span>
                   </div>
                 </div>
               </div>

@@ -267,6 +267,36 @@ export function parseBlocksFromText(text) {
   return blocks.length > 0 ? blocks : [text];
 }
 
+// Escape regular expression special characters
+export function escapeRegex(str) {
+  return (str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Highlight search terms safely in HTML content without modifying HTML tag attributes
+export function highlightSearchTerms(html, term) {
+  if (!term || !html || html.length === 0) return html || '';
+  const query = term.trim();
+  if (query.length === 0) return html;
+
+  const words = Array.from(new Set(query.split(/\s+/).filter(w => w.length > 0)));
+  if (words.length === 0) return html;
+
+  words.sort((a, b) => b.length - a.length);
+  const pattern = words.map(w => escapeRegex(w)).join('|');
+  const re = new RegExp('(' + pattern + ')', 'gi');
+  const parts = html.split(/(<[^>]+>)/);
+  let rebuilt = '';
+
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].charAt(0) === '<') {
+      rebuilt += parts[i];
+    } else {
+      rebuilt += parts[i].replace(re, '<mark class="search-match">$1</mark>');
+    }
+  }
+  return rebuilt;
+}
+
 // Format session remaining time as compact string (e.g. "1h 1m")
 export function formatSessionRemaining(seconds) {
   if (seconds <= 0) return 'Expired';

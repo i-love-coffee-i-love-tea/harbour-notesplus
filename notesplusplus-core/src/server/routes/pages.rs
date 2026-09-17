@@ -261,11 +261,12 @@ pub fn handle_search_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let q = req.query.as_deref().unwrap_or("");
-    let query_val = q
-        .split('&')
-        .find_map(|p| p.strip_prefix("q="))
-        .unwrap_or("");
+    let query_val = req.query.as_deref()
+        .and_then(|q| {
+            q.split('&').find_map(|p| p.strip_prefix("q=").or_else(|| p.strip_prefix("search=")))
+        })
+        .unwrap_or("")
+        .trim();
 
     match ctx.repository.search_pages(query_val) {
         Ok(results) => {
@@ -275,8 +276,15 @@ pub fn handle_search_api<W: Write>(
                     json!({
                         "id": r.page.id,
                         "title": r.page.title,
+                        "name": r.page.title,
                         "filename": r.page.filename,
+                        "group_path": r.page.group_path,
+                        "full_path": r.page.full_path(),
+                        "color": page::compute_note_color(&r.page.title),
                         "is_journal": r.page.is_journal,
+                        "created_at": r.page.created_at,
+                        "updated_at": r.page.updated_at,
+                        "block_count": r.page.block_count,
                         "snippet": r.snippet,
                     })
                 })
