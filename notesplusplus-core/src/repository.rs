@@ -97,12 +97,30 @@ impl NoteRepository for FsSqliteNoteRepository {
 
     fn read_note_content(&self, filename: &str) -> Result<String, NotesError> {
         let path = page::safe_note_path(&self.notes_dir, filename);
+        if path.is_file() {
+            return std::fs::read_to_string(&path).map_err(|e| NotesError::Msg(format!("Failed to read {}: {}", filename, e)));
+        }
+        if let Ok(Some(page)) = self.get_page(filename) {
+            let path = page::safe_note_path(&self.notes_dir, &page.full_path());
+            if path.is_file() {
+                return std::fs::read_to_string(&path).map_err(|e| NotesError::Msg(format!("Failed to read {}: {}", filename, e)));
+            }
+        }
         std::fs::read_to_string(&path).map_err(|e| NotesError::Msg(format!("Failed to read {}: {}", filename, e)))
     }
 
     fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        page::save_and_index_page(&conn, &self.notes_dir, filename, content)
+        let target_filename = if !filename.contains('/') {
+            if let Ok(Some(page)) = page::get_page(&conn, filename) {
+                page.full_path()
+            } else {
+                filename.to_string()
+            }
+        } else {
+            filename.to_string()
+        };
+        page::save_and_index_page(&conn, &self.notes_dir, &target_filename, content)
     }
 
     fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, NotesError> {
@@ -152,7 +170,16 @@ impl NoteRepository for FsSqliteNoteRepository {
 
     fn note_exists(&self, name_or_filename: &str) -> bool {
         let path = page::safe_note_path(&self.notes_dir, name_or_filename);
-        path.is_file()
+        if path.is_file() {
+            return true;
+        }
+        if let Ok(Some(page)) = self.get_page(name_or_filename) {
+            let path = page::safe_note_path(&self.notes_dir, &page.full_path());
+            if path.is_file() {
+                return true;
+            }
+        }
+        false
     }
 
     fn notes_dir(&self) -> &Path {

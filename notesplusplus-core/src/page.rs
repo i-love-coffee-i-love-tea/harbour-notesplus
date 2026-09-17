@@ -10,6 +10,21 @@ use crate::NotesError;
 use crate::db;
 use crate::xref::rewrite_xrefs;
 
+pub const NOTE_CARD_PALETTE: [&str; 12] = [
+    "#e67e22", "#3498db", "#2ecc71", "#9b59b6",
+    "#f1c40f", "#e74c3c", "#1abc9c", "#e84393",
+    "#00cec9", "#6c5ce7", "#fdcb6e", "#00b894",
+];
+
+/// Deterministically computes note card color from title matching QML's hash algorithm.
+pub fn compute_note_color(name: &str) -> &'static str {
+    let mut hash: u32 = 0;
+    for u in name.encode_utf16() {
+        hash = (hash.wrapping_mul(31).wrapping_add(u as u32)) & 0x7FFFFFFF;
+    }
+    NOTE_CARD_PALETTE[(hash as usize) % NOTE_CARD_PALETTE.len()]
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PageInfo {
     pub id: i64,
@@ -51,6 +66,8 @@ impl PageInfo {
             "group_path": self.group_path,
             "full_path": self.full_path(),
             "title": self.title,
+            "name": self.title,
+            "color": compute_note_color(&self.title),
             "is_journal": self.is_journal,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -336,11 +353,28 @@ pub fn get_page_preview_values_with_options(
                     map.insert("headings".into(), serde_json::Value::Array(headings_vec.clone()));
                 }
             }
-            if let (Some(theme), Some(opts)) = (qt_theme, qt_options) {
-                let html = crate::html::qt_html::render_qt_block(&block, idx, theme, opts);
-                if let serde_json::Value::Object(ref mut map) = json {
-                    map.insert("html".into(), serde_json::Value::String(html));
+
+            let plain_text = match &block {
+                crate::block::Block::Heading { spans, .. }
+                | crate::block::Block::Paragraph { spans, .. } => {
+                    spans.iter().map(|s| s.plain_text()).collect::<String>()
                 }
+                crate::block::Block::CodeBlock { lines, .. }
+                | crate::block::Block::LiteralBlock { lines, .. } => lines.join("\n"),
+                crate::block::Block::UnorderedListItem { raw, .. }
+                | crate::block::Block::OrderedListItem { raw, .. } => raw.clone(),
+                _ => block.raw_text().to_string(),
+            };
+
+            let block_html = if let (Some(theme), Some(opts)) = (qt_theme, qt_options) {
+                crate::html::qt_html::render_qt_block(&block, idx, theme, opts)
+            } else {
+                crate::html::blocks_to_html_body(&[block.clone()], Some(notes_dir))
+            };
+
+            if let serde_json::Value::Object(ref mut map) = json {
+                map.insert("text".into(), serde_json::Value::String(plain_text));
+                map.insert("html".into(), serde_json::Value::String(block_html));
             }
             result.push(json);
         }
@@ -1528,5 +1562,43 @@ mod tests {
 
         let result2 = repo.read_note_content("../../../etc/passwd");
         assert!(result2.is_err(), "traversal read must fail");
+    }
+
+    #[test]
+    fn test_compute_note_color_deterministic() {
+        assert_eq!(compute_note_color(""), NOTE_CARD_PALETTE[0]);
+        let c1 = compute_note_color("Project Architecture");
+        let c2 = compute_note_color("Project Architecture");
+        assert_eq!(c1, c2);
+        assert!(NOTE_CARD_PALETTE.contains(&c1));
+
+        // Test hash parity with JS 31-multiplier
+        let mut expected_hash: u32 = 0;
+        for u in "Meeting Notes".encode_utf16() {
+            expected_hash = (expected_hash.wrapping_mul(31).wrapping_add(u as u32)) & 0x7FFFFFFF;
+        }
+        let expected_color = NOTE_CARD_PALETTE[(expected_hash as usize) % NOTE_CARD_PALETTE.len()];
+        assert_eq!(compute_note_color("Meeting Notes"), expected_color);
+    }
+
+    #[test]
+    fn test_page_info_to_json_value_includes_color_and_name() {
+        let page = PageInfo {
+            id: 42,
+            filename: "demo.adoc".to_string(),
+            group_path: "Work".to_string(),
+            title: "Demo Title".to_string(),
+            is_journal: false,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-02T00:00:00Z".to_string(),
+            block_count: 5,
+        };
+
+        let json_val = page.to_json_value();
+        assert_eq!(json_val["id"], 42);
+        assert_eq!(json_val["title"], "Demo Title");
+        assert_eq!(json_val["name"], "Demo Title");
+        assert_eq!(json_val["color"], compute_note_color("Demo Title"));
+        assert_eq!(json_val["full_path"], "Work/demo.adoc");
     }
 }

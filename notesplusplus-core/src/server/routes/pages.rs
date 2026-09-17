@@ -38,10 +38,13 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                     .into_iter()
                     .map(|r| {
                         json!({
+                            "id": r.page.id,
                             "title": r.page.title,
+                            "name": r.page.title,
                             "filename": r.page.filename,
                             "group_path": r.page.group_path,
                             "full_path": r.page.full_path(),
+                            "color": page::compute_note_color(&r.page.title),
                             "snippet": r.snippet
                         })
                     })
@@ -53,10 +56,13 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                 .into_iter()
                 .map(|p| {
                     json!({
+                        "id": p.id,
                         "title": p.title,
+                        "name": p.title,
                         "filename": p.filename,
                         "group_path": p.group_path,
                         "full_path": p.full_path(),
+                        "color": page::compute_note_color(&p.title),
                         "snippet": ""
                     })
                 })
@@ -140,7 +146,19 @@ pub fn handle_page_detail_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let filename = sanitize_note_filename(filename);
+    let (group_path, file_name) = page::sanitize_note_path(filename);
+    let resolved_path = if group_path.is_empty() {
+        file_name
+    } else {
+        format!("{}/{}", group_path, file_name)
+    };
+    let filename = if ctx.repository.note_exists(&resolved_path) {
+        resolved_path
+    } else if let Ok(Some(p)) = ctx.repository.get_page(filename) {
+        p.full_path()
+    } else {
+        resolved_path
+    };
 
     match req.method.as_str() {
         "GET" => {
@@ -271,6 +289,51 @@ pub fn handle_search_api<W: Write>(
     }
 }
 
+pub fn handle_tree_api<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    if req.method.as_str() != "GET" {
+        send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin);
+        return;
+    }
+
+    let max_depth: i32 = req.query.as_deref()
+        .and_then(|q| q.split('&').find_map(|p| p.strip_prefix("depth=")))
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0);
+
+    let pages = match ctx.repository.list_pages() {
+        Ok(p) => p,
+        Err(e) => {
+            send_json_error(stream, 500, "Internal Server Error", &e.to_string(), cors_origin);
+            return;
+        }
+    };
+
+    let groups = match ctx.repository.list_groups(None, None) {
+        Ok(g) => g,
+        Err(e) => {
+            send_json_error(stream, 500, "Internal Server Error", &e.to_string(), cors_origin);
+            return;
+        }
+    };
+
+    let tree_json = crate::tree::build_group_tree(
+        &pages,
+        &groups,
+        max_depth,
+        Some(&ctx.notes_dir),
+        true,
+        None,
+        None,
+    );
+
+    send_response(stream, 200, "OK", MIME_JSON, tree_json.as_bytes(), cors_origin);
+}
+
 pub fn handle_notes_api<W: Write>(
     stream: &mut W,
     req: &ParsedHttpRequest,
@@ -282,15 +345,20 @@ pub fn handle_notes_api<W: Write>(
         match req.method.as_str() {
             "GET" => {
                 let q_param = req.query.as_deref().and_then(|q| {
-                    q.split('&').find_map(|p| p.strip_prefix("q="))
+                    q.split('&').find_map(|p| p.strip_prefix("q=").or_else(|| p.strip_prefix("search=")))
                 });
                 let q_trimmed = q_param.unwrap_or("").trim();
                 let json_items: Vec<serde_json::Value> = if !q_trimmed.is_empty() {
                     ctx.repository.search_pages(q_trimmed).map(|results| {
                         results.into_iter().map(|r| {
                             json!({
+                                "id": r.page.id,
                                 "title": r.page.title,
+                                "name": r.page.title,
                                 "filename": r.page.filename,
+                                "group_path": r.page.group_path,
+                                "full_path": r.page.full_path(),
+                                "color": page::compute_note_color(&r.page.title),
                                 "snippet": r.snippet
                             })
                         }).collect()
@@ -299,8 +367,13 @@ pub fn handle_notes_api<W: Write>(
                     ctx.repository.list_pages().map(|pages| {
                         pages.into_iter().map(|p| {
                             json!({
+                                "id": p.id,
                                 "title": p.title,
+                                "name": p.title,
                                 "filename": p.filename,
+                                "group_path": p.group_path,
+                                "full_path": p.full_path(),
+                                "color": page::compute_note_color(&p.title),
                                 "snippet": ""
                             })
                         }).collect()

@@ -2,10 +2,14 @@ import { defineStore } from 'pinia';
 import { ref, computed, nextTick, watch } from 'vue';
 import { apiFetch, apiJson, apiText } from './api.js';
 import { getRequestedNote } from '/composables/utils.js';
+import { useUiStore } from './ui.js';
 
 export const useNotesStore = defineStore('notes', () => {
   const currentFilename = ref(getRequestedNote() || 'welcome.adoc');
   const notesList = ref([]);
+  const groupTree = ref([]);
+  const gallerySearchQuery = ref('');
+  const collapsedGroups = ref(new Set());
   const rawContent = ref('= Welcome to Notes Plus\n\nStart writing documentation in AsciiDoc.\n');
   const isSaving = ref(false);
   const saveStatusText = ref('Saved');
@@ -14,6 +18,26 @@ export const useNotesStore = defineStore('notes', () => {
   let renderTimer = null;
 
   const editorTextarea = ref(null);
+
+  function flattenTreeNodes(nodes, parentPrefix = '') {
+    let result = [];
+    if (!Array.isArray(nodes)) return result;
+    for (const node of nodes) {
+      const displayName = node.display_name || node.name || (node.path ? node.path.split('/').pop() : 'Notes');
+      const fullDisplayName = parentPrefix ? `${parentPrefix} / ${displayName}` : displayName;
+      
+      result.push({
+        ...node,
+        display_name: displayName,
+        full_display_name: fullDisplayName,
+      });
+      
+      if (node.children && node.children.length > 0) {
+        result = result.concat(flattenTreeNodes(node.children, fullDisplayName));
+      }
+    }
+    return result;
+  }
 
   async function updateRenderedHtml(text) {
     if (text === undefined || text === null) return;
@@ -29,22 +53,95 @@ export const useNotesStore = defineStore('notes', () => {
     }
   }
 
+  async function fetchGroupTree() {
+    try {
+      const tree = await apiJson('/api/tree');
+      groupTree.value = Array.isArray(tree) ? tree : [];
+      if (Array.isArray(tree)) {
+        const flattened = flattenTreeNodes(tree);
+        const nextCollapsed = new Set(collapsedGroups.value);
+        flattened.forEach(g => {
+          if (g.collapsed && g.path !== undefined) {
+            nextCollapsed.add(g.path);
+          }
+        });
+        collapsedGroups.value = nextCollapsed;
+      }
+    } catch (err) {
+      console.error('Failed to fetch group tree:', err);
+    }
+  }
+
+  function toggleGroupCollapse(path) {
+    const nextSet = new Set(collapsedGroups.value);
+    if (nextSet.has(path)) {
+      nextSet.delete(path);
+    } else {
+      nextSet.add(path);
+    }
+    collapsedGroups.value = nextSet;
+  }
+
+  function isGroupCollapsed(path) {
+    return collapsedGroups.value.has(path);
+  }
+
+  const filteredGroupTree = computed(() => {
+    const q = (gallerySearchQuery.value || '').trim().toLowerCase();
+    const allGroups = flattenTreeNodes(groupTree.value);
+
+    return allGroups.map(group => {
+      const matchingPages = (group.pages || []).filter(p => {
+        if (!q) return true;
+        const title = (p.name || p.title || '').toLowerCase();
+        const filename = (p.filename || p.full_path || '').toLowerCase();
+        const snippet = (p.snippet || '').toLowerCase();
+        return title.includes(q) || filename.includes(q) || snippet.includes(q);
+      });
+      return {
+        ...group,
+        pages: matchingPages
+      };
+    }).filter(group => (group.pages && group.pages.length > 0) || (q && (group.full_display_name || group.display_name || '').toLowerCase().includes(q)));
+  });
+
+  const currentNoteTitle = computed(() => {
+    const fn = currentFilename.value;
+    if (!fn) return '';
+    const found = notesList.value.find(n => n.filename === fn || n.full_path === fn || fn.endsWith('/' + n.filename));
+    if (found) return found.title || found.name || found.filename;
+    const allGroups = flattenTreeNodes(groupTree.value);
+    for (const g of allGroups) {
+      const p = (g.pages || []).find(page => page.filename === fn || page.full_path === fn || fn.endsWith('/' + page.filename));
+      if (p) return p.name || p.title || p.filename;
+    }
+    return fn.split('/').pop().replace(/\.adoc$/, '').replace(/_/g, ' ');
+  });
+
   async function fetchNotesList() {
     try {
-      const list = await apiJson('/api/notes');
+      const [list] = await Promise.all([
+        apiJson('/api/notes'),
+        fetchGroupTree(),
+      ]);
       notesList.value = list;
       if (list.length > 0) {
         const requested = getRequestedNote();
         let target = null;
-        if (requested && list.find(n => n.filename === requested)) {
-          target = requested;
-        } else if (currentFilename.value && list.find(n => n.filename === currentFilename.value)) {
+        if (requested) {
+          const found = list.find(n => n.filename === requested || n.full_path === requested);
+          if (found) {
+            target = found.full_path || found.filename;
+          } else {
+            target = requested;
+          }
+        } else if (currentFilename.value && list.find(n => n.filename === currentFilename.value || n.full_path === currentFilename.value)) {
           target = currentFilename.value;
         } else {
-          target = list[0].filename;
+          target = list[0].full_path || list[0].filename;
         }
-        if (target && (target !== currentFilename.value || !rawContent.value || rawContent.value.startsWith('= Welcome to Notes Plus\n\nStart writing'))) {
-          await loadNote(target);
+        if (target) {
+          await loadNote(target, false);
         }
       }
     } catch (err) {
@@ -63,7 +160,7 @@ export const useNotesStore = defineStore('notes', () => {
     }
 
     try {
-      rawContent.value = await apiText(`/api/notes/${filename}`);
+      rawContent.value = await apiText(`/api/notes/${encodeURI(filename)}`);
       saveStatusText.value = 'Saved';
       saveStatusClass.value = 'saved';
     } catch (err) {
@@ -73,6 +170,15 @@ export const useNotesStore = defineStore('notes', () => {
 
   function onNoteSelect() {
     loadNote(currentFilename.value);
+  }
+
+  async function selectNote(filename, targetViewMode = 'split') {
+    if (!filename) return;
+    await loadNote(filename);
+    const ui = useUiStore();
+    if (ui.viewMode === 'gallery') {
+      ui.viewMode = targetViewMode;
+    }
   }
 
   async function saveCurrentNote() {
@@ -128,6 +234,10 @@ export const useNotesStore = defineStore('notes', () => {
       });
       await fetchNotesList();
       loadNote(data.filename);
+      const ui = useUiStore();
+      if (ui.viewMode === 'gallery') {
+        ui.viewMode = 'split';
+      }
       return true;
     } catch (err) {
       alert('Failed to create note: ' + err.message);
@@ -152,7 +262,7 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   function setupInteractiveFeatures() {
-    const codeBlocks = document.querySelectorAll('.preview-pane pre, .full-preview-pane pre, .inplace-rendered-card pre');
+    const codeBlocks = document.querySelectorAll('.preview-pane pre, .full-preview-pane pre, .inplace-rendered-card pre, .mini-doc-preview pre');
     codeBlocks.forEach(pre => {
       if (pre.querySelector('.copy-code-btn')) return;
       pre.style.position = 'relative';
@@ -174,11 +284,11 @@ export const useNotesStore = defineStore('notes', () => {
   }
 
   return {
-    currentFilename, notesList, rawContent,
-    isSaving, saveStatusText, saveStatusClass,
-    renderedHtml, editorTextarea,
-    updateRenderedHtml, fetchNotesList, loadNote,
-    onNoteSelect, saveCurrentNote, onContentChange,
+    currentFilename, notesList, groupTree, gallerySearchQuery, collapsedGroups,
+    rawContent, isSaving, saveStatusText, saveStatusClass,
+    renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle,
+    updateRenderedHtml, fetchNotesList, fetchGroupTree, toggleGroupCollapse, isGroupCollapsed,
+    loadNote, selectNote, onNoteSelect, saveCurrentNote, onContentChange,
     createNote, toggleChecklistItem, setupInteractiveFeatures,
   };
 });

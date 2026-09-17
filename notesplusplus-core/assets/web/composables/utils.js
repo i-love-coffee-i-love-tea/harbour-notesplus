@@ -127,47 +127,65 @@ export function getRequestedNote() {
 
 // SSE stream consumer for AI chat responses
 export async function consumeSseStream(response, onToken, onPayload) {
+  if (!response || !response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed === 'data: [DONE]') continue;
+      let streamFinished = false;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed === 'data: [DONE]' || trimmed === 'data:[DONE]') {
+          streamFinished = true;
+          break;
+        }
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.slice(6).trim();
+          if (dataStr === '[DONE]' || dataStr === '[done]') {
+            streamFinished = true;
+            break;
+          }
+          try {
+            const payload = JSON.parse(dataStr);
+            if (payload.type === 'token' && typeof payload.text === 'string') onToken(payload.text);
+            if (onPayload) await onPayload(payload);
+          } catch (e) {
+            console.warn('Error parsing SSE payload JSON:', dataStr, e);
+          }
+        }
+      }
+      if (streamFinished) {
+        break;
+      }
+    }
+
+    if (buffer && buffer.trim()) {
+      const trimmed = buffer.trim();
       if (trimmed.startsWith('data: ')) {
         const dataStr = trimmed.slice(6).trim();
-        if (dataStr === '[DONE]') continue;
-        try {
-          const payload = JSON.parse(dataStr);
-          if (payload.type === 'token' && typeof payload.text === 'string') onToken(payload.text);
-          if (onPayload) await onPayload(payload);
-        } catch (e) {
-          console.warn('Error parsing SSE payload JSON:', dataStr, e);
+        if (dataStr && dataStr !== '[DONE]' && dataStr !== '[done]') {
+          try {
+            const payload = JSON.parse(dataStr);
+            if (payload.type === 'token' && typeof payload.text === 'string') onToken(payload.text);
+            if (onPayload) await onPayload(payload);
+          } catch (_) {}
         }
       }
     }
-  }
-
-  if (buffer && buffer.trim()) {
-    const trimmed = buffer.trim();
-    if (trimmed.startsWith('data: ')) {
-      const dataStr = trimmed.slice(6).trim();
-      if (dataStr && dataStr !== '[DONE]') {
-        try {
-          const payload = JSON.parse(dataStr);
-          if (payload.type === 'token' && typeof payload.text === 'string') onToken(payload.text);
-          if (onPayload) await onPayload(payload);
-        } catch (_) {}
-      }
-    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch (_) {}
   }
 }
 

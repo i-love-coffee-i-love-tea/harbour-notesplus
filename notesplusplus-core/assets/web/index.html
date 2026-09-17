@@ -72,29 +72,41 @@
     <!-- Top Navigation Bar -->
     <header class="navbar">
       <div class="nav-left">
-        <a href="/" class="brand" title="Notes Plus">
+        <a href="/" class="brand" @click.prevent="viewMode = 'gallery'" title="Notes Plus">
           <img src="/icon.png" class="brand-icon" alt="Notes Plus">
           <span class="brand-name">Notes Plus</span>
         </a>
         
-        <div class="nav-group doc-group">
-          <select v-model="currentFilename" @change="onNoteSelect" class="doc-select" title="Select document">
-            <option v-for="n in notesList" :key="n.filename" :value="n.filename">
-              {{ n.title }} ({{ n.filename }})
-            </option>
-          </select>
-          <button type="button" @click="openNewNoteModal = true" class="btn-group-action btn-new" title="Create New Note">
+        <div class="nav-group current-doc-info" v-if="viewMode !== 'gallery'">
+          <button type="button" @click="viewMode = 'gallery'" class="btn-group-action btn-back-gallery" title="Back to Note Cards Gallery">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
-            <span class="btn-label">New</span>
+            <span class="btn-label">Gallery</span>
           </button>
+          <span class="current-note-title" :title="currentFilename">{{ currentNoteTitle || currentFilename }}</span>
         </div>
+
+        <button type="button" @click="openNewNoteModal = true" class="btn-group-action btn-new" title="Create New Note">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span class="btn-label">New</span>
+        </button>
       </div>
 
       <div class="nav-center">
         <div class="nav-group view-mode-tabs">
+          <button type="button" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'" title="Cards / Gallery View">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="7" height="9" x="3" y="3" rx="1"></rect>
+              <rect width="7" height="5" x="14" y="3" rx="1"></rect>
+              <rect width="7" height="9" x="14" y="12" rx="1"></rect>
+              <rect width="7" height="5" x="3" y="16" rx="1"></rect>
+            </svg>
+            <span class="tab-label">Gallery</span>
+          </button>
           <button type="button" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'" title="Side-by-side Editor & Preview">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -509,6 +521,112 @@
           <!-- Bottom Presentation Progress Bar -->
           <div class="presentation-progress-track">
             <div class="presentation-progress-bar" :style="{ width: ((currentSlideIndex + 1) / (slides.length || 1) * 100) + '%' }"></div>
+          </div>
+        </section>
+      </template>
+
+      <!-- MODE 5: Cards / Gallery View (Sailfish OS Parity) -->
+      <template v-else-if="viewMode === 'gallery'">
+        <section class="gallery-container">
+          <div class="gallery-header">
+            <div class="gallery-title-area">
+              <h2>Note Cards Gallery</h2>
+              <span class="gallery-subtitle">Rendered card previews with deterministic note colors and IDs</span>
+            </div>
+            <div class="gallery-search-area">
+              <div class="gallery-search-box">
+                <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input 
+                  type="search" 
+                  v-model="gallerySearchQuery" 
+                  placeholder="Filter note cards..." 
+                  class="gallery-search-input"
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Empty state when no notes exist -->
+          <div v-if="filteredGroupTree.length === 0" class="gallery-empty-state">
+            <div class="empty-icon">📝</div>
+            <h3>No notes found</h3>
+            <p v-if="gallerySearchQuery">No documents matching "{{ gallerySearchQuery }}"</p>
+            <p v-else>Get started by creating your first AsciiDoc note.</p>
+            <button type="button" @click="openNewNoteModal = true" class="btn-create-note-empty">Create Note</button>
+          </div>
+
+          <!-- Group Sections List -->
+          <div v-else class="gallery-groups-list">
+            <div 
+              v-for="group in filteredGroupTree" 
+              :key="group.path !== undefined ? group.path : (group.full_display_name || group.name || 'root')"
+              class="note-group-section"
+              :class="{ 'is-collapsed': isGroupCollapsed(group.path) }"
+            >
+              <!-- Group Section Header with Collapse Toggle -->
+              <div class="group-section-header" @click="toggleGroupCollapse(group.path)">
+                <div class="group-header-left">
+                  <span class="group-chevron" :class="{ 'is-open': !isGroupCollapsed(group.path) }">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                  </span>
+                  <h3 class="group-section-title">{{ group.full_display_name || group.display_name || group.name || 'Notes' }}</h3>
+                  <span class="group-count-badge">{{ (group.pages && group.pages.length) || 0 }}</span>
+                </div>
+              </div>
+
+              <!-- Rendered Note Cards Grid -->
+              <div v-if="!isGroupCollapsed(group.path)" class="notes-card-grid">
+                <div 
+                  v-for="page in group.pages" 
+                  :key="page.id || page.full_path || page.filename"
+                  class="note-card"
+                  @click="selectNote(page.full_path || page.filename)"
+                  :title="page.name || page.title"
+                >
+                  <!-- Card Scaled Miniature Rendered Preview Area -->
+                  <div class="card-preview-area">
+                    <div class="mini-doc-preview">
+                      <div class="mini-doc-content notes-body">
+                        <template v-if="page.preview_blocks && page.preview_blocks.length > 0">
+                          <div 
+                            v-for="(pb, pidx) in page.preview_blocks" 
+                            :key="pidx" 
+                            class="preview-block-item"
+                            v-html="pb.html || pb.text || pb.raw || ''"
+                          ></div>
+                        </template>
+                        <template v-else-if="page.snippet">
+                          <p class="preview-snippet-text">{{ page.snippet }}</p>
+                        </template>
+                        <div v-else class="empty-doc-placeholder">
+                          <span>Empty document</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Card Bottom Footer with Accent Color Bar and ID -->
+                  <div class="card-footer">
+                    <div class="card-footer-left">
+                      <span 
+                        class="note-color-bar" 
+                        :style="{ backgroundColor: page.color || '#3498db' }"
+                        :title="'Color: ' + (page.color || '#3498db')"
+                      ></span>
+                      <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
+                    </div>
+                    <div class="card-footer-right">
+                      <span class="note-id-label">{{ page.id !== undefined && page.id !== null ? page.id : '' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </template>

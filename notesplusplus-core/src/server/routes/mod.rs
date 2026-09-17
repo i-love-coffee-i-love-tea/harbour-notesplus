@@ -159,6 +159,10 @@ fn dispatch_api(
         pages::handle_pages_api(writer, req, ctx, cors);
         return;
     }
+    if clean_path == API_ROUTE_TREE {
+        pages::handle_tree_api(writer, req, ctx, cors);
+        return;
+    }
     if clean_path.starts_with(API_ROUTE_PAGES_PREFIX) {
         let filename = &clean_path[API_ROUTE_PAGES_PREFIX.len()..];
         pages::handle_page_detail_api(writer, req, filename, ctx, cors);
@@ -262,6 +266,7 @@ mod tests {
     fn is_public_path_blocks_protected_routes() {
         assert!(!is_public_path("api/pages"));
         assert!(!is_public_path("api/pages/test.adoc"));
+        assert!(!is_public_path("api/tree"));
         assert!(!is_public_path("api/notes"));
         assert!(!is_public_path("api/agent/chat"));
         assert!(!is_public_path("api/search"));

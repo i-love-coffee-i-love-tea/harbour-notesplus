@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { slugify } from '/composables/utils.js';
 
 export const useUiStore = defineStore('ui', () => {
-  const viewMode = ref('split');
+  const viewMode = ref('gallery');
   const showExportMenu = ref(false);
   const showAccountMenu = ref(false);
   const openNewNoteModal = ref(false);

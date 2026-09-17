@@ -93,6 +93,25 @@ fn test_server_lifecycle_and_endpoints() {
     assert_eq!(res_notes.status(), 200);
     let notes_json: serde_json::Value = res_notes.into_json().unwrap();
     assert!(!notes_json.as_array().unwrap().is_empty());
+    assert!(notes_json[0].get("color").is_some());
+    assert!(notes_json[0].get("id").is_some());
+
+    // Test GET /api/tree
+    let res_tree = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res_tree.status(), 200);
+    let tree_json: serde_json::Value = res_tree.into_json().unwrap();
+    assert!(tree_json.is_array());
+    let tree_arr = tree_json.as_array().unwrap();
+    assert!(!tree_arr.is_empty());
+    let first_group = &tree_arr[0];
+    let pages = first_group["pages"].as_array().unwrap();
+    assert!(!pages.is_empty());
+    assert!(pages[0].get("color").is_some());
+    assert!(pages[0].get("preview_blocks").is_some());
+    assert!(pages[0].get("preview_blocks_json").is_some());
 
     // Test GET /api/notes/welcome.adoc
     let res_note = ureq::get(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
@@ -527,6 +546,42 @@ fn test_ai_model_selection_web_assets() {
 
     // 3. Verify style.css contains styling for the model select
     assert!(STYLE_CSS.contains(".ai-model-select"));
+}
+
+#[test]
+fn test_gallery_view_and_rendered_cards_web_assets() {
+    use notesplusplus_core::server::web_assets::{INDEX_HTML, STYLE_CSS, STORES_NOTES_JS};
+
+    // 1. Verify index.html contains Gallery view mode tab button, container, card grid, color pill, and note ID label
+    assert!(INDEX_HTML.contains("viewMode === 'gallery'"));
+    assert!(INDEX_HTML.contains("gallery-container"));
+    assert!(INDEX_HTML.contains("gallery-search-input"));
+    assert!(INDEX_HTML.contains("note-group-section"));
+    assert!(INDEX_HTML.contains("notes-card-grid"));
+    assert!(INDEX_HTML.contains("note-card"));
+    assert!(INDEX_HTML.contains("mini-doc-preview"));
+    assert!(INDEX_HTML.contains("note-color-bar"));
+    assert!(INDEX_HTML.contains("note-id-label"));
+    assert!(INDEX_HTML.contains("toggleGroupCollapse"));
+    assert!(INDEX_HTML.contains("selectNote"));
+
+    // 2. Verify notes store contains group tree state, fetching, collapse toggling, and card navigation
+    assert!(STORES_NOTES_JS.contains("groupTree"));
+    assert!(STORES_NOTES_JS.contains("fetchGroupTree"));
+    assert!(STORES_NOTES_JS.contains("toggleGroupCollapse"));
+    assert!(STORES_NOTES_JS.contains("isGroupCollapsed"));
+    assert!(STORES_NOTES_JS.contains("filteredGroupTree"));
+    assert!(STORES_NOTES_JS.contains("selectNote"));
+    assert!(STORES_NOTES_JS.contains("/api/tree"));
+
+    // 3. Verify style.css contains styling for gallery, grid, note-card, mini preview, and footer
+    assert!(STYLE_CSS.contains(".gallery-container"));
+    assert!(STYLE_CSS.contains(".notes-card-grid"));
+    assert!(STYLE_CSS.contains(".note-card"));
+    assert!(STYLE_CSS.contains(".mini-doc-preview"));
+    assert!(STYLE_CSS.contains(".card-footer"));
+    assert!(STYLE_CSS.contains(".note-color-bar"));
+    assert!(STYLE_CSS.contains(".note-id-label"));
 }
 
 #[test]
@@ -1386,6 +1441,92 @@ fn test_events_sse_endpoint() {
     assert!(body.contains("data:"));
     assert!(body.contains("connected"));
     assert!(body.contains("Notes Plus"));
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_tree_api_and_adr_path_fetching() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let adr_dir = notes_dir.join("Notes_Plus_Documentation").join("ADRs");
+    let db_path = tmp.path().join("test_adr_tree.db");
+    let backup_dir = tmp.path().join("backups");
+    let assets_dir = tmp.path().join("assets");
+    fs::create_dir_all(&adr_dir).unwrap();
+    fs::create_dir_all(&assets_dir).unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19001, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    // Create a note inside ADRs directory
+    let adr_note_content = "= ADR-001: Hybrid Core and GUI Architecture\n\n== Context\nThis document captures the architectural decisions.\n\n[source,rust]\n----\nfn init() {}\n----\n";
+    let adr_file_path = adr_dir.join("001-hybrid-core-and-gui-architecture.adoc");
+    fs::write(&adr_file_path, adr_note_content).unwrap();
+
+    // Sync and index
+    server_handle.context().repository.sync_all().unwrap();
+
+    // Create authenticated session
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // Test GET /api/tree returns structured preview blocks with rendered HTML
+    let tree_res = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(tree_res.status(), 200);
+    let tree_json: serde_json::Value = tree_res.into_json().unwrap();
+    assert!(tree_json.is_array());
+
+    // Traverse tree nodes to find the ADR note
+    fn find_page_in_tree<'a>(nodes: &'a [serde_json::Value], title_substr: &str) -> Option<&'a serde_json::Value> {
+        for n in nodes {
+            if let Some(pages) = n.get("pages").and_then(|p| p.as_array()) {
+                for page in pages {
+                    let title = page.get("name").or_else(|| page.get("title")).and_then(|t| t.as_str()).unwrap_or("");
+                    if title.contains(title_substr) {
+                        return Some(page);
+                    }
+                }
+            }
+            if let Some(children) = n.get("children").and_then(|c| c.as_array()) {
+                if let Some(found) = find_page_in_tree(children, title_substr) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    let adr_page = find_page_in_tree(tree_json.as_array().unwrap(), "Hybrid Core").expect("ADR note should be in tree");
+    assert_eq!(adr_page["name"], "ADR-001: Hybrid Core and GUI Architecture");
+    assert!(adr_page["color"].is_string());
+    assert!(adr_page["id"].is_number());
+    let preview_blocks = adr_page["preview_blocks"].as_array().expect("Preview blocks array");
+    assert!(!preview_blocks.is_empty(), "Preview blocks must have content");
+    assert!(preview_blocks[0]["html"].as_str().unwrap().contains("ADR-001"));
+    assert!(preview_blocks[0]["text"].as_str().unwrap().contains("ADR-001"));
+
+    // Test fetching ADR note via full path and filename
+    let full_path = "Notes_Plus_Documentation/ADRs/001-hybrid-core-and-gui-architecture.adoc";
+    let get_note_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/{}", port, full_path))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(get_note_res.status(), 200);
+    let raw_text = get_note_res.into_string().unwrap();
+    assert!(raw_text.contains("ADR-001: Hybrid Core"));
+
+    let get_page_res = ureq::get(&format!("http://127.0.0.1:{}/api/pages/{}", port, full_path))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(get_page_res.status(), 200);
+    let page_detail: serde_json::Value = get_page_res.into_json().unwrap();
+    assert_eq!(page_detail["title"], "ADR-001: Hybrid Core and GUI Architecture");
+    assert!(page_detail["html"].as_str().unwrap().contains("ADR-001"));
 
     server_handle.stop();
 }

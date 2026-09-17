@@ -37,6 +37,7 @@ pub const API_ROUTE_THEME: &str = "api/theme";
 pub const API_ROUTE_SEARCH: &str = "api/search";
 pub const API_ROUTE_EVENTS: &str = "api/events";
 pub const API_ROUTE_PAGES: &str = "api/pages";
+pub const API_ROUTE_TREE: &str = "api/tree";
 pub const API_ROUTE_NOTES: &str = "api/notes";
 pub const API_ROUTE_NOTES_PREFIX: &str = "api/notes/";
 pub const API_ROUTE_GROUPS: &str = "api/groups";

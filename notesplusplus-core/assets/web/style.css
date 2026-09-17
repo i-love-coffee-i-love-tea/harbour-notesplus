@@ -2553,3 +2553,424 @@ li > p {
   .presentation-slide-body.notes-body h2 { font-size: 1.4rem; }
   .pres-nav-zone { display: none; }
 }
+
+/* ==========================================================================
+   Gallery / Note Cards View Mode (Sailfish OS Parity)
+   ========================================================================== */
+
+.workspace.gallery {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: calc(100vh - 56px);
+  height: calc(100dvh - 56px);
+  background-color: var(--bg-main);
+}
+
+.gallery-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 48px 32px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
+.gallery-title-area h2 {
+  margin: 0 0 4px 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--heading-color);
+}
+
+.gallery-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.gallery-search-area {
+  display: flex;
+  align-items: center;
+}
+
+.gallery-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.gallery-search-box .search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.gallery-search-input {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 7px 14px 7px 32px;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  width: 240px;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.gallery-search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  width: 280px;
+}
+
+/* Empty State */
+.gallery-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background-color: var(--bg-card);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  margin-top: 20px;
+}
+
+.gallery-empty-state .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.gallery-empty-state h3 {
+  margin: 0 0 6px 0;
+  font-size: 1.2rem;
+  color: var(--text-main);
+}
+
+.gallery-empty-state p {
+  margin: 0 0 18px 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.btn-create-note-empty {
+  background-color: var(--primary);
+  color: #ffffff;
+  border: none;
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-create-note-empty:hover {
+  background-color: var(--primary-hover);
+}
+
+/* Group Sections */
+.gallery-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.note-group-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.group-section-header:hover {
+  background-color: rgba(125, 125, 125, 0.08);
+}
+
+.group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.group-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.group-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--heading-color);
+}
+
+.group-count-badge {
+  background-color: var(--border-color);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+}
+
+/* Note Cards Grid */
+.notes-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+  margin-top: 12px;
+  padding: 2px;
+}
+
+.note-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 250px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  position: relative;
+}
+
+.note-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary);
+}
+
+/* Card Preview Area */
+.card-preview-area {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background-color: var(--bg-pane);
+  padding: 10px 12px;
+  user-select: none;
+}
+
+.mini-doc-preview {
+  width: 180%;
+  height: 180%;
+  transform: scale(0.55);
+  transform-origin: 0 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.mini-doc-content.notes-body {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--text-main);
+}
+
+.mini-doc-content.notes-body h1,
+.mini-doc-content.notes-body h2,
+.mini-doc-content.notes-body h3,
+.mini-doc-content.notes-body h4 {
+  margin-top: 4px;
+  margin-bottom: 6px;
+  color: var(--heading-color);
+  font-weight: 700;
+}
+
+.mini-doc-content.notes-body h1 { font-size: 1.25rem; }
+.mini-doc-content.notes-body h2 { font-size: 1.1rem; }
+.mini-doc-content.notes-body h3 { font-size: 0.95rem; }
+
+.mini-doc-content.notes-body p {
+  margin: 0 0 6px 0;
+}
+
+.mini-doc-content.notes-body ul,
+.mini-doc-content.notes-body ol {
+  margin: 0 0 6px 0;
+  padding-left: 18px;
+}
+
+.mini-doc-content.notes-body pre {
+  margin: 4px 0 6px 0;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  max-height: 90px;
+  overflow: hidden;
+}
+
+.empty-doc-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-style: italic;
+}
+
+/* Card Footer */
+.card-footer {
+  height: 38px;
+  min-height: 38px;
+  background-color: var(--bg-card);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  gap: 8px;
+}
+
+.card-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.note-color-bar {
+  width: 7px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.note-card-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-footer-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.note-id-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background-color: var(--border-color);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.preview-snippet-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Current Document Header Badge & Gallery Return */
+.current-doc-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-back-gallery {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.btn-back-gallery:hover {
+  background-color: var(--border-color);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.current-note-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--heading-color);
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 3px 8px;
+  background-color: var(--bg-pane);
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+@media (max-width: 768px) {
+  .gallery-container {
+    padding: 16px 14px 36px 14px;
+  }
+  .gallery-header {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+  }
+  .gallery-search-input {
+    width: 100%;
+  }
+  .gallery-search-area {
+    width: 100%;
+  }
+  .gallery-search-box {
+    width: 100%;
+  }
+  .notes-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .note-card {
+    height: 200px;
+  }
+  .card-footer {
+    height: 34px;
+    min-height: 34px;
+    padding: 0 8px;
+  }
+  .note-card-title {
+    font-size: 0.78rem;
+  }
+}

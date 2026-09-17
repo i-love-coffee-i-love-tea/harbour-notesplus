@@ -262,6 +262,10 @@ fn build_node(
             serde_json::Value::String(p.full_path()),
         );
         p_map.insert(
+            "color".into(),
+            serde_json::Value::String(page::compute_note_color(&p.title).to_string()),
+        );
+        p_map.insert(
             "created_at".into(),
             serde_json::Value::String(p.created_at.clone()),
         );
@@ -275,18 +279,14 @@ fn build_node(
         );
 
         let preview_values = if let Some(dir) = notes_dir {
-            if !collapsed {
-                page::get_page_preview_values_with_options(
-                    dir,
-                    &p.full_path(),
-                    8,
-                    drop_comments,
-                    qt_theme,
-                    qt_options,
-                )
-            } else {
-                Vec::new()
-            }
+            page::get_page_preview_values_with_options(
+                dir,
+                &p.full_path(),
+                8,
+                drop_comments,
+                qt_theme,
+                qt_options,
+            )
         } else {
             Vec::new()
         };
@@ -692,5 +692,25 @@ mod tests {
         assert_eq!(pages_sorted[1]["name"], "ADR-004: Fourth");
         assert_eq!(pages_sorted[2]["name"], "ADR-006: Sixth");
         assert_eq!(pages_sorted[3]["name"], "ADR-010: Future");
+    }
+
+    #[test]
+    fn test_tree_page_metadata_includes_id_color_and_previews() {
+        let pages = vec![
+            make_page(42, "Design.adoc", "Projects", "Project Design"),
+        ];
+        let groups = vec![make_group("Projects", "Projects")];
+
+        let tree_json = build_group_tree(&pages, &groups, 5, None, true, None, None);
+        let parsed: serde_json::Value = serde_json::from_str(&tree_json).unwrap();
+        let pages_arr = parsed[0]["pages"].as_array().unwrap();
+        assert_eq!(pages_arr.len(), 1);
+
+        let page_obj = &pages_arr[0];
+        assert_eq!(page_obj["id"], 42);
+        assert_eq!(page_obj["name"], "Project Design");
+        assert_eq!(page_obj["color"], page::compute_note_color("Project Design"));
+        assert!(page_obj["preview_blocks"].is_array());
+        assert!(page_obj["preview_blocks_json"].is_string());
     }
 }

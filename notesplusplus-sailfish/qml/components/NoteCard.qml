@@ -115,7 +115,7 @@ GridItem {
                 width: Math.round(Theme.itemSizeExtraSmall * 1.2)
                 height: Theme.paddingSmall
                 radius: Math.round(Theme.paddingSmall / 2)
-                color: noteCardItem.getNoteColor(noteCardItem.cardData ? noteCardItem.cardData.name : "")
+                color: (noteCardItem.cardData && noteCardItem.cardData.color) ? noteCardItem.cardData.color : noteCardItem.getNoteColor(noteCardItem.cardData ? noteCardItem.cardData.name : "")
             }
 
             Label {
