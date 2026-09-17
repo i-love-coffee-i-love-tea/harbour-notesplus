@@ -1390,6 +1390,55 @@ fn test_theme_api_endpoint() {
 }
 
 #[test]
+fn test_server_start_with_theme_config() {
+    use std::ffi::CString;
+
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_theme_start.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    let c_notes_dir = CString::new(notes_dir.to_str().unwrap()).unwrap();
+    let c_db_path = CString::new(db_path.to_str().unwrap()).unwrap();
+    let c_backup_dir = CString::new(backup_dir.to_str().unwrap()).unwrap();
+
+    let config_json = json!({
+        "theme": {
+            "colorScheme": "dark",
+            "highlightColor": "#ff5500",
+            "primaryColor": "#ffffff",
+            "secondaryColor": "#80ffffff",
+            "highlightBackgroundColor": "#33ff5500"
+        }
+    });
+    let c_config = CString::new(config_json.to_string()).unwrap();
+
+    let handle = notesplusplus_core::ffi::notes_core_server_start(
+        c_notes_dir.as_ptr(),
+        c_db_path.as_ptr(),
+        c_backup_dir.as_ptr(),
+        0,
+        c_config.as_ptr(),
+    );
+    assert!(!handle.is_null());
+
+    let port = notesplusplus_core::ffi::notes_core_server_port(handle);
+    assert!(port > 0);
+
+    let res = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    assert_eq!(res.status(), 200);
+    let theme_json: serde_json::Value = res.into_json().unwrap();
+    assert_eq!(theme_json["colorScheme"], "dark");
+    assert_eq!(theme_json["highlightColor"], "#ff5500");
+    assert_eq!(theme_json["primaryColor"], "#ffffff");
+    assert_eq!(theme_json["secondaryColor"], "#80ffffff");
+    assert_eq!(theme_json["highlightBackgroundColor"], "#33ff5500");
+
+    notesplusplus_core::ffi::notes_core_server_stop(handle);
+}
+
+#[test]
 fn test_theme_assets_and_contrast_rules() {
     let tmp = tempdir().unwrap();
     let notes_dir = tmp.path().join("notes");
@@ -1669,6 +1718,48 @@ fn test_api_search_content_and_payload() {
     assert_eq!(search_res3.status(), 200);
     let items3: serde_json::Value = search_res3.into_json().unwrap();
     assert_eq!(items3.as_array().unwrap().len(), 0);
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_rebuild_index_and_search_chronicles_wolpertinger() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_rebuild_wolpertinger.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    let chronicles_content = "= The Dangerous & Thrilling Documentation Chronicles\n\n\
+        During the opening university session, a script-happy warlock inadvertently released a legion of Wolpertingers!\n\
+        Beware, it's a favorite of the Wolpertinger.\n";
+    fs::write(notes_dir.join("chronicles.adoc"), chronicles_content).unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19003, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    // Authenticate session
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // Perform rebuild_index as Settings > Display > Rebuild Index would do
+    let conn = notesplusplus_core::db::open_db(&db_path).unwrap();
+    let stats = notesplusplus_core::page::rebuild_index(&conn, &notes_dir).expect("rebuild_index should succeed");
+    assert_eq!(stats.pages_indexed, 1);
+
+    // Search via HTTP API for wolpertinger
+    let search_res = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=wolpertinger", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(search_res.status(), 200);
+
+    let items: serde_json::Value = search_res.into_json().unwrap();
+    let arr = items.as_array().expect("Expected JSON array");
+    assert_eq!(arr.len(), 1, "Should find chronicles.adoc for wolpertinger");
+    assert_eq!(arr[0]["filename"], "chronicles.adoc");
+    let snippet = arr[0]["snippet"].as_str().unwrap().to_lowercase();
+    assert!(snippet.contains("wolpertinger"));
 
     server_handle.stop();
 }

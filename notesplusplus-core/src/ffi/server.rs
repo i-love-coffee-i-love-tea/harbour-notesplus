@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::os::raw::c_char;
 use std::path::PathBuf;
 
@@ -51,6 +52,11 @@ pub extern "C" fn notes_core_server_start(
         .and_then(|v| v.get("permissions"))
         .and_then(|v| serde_json::from_value::<crate::agent::PermissionConfig>(v.clone()).ok());
 
+    // Parse theme from JSON
+    let theme_colors: Option<HashMap<String, String>> = parsed.as_ref()
+        .and_then(|v| v.get("theme"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+
     match server::start_server_full_with_tls(
         ndir, db, backup, port, llm_config, permission_config,
         enable_tls, tls_cert_path, tls_key_path,
@@ -59,6 +65,10 @@ pub extern "C" fn notes_core_server_start(
             // Apply auth config if provided
             if let Some(expiry) = auth_expiry_secs {
                 handle.context().set_session_expiry_secs(expiry);
+            }
+            // Apply theme colors if provided
+            if let Some(theme) = theme_colors {
+                handle.context().set_theme_colors(theme);
             }
             Box::into_raw(Box::new(handle))
         }

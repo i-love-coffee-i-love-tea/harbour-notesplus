@@ -115,9 +115,8 @@ const app = createApp({
         initEventSource();
       }
 
-      heartbeatTimer = setInterval(() => health.checkConnection(true), 4000);
+      heartbeatTimer = setInterval(() => health.checkConnection(true), 10000);
       theme.initTheme();
-      setInterval(() => theme.fetchTheme(), 10000);
     });
 
     // Expose store references and template bindings directly

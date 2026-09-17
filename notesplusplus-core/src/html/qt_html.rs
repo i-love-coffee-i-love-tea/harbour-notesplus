@@ -342,7 +342,7 @@ fn render_block_inner(block: &Block, ctx: &mut QtHtmlCtx) -> String {
 fn render_table(rows: &[Vec<crate::block::TableCell>], col_widths: &[f64], ctx: &mut QtHtmlCtx) -> String {
     let mut html = String::new();
     // Use HTML border attribute (Qt RichText supports this, not CSS border)
-    html.push_str("<table border='1' cellspacing='0' cellpadding='4' width='100%' style='margin:4px 0;'>");
+    html.push_str("<table border='2' cellspacing='0' cellpadding='4' width='100%' style='margin:4px 0;'>");
     for (row_idx, row) in rows.iter().enumerate() {
         html.push_str("<tr>");
         for (cell_idx, cell) in row.iter().enumerate() {

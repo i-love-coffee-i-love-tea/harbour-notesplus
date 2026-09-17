@@ -94,6 +94,16 @@ QString ServerManager::start_web_server()
     auth[QStringLiteral("session_expiry_secs")]   = m_settings.sessionExpirySecs();
     config[QStringLiteral("auth")]                = auth;
 
+    if (m_ctx.themeColorsJson) {
+        const QString themeJson = m_ctx.themeColorsJson();
+        if (!themeJson.isEmpty()) {
+            QJsonDocument themeDoc = QJsonDocument::fromJson(themeJson.toUtf8());
+            if (themeDoc.isObject()) {
+                config[QStringLiteral("theme")] = themeDoc.object();
+            }
+        }
+    }
+
     const std::string configStr = QString::fromUtf8(
         QJsonDocument(config).toJson(QJsonDocument::Compact)).toStdString();
 

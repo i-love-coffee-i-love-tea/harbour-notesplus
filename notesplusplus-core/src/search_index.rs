@@ -147,15 +147,16 @@ pub struct RebuildStats {
 /// Destroys and recreates the full-text search index, clears all page and group
 /// records, and rescans the notes directory from scratch.
 pub fn rebuild_index(conn: &Connection, notes_dir: &Path) -> Result<RebuildStats, NotesError> {
-    conn.execute_batch("DROP TABLE IF EXISTS pages_fts")?;
-    conn.execute("DELETE FROM pages", [])?;
-    conn.execute("DELETE FROM groups", [])?;
     conn.execute_batch(
-        "CREATE VIRTUAL TABLE pages_fts USING fts5(
-            filename, title, content,
-            tokenize='porter unicode61'
-        )",
+        "DROP TRIGGER IF EXISTS pages_ai;
+         DROP TRIGGER IF EXISTS pages_ad;
+         DROP TRIGGER IF EXISTS pages_au;
+         DROP TABLE IF EXISTS pages_fts;
+         DELETE FROM pages;
+         DELETE FROM groups;",
     )?;
+
+    db::init_schema(conn)?;
 
     sync_and_index_pages(conn, notes_dir)?;
 

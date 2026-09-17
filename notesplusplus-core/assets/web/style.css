@@ -2248,6 +2248,10 @@ li > p {
   transform: scale(0.9);
 }
 
+.slide-thumb-preview.notes-body table { border-width: 2px; }
+.slide-thumb-preview.notes-body table th,
+.slide-thumb-preview.notes-body table td { border-width: 2px; }
+
 .presentation-slide-body.notes-body pre {
   font-size: 1.05rem;
   padding: 18px 22px;
@@ -2710,6 +2714,10 @@ li > p {
   margin: 0 0 6px 0;
   padding-left: 18px;
 }
+
+.mini-doc-content.notes-body table { border-width: 2px; }
+.mini-doc-content.notes-body table th,
+.mini-doc-content.notes-body table td { border-width: 2px; }
 
 .mini-doc-content.notes-body pre {
   margin: 4px 0 6px 0;

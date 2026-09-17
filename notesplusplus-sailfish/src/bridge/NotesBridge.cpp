@@ -669,8 +669,8 @@ QString NotesBridge::get_network_interfaces_json()
 
 void NotesBridge::set_theme(QString colors_json)
 {
-    m_serverManager->set_theme(colors_json);
     m_themeColorsJson = colors_json;
+    m_serverManager->set_theme(colors_json);
 }
 
 void NotesBridge::set_session_expiry_hours(int hours)

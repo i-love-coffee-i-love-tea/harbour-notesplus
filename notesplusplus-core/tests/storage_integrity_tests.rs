@@ -137,3 +137,36 @@ fn main() {
     assert!(matches!(preview_blocks[2], Block::Table { .. }));
     assert!(matches!(preview_blocks[3], Block::UnorderedListItem { .. }));
 }
+
+#[test]
+fn test_rebuild_index_with_existing_pages_and_content_search() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("test.db");
+    let notes_dir = dir.path().join("notes");
+    std::fs::create_dir_all(&notes_dir).unwrap();
+    let conn = open_db(&db_path).unwrap();
+
+    // Write chronicles.adoc with "wolpertinger" into notes_dir
+    let chronicles_content = "= The Dangerous & Thrilling Chronicles\n\n\
+        A script-happy warlock inadvertently released a legion of Wolpertingers!\n\
+        Beware, it's a favorite of the Wolpertinger.\n";
+    std::fs::write(notes_dir.join("chronicles.adoc"), chronicles_content).unwrap();
+
+    // Populate initial page record in DB
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+         VALUES ('chronicles.adoc', '', 'The Dangerous & Thrilling Chronicles', 0, ?1, ?1, 0)",
+        rusqlite::params![now],
+    ).unwrap();
+
+    // Rebuilding index must succeed even when pages table already has entries
+    let stats = notesplusplus_core::page::rebuild_index(&conn, &notes_dir)
+        .expect("rebuild_index should succeed without trigger errors");
+    assert_eq!(stats.pages_indexed, 1);
+
+    // Full-text search for wolpertinger must find chronicles.adoc
+    let search_results = notesplusplus_core::search::search_pages(&conn, "wolpertinger").unwrap();
+    assert_eq!(search_results.len(), 1, "Should find chronicles.adoc containing wolpertinger");
+    assert_eq!(search_results[0].page.filename, "chronicles.adoc");
+}
