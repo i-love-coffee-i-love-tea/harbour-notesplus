@@ -6,14 +6,22 @@ Dialog {
     allowedOrientations: Orientation.All
 
     property string mode: "link" // "link" or "select"
+    property bool allowMultiple: false
     property string selectedText: ""
     property string targetPageFilename: ""
     property string targetPageTitle: ""
     property string linkDisplayText: selectedText || ""
     property string formattedLink: ""
     property var pagesList: []
+    property var selectedFilenames: []
+    property var selectedPages: []
 
-    canAccept: (targetPageFilename.length > 0) || (searchField.text.trim().length > 0) || (linkDisplayField.text.trim().length > 0)
+    canAccept: {
+        if (allowMultiple) {
+            return (selectedFilenames && selectedFilenames.length > 0) || (targetPageFilename.length > 0)
+        }
+        return (targetPageFilename.length > 0) || (searchField.text.trim().length > 0) || (linkDisplayField.text.trim().length > 0)
+    }
 
     function updateFormattedLink() {
         var fn = targetPageFilename.trim()
@@ -63,6 +71,24 @@ Dialog {
     Component.onCompleted: {
         loadPages("")
         updateFormattedLink()
+        if (allowMultiple && selectedFilenames && selectedFilenames.length > 0 && (!selectedPages || selectedPages.length === 0)) {
+            var initialPages = []
+            for (var j = 0; j < selectedFilenames.length; j++) {
+                var sfn = selectedFilenames[j]
+                var foundTitle = ""
+                for (var i = 0; i < pagesList.length; i++) {
+                    if (pagesList[i].filename === sfn) {
+                        foundTitle = pagesList[i].title || ""
+                        break
+                    }
+                }
+                initialPages.push({
+                    filename: sfn,
+                    title: foundTitle.length > 0 ? foundTitle : sfn.replace(/\.adoc$/, "")
+                })
+            }
+            selectedPages = initialPages
+        }
     }
 
     function loadPages(query) {
@@ -87,8 +113,23 @@ Dialog {
             width: parent.width
 
             DialogHeader {
-                title: pageLinkDialog.mode === "select" ? qsTr("Select Page") : qsTr("Link Page")
-                acceptText: pageLinkDialog.mode === "select" ? qsTr("Select") : qsTr("Insert Link")
+                title: {
+                    if (pageLinkDialog.allowMultiple) {
+                        return qsTr("Select Notes")
+                    }
+                    return pageLinkDialog.mode === "select" ? qsTr("Select Page") : qsTr("Link Page")
+                }
+                acceptText: {
+                    if (pageLinkDialog.allowMultiple) {
+                        var count = (pageLinkDialog.selectedFilenames && pageLinkDialog.selectedFilenames.length > 0)
+                            ? pageLinkDialog.selectedFilenames.length
+                            : (pageLinkDialog.targetPageFilename.length > 0 ? 1 : 0)
+                        if (count > 1) return qsTr("Attach %1 Notes").arg(count)
+                        if (count === 1) return qsTr("Attach 1 Note")
+                        return qsTr("Select")
+                    }
+                    return pageLinkDialog.mode === "select" ? qsTr("Select") : qsTr("Insert Link")
+                }
                 cancelText: qsTr("Cancel")
             }
 
@@ -277,25 +318,73 @@ Dialog {
                     id: pageItemDelegate
                     width: parent.width
                     height: Math.max(Theme.itemSizeMedium, itemCol.implicitHeight + Theme.paddingSmall * 2)
-                    highlighted: pageLinkDialog.targetPageFilename === modelData.filename
+
+                    readonly property bool isItemChecked: {
+                        if (pageLinkDialog.allowMultiple) {
+                            return pageLinkDialog.selectedFilenames && (pageLinkDialog.selectedFilenames.indexOf(modelData.filename) >= 0)
+                        }
+                        return pageLinkDialog.targetPageFilename === modelData.filename
+                    }
+
+                    highlighted: isItemChecked
 
                     onClicked: {
-                        pageLinkDialog.targetPageFilename = modelData.filename
-                        pageLinkDialog.targetPageTitle = modelData.title || modelData.filename.replace(/\.adoc$/, "")
-                        if (!pageLinkDialog.linkDisplayText) {
-                            pageLinkDialog.linkDisplayText = pageLinkDialog.targetPageTitle
+                        if (pageLinkDialog.allowMultiple) {
+                            var fn = modelData.filename
+                            var title = modelData.title || fn.replace(/\.adoc$/, "")
+                            var curFns = pageLinkDialog.selectedFilenames ? pageLinkDialog.selectedFilenames.slice(0) : []
+                            var curPages = pageLinkDialog.selectedPages ? pageLinkDialog.selectedPages.slice(0) : []
+                            var idx = curFns.indexOf(fn)
+                            if (idx >= 0) {
+                                curFns.splice(idx, 1)
+                                for (var p = 0; p < curPages.length; p++) {
+                                    if (curPages[p].filename === fn) {
+                                        curPages.splice(p, 1)
+                                        break
+                                    }
+                                }
+                            } else {
+                                curFns.push(fn)
+                                curPages.push({ filename: fn, title: title })
+                            }
+                            pageLinkDialog.selectedFilenames = curFns
+                            pageLinkDialog.selectedPages = curPages
+                            pageLinkDialog.targetPageFilename = fn
+                            pageLinkDialog.targetPageTitle = title
+                        } else {
+                            pageLinkDialog.targetPageFilename = modelData.filename
+                            pageLinkDialog.targetPageTitle = modelData.title || modelData.filename.replace(/\.adoc$/, "")
+                            if (!pageLinkDialog.linkDisplayText) {
+                                pageLinkDialog.linkDisplayText = pageLinkDialog.targetPageTitle
+                            }
+                            pageLinkDialog.updateFormattedLink()
                         }
-                        pageLinkDialog.updateFormattedLink()
                     }
 
                     onDoubleClicked: {
-                        pageLinkDialog.targetPageFilename = modelData.filename
-                        pageLinkDialog.targetPageTitle = modelData.title || modelData.filename.replace(/\.adoc$/, "")
-                        if (!pageLinkDialog.linkDisplayText) {
-                            pageLinkDialog.linkDisplayText = pageLinkDialog.targetPageTitle
+                        if (pageLinkDialog.allowMultiple) {
+                            var fn = modelData.filename
+                            var title = modelData.title || fn.replace(/\.adoc$/, "")
+                            var curFns = pageLinkDialog.selectedFilenames ? pageLinkDialog.selectedFilenames.slice(0) : []
+                            var curPages = pageLinkDialog.selectedPages ? pageLinkDialog.selectedPages.slice(0) : []
+                            if (curFns.indexOf(fn) === -1) {
+                                curFns.push(fn)
+                                curPages.push({ filename: fn, title: title })
+                                pageLinkDialog.selectedFilenames = curFns
+                                pageLinkDialog.selectedPages = curPages
+                            }
+                            pageLinkDialog.targetPageFilename = fn
+                            pageLinkDialog.targetPageTitle = title
+                            pageLinkDialog.accept()
+                        } else {
+                            pageLinkDialog.targetPageFilename = modelData.filename
+                            pageLinkDialog.targetPageTitle = modelData.title || modelData.filename.replace(/\.adoc$/, "")
+                            if (!pageLinkDialog.linkDisplayText) {
+                                pageLinkDialog.linkDisplayText = pageLinkDialog.targetPageTitle
+                            }
+                            pageLinkDialog.updateFormattedLink()
+                            pageLinkDialog.accept()
                         }
-                        pageLinkDialog.updateFormattedLink()
-                        pageLinkDialog.accept()
                     }
 
                     Row {
@@ -350,7 +439,7 @@ Dialog {
 
                         Image {
                             id: selectedIndicator
-                            visible: pageLinkDialog.targetPageFilename === modelData.filename
+                            visible: pageItemDelegate.isItemChecked
                             source: "image://theme/icon-s-installed?" + Theme.highlightColor
                             anchors.verticalCenter: parent.verticalCenter
                         }

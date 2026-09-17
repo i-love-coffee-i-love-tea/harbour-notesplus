@@ -4,11 +4,11 @@ import Sailfish.Silica 1.0
 Rectangle {
     id: confirmationCardRoot
     width: parent.width
-    height: cardContent.height + Theme.paddingLarge * 2
+    height: cardContent.height + Theme.paddingMedium * 2
     color: Theme.rgba(Theme.highlightBackgroundColor, 0.25)
     border.color: Theme.rgba(Theme.primaryColor, 0.3)
     border.width: 1
-    radius: Theme.paddingMedium
+    radius: Theme.paddingSmall
     clip: true
 
     property var actionData: null
@@ -19,8 +19,8 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Theme.paddingLarge
-        spacing: Theme.paddingMedium
+        anchors.margins: Theme.paddingMedium
+        spacing: Theme.paddingSmall
 
         Row {
             width: parent.width

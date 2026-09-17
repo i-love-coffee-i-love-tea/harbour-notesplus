@@ -10,7 +10,7 @@ This document describes the development, build, test, and deployment workflows f
   - AsciiDoc AST parser (`parser/`, `block.rs`, `inline.rs`, `html.rs`).
   - SQLite database, full-text search (FTS), page indexing (`db/`, `search.rs`, `page.rs`).
   - Embedded HTTP/HTTPS web server with TLS and self-signed certificate generation (`server/mod.rs`, `server/tls.rs`).
-  - Web Access Authentication: HTTP Basic Auth + OpenID Connect (OIDC) / OAuth 2.0 PKCE (`server/auth.rs`).
+  - Web Access Authentication: Verification code challenge with approve/deny on device (`server/auth.rs`).
   - Static Vue 3 ES Modules web editor & preview (`server/web_assets.rs`).
   - LLM AI Assistant client & agent tool execution loop (`agent/`).
 - **`notesplusplus-sailfish`**: Sailfish OS Silica QML GUI application and Qt bridge bindings (`src/bridge/`, `qml/`).

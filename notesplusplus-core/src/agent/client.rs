@@ -434,7 +434,11 @@ impl LlmClient {
 
                     if msg.role == "tool" {
                         if let Some(ref name) = msg.name {
+                            obj.insert("name".to_string(), json!(name));
                             obj.insert("tool_name".to_string(), json!(name));
+                        }
+                        if let Some(ref id) = msg.tool_call_id {
+                            obj.insert("tool_call_id".to_string(), json!(id));
                         }
                     }
 
@@ -676,21 +680,50 @@ impl LlmClient {
     ) -> Result<AssistantResponse, NotesError> {
         let mut accumulated_content = String::new();
         let mut accumulated_tool_calls = Vec::new();
+        let mut full_raw_text = String::new();
 
         for line_res in reader.lines() {
             let line = line_res.map_err(|e| NotesError::LlmNetwork(format!("Stream read error: {}", e)))?;
+            full_raw_text.push_str(&line);
+            full_raw_text.push('\n');
+
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
             }
 
-            let json_val: Value = serde_json::from_str(trimmed)
-                .map_err(|e| NotesError::LlmResponse(format!("Invalid JSON line {}: {}", e, trimmed)))?;
+            // Strip optional SSE prefix if returned by proxy / forwarder
+            let payload = if let Some(stripped) = trimmed.strip_prefix("data:") {
+                stripped.trim()
+            } else {
+                trimmed
+            };
 
-            if let Some(err_msg) = json_val.get("error").and_then(|v| v.as_str()) {
-                return Err(NotesError::LlmResponse(err_msg.to_string()));
+            if payload == "[DONE]" {
+                break;
             }
 
+            let json_val: Value = match serde_json::from_str(payload) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("Skipping non-JSON line in Ollama stream: {} ({})", e, payload);
+                    continue;
+                }
+            };
+
+            // Error check
+            if let Some(err_val) = json_val.get("error") {
+                let err_msg = if let Some(s) = err_val.as_str() {
+                    s.to_string()
+                } else if let Some(obj_msg) = err_val.get("message").and_then(|v| v.as_str()) {
+                    obj_msg.to_string()
+                } else {
+                    err_val.to_string()
+                };
+                return Err(NotesError::LlmResponse(err_msg));
+            }
+
+            // 1. Ollama /api/chat format: { "message": { "role": "assistant", "content": "...", "tool_calls": [...] } }
             if let Some(msg_obj) = json_val.get("message") {
                 if let Some(token) = msg_obj.get("content").and_then(|v| v.as_str()) {
                     if !token.is_empty() {
@@ -706,11 +739,72 @@ impl LlmClient {
                         }
                     }
                 }
+            } else if let Some(token) = json_val.get("response").and_then(|v| v.as_str()) {
+                // 2. Ollama /api/generate format: { "response": "token", "done": false }
+                if !token.is_empty() {
+                    accumulated_content.push_str(token);
+                    on_token(token);
+                }
+            } else if let Some(choices) = json_val.get("choices").and_then(|v| v.as_array()) {
+                // 3. Fallback for OpenAI chunk received on Ollama provider
+                if let Some(choice) = choices.first() {
+                    if let Some(delta) = choice.get("delta") {
+                        if let Some(token) = delta.get("content").and_then(|v| v.as_str()) {
+                            if !token.is_empty() {
+                                accumulated_content.push_str(token);
+                                on_token(token);
+                            }
+                        }
+                        if let Some(tcs) = delta.get("tool_calls") {
+                            if let Ok(calls) = Self::extract_tool_calls(Some(tcs)) {
+                                for call in calls {
+                                    accumulated_tool_calls.push(call);
+                                }
+                            }
+                        }
+                    } else if let Some(msg) = choice.get("message") {
+                        if let Some(token) = msg.get("content").and_then(|v| v.as_str()) {
+                            if !token.is_empty() {
+                                accumulated_content.push_str(token);
+                                on_token(token);
+                            }
+                        }
+                        if let Some(tcs) = msg.get("tool_calls") {
+                            if let Ok(calls) = Self::extract_tool_calls(Some(tcs)) {
+                                for call in calls {
+                                    accumulated_tool_calls.push(call);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(fr) = choice.get("finish_reason").and_then(|v| v.as_str()) {
+                        if fr == "stop" || fr == "length" || fr == "tool_calls" {
+                            break;
+                        }
+                    }
+                }
             }
 
-            let is_done = json_val.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+            let is_done = json_val.get("done").and_then(|v| v.as_bool()).unwrap_or(false)
+                || json_val.get("done").and_then(|v| v.as_str()).map(|s| s == "true").unwrap_or(false)
+                || json_val.get("done_reason").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+
             if is_done {
                 break;
+            }
+        }
+
+        // Fallback for non-streamed or multi-line single JSON payloads
+        if accumulated_content.is_empty() && accumulated_tool_calls.is_empty() && !full_raw_text.trim().is_empty() {
+            if let Ok(json_val) = serde_json::from_str::<Value>(full_raw_text.trim()) {
+                if let Ok(resp) = Self::parse_response(LlmProvider::Ollama, &json_val) {
+                    if let Some(ref c) = resp.content {
+                        on_token(c);
+                        accumulated_content.push_str(c);
+                    }
+                    accumulated_tool_calls = resp.tool_calls;
+                }
             }
         }
 
@@ -727,9 +821,13 @@ impl LlmClient {
     ) -> Result<AssistantResponse, NotesError> {
         let mut accumulated_content = String::new();
         let mut tool_calls_by_index: std::collections::BTreeMap<usize, (Option<String>, String, String)> = std::collections::BTreeMap::new();
+        let mut full_raw_text = String::new();
 
         for line_res in reader.lines() {
             let line = line_res.map_err(|e| NotesError::LlmNetwork(format!("Stream read error: {}", e)))?;
+            full_raw_text.push_str(&line);
+            full_raw_text.push('\n');
+
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -751,9 +849,17 @@ impl LlmClient {
             };
 
             if let Some(err_obj) = json_val.get("error") {
-                let msg = err_obj.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown OpenAI error");
-                return Err(NotesError::LlmResponse(msg.to_string()));
+                let msg = if let Some(s) = err_obj.as_str() {
+                    s.to_string()
+                } else if let Some(m) = err_obj.get("message").and_then(|v| v.as_str()) {
+                    m.to_string()
+                } else {
+                    err_obj.to_string()
+                };
+                return Err(NotesError::LlmResponse(msg));
             }
+
+            let mut is_finished = false;
 
             if let Some(choices) = json_val.get("choices").and_then(|v| v.as_array()) {
                 if let Some(choice) = choices.first() {
@@ -782,8 +888,45 @@ impl LlmClient {
                                 }
                             }
                         }
+                    } else if let Some(msg) = choice.get("message") {
+                        if let Some(token) = msg.get("content").and_then(|v| v.as_str()) {
+                            if !token.is_empty() {
+                                accumulated_content.push_str(token);
+                                on_token(token);
+                            }
+                        }
+                        if let Some(tcs) = msg.get("tool_calls") {
+                            if let Ok(calls) = Self::extract_tool_calls(Some(tcs)) {
+                                for call in calls {
+                                    let idx = tool_calls_by_index.len();
+                                    tool_calls_by_index.insert(idx, (call.id, call.function.name, serde_json::to_string(&call.function.arguments).unwrap_or_default()));
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(fr) = choice.get("finish_reason").and_then(|v| v.as_str()) {
+                        if fr == "stop" || fr == "length" || fr == "tool_calls" {
+                            is_finished = true;
+                        }
                     }
                 }
+            } else if let Some(msg_obj) = json_val.get("message") {
+                // Fallback for Ollama format in OpenAI parser
+                if let Some(token) = msg_obj.get("content").and_then(|v| v.as_str()) {
+                    if !token.is_empty() {
+                        accumulated_content.push_str(token);
+                        on_token(token);
+                    }
+                }
+            }
+
+            let is_done = is_finished
+                || json_val.get("done").and_then(|v| v.as_bool()).unwrap_or(false)
+                || json_val.get("done_reason").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+
+            if is_done {
+                break;
             }
         }
 
@@ -801,6 +944,19 @@ impl LlmClient {
                         arguments: args,
                     },
                 });
+            }
+        }
+
+        // Fallback for non-streamed or multi-line single JSON payloads
+        if accumulated_content.is_empty() && accumulated_tool_calls.is_empty() && !full_raw_text.trim().is_empty() {
+            if let Ok(json_val) = serde_json::from_str::<Value>(full_raw_text.trim()) {
+                if let Ok(resp) = Self::parse_response(LlmProvider::OpenAiCompatible, &json_val) {
+                    if let Some(ref c) = resp.content {
+                        on_token(c);
+                        accumulated_content.push_str(c);
+                    }
+                    accumulated_tool_calls = resp.tool_calls;
+                }
             }
         }
 

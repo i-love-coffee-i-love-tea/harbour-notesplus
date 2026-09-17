@@ -53,9 +53,13 @@ public:
     explicit AgentBridge(QObject *parent = nullptr);
     ~AgentBridge();
 
-    /* ---- Public helpers (called from FFI callbacks) ---- */
+public slots:
     void appendStreamingToken(const QString &token);
-    void handleAgentCompletion();
+    void handleSendResult(const QString &resultJson);
+    void handleConfirmResult(const QString &resultJson);
+    void handleUndoResult(const QString &resultJson);
+    void handleFetchUrlResult(const QString &data, bool ok);
+    void handleReadLocalFileResult(const QString &data, bool ok);
 
     /* ---- Property getters ---- */
     bool    agentBusy()         const { return m_agentBusy; }
@@ -115,8 +119,6 @@ public:
 
     Q_INVOKABLE void cancel_operation();
 
-    Q_INVOKABLE void handleWorkerCompletion();
-
     Q_INVOKABLE void fetch_models();
 
     Q_INVOKABLE bool poll_models();
@@ -155,8 +157,6 @@ private:
     QString m_lastCreatedNote;
     QString m_errorMessage;
     QString m_streamingText;
-    bool    m_streamingActivity = false;
-    int     m_completionIdleRetries = 0;
     bool    m_isFetching        = false;
     QString m_providerType;
     QString m_endpointUrl;
@@ -170,18 +170,6 @@ private:
     QString m_availableModels;
     bool    m_modelsLoading     = false;
 
-    /* ---- Shared state for fetch worker (URL + file reads) ---- */
-    QMutex  m_fetchMutex;
-    bool    m_fetchReady    = false;
-    bool    m_fetchSuccess  = false;
-    QString m_fetchContent;
-
-    /* ---- Shared state for undo worker ---- */
-    QMutex  m_undoMutex;
-    bool    m_undoReady     = false;
-    bool    m_undoSuccess   = false;
-    QString m_undoMessage;
-
     /* ---- Shared state for models worker ---- */
     QNetworkAccessManager *m_netManager = nullptr;
 
@@ -190,6 +178,7 @@ private:
     void beginOperation();
     void sendInBackground(const QString &prompt);
     void appendUserMessage(const QString &text);
+    void appendAssistantMessage(const QString &text);
     void processAgentResult(const QString &resultJson);
     QString buildConfigJson() const;
     QString formatWithContext(const QString &instruction,

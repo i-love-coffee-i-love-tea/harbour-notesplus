@@ -12,6 +12,7 @@ Column {
     property string streamingText: ""
 
     signal resendRequested(string text)
+    signal cancelRequested()
 
     function getToolDisplayName(name) {
         if (!name) return qsTr("Tool")
@@ -76,32 +77,18 @@ Column {
             }
         }
 
-        delegate: ListItem {
+        delegate: Item {
             id: msgItem
             width: parent.width
-            contentHeight: msgBubble.height + Theme.paddingSmall
-
-            menu: isUserMessage ? contextMenuComponent : undefined
+            height: msgBubble.height + Theme.paddingSmall
 
             property bool isToolMessage: modelData.role === "tool"
             property bool isAssistantMessage: modelData.role === "assistant"
             property bool isUserMessage: modelData.role === "user"
             property var toolCalls: (modelData.tool_calls && Array.isArray(modelData.tool_calls)) ? modelData.tool_calls : []
             property bool hasToolCalls: toolCalls.length > 0
-            property bool hasContent: modelData.content && modelData.content.length > 0
+            property bool hasContent: (typeof modelData.content === "string") && modelData.content.length > 0
             property bool isExpanded: false
-
-            Component {
-                id: contextMenuComponent
-                ContextMenu {
-                    MenuItem {
-                        text: qsTr("Resend")
-                        onClicked: {
-                            conversationView.resendRequested(modelData.content || "")
-                        }
-                    }
-                }
-            }
 
             Rectangle {
                 id: msgBubble
@@ -139,30 +126,74 @@ Column {
                     spacing: Theme.paddingSmall
 
                     // Message Header Row
-                    Row {
+                    Item {
                         width: parent.width
-                        spacing: Theme.paddingSmall
+                        height: Theme.itemSizeExtraSmall
 
-                        Label {
-                            text: {
-                                if (msgItem.isUserMessage) {
-                                    return qsTr("👤 You")
+                        Row {
+                            anchors.left: parent.left
+                            anchors.right: headerActionRow.left
+                            anchors.rightMargin: Theme.paddingSmall
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: Theme.paddingSmall
+
+                            Label {
+                                text: {
+                                    if (msgItem.isUserMessage) {
+                                        return qsTr("👤 You")
+                                    }
+                                    if (msgItem.isToolMessage) {
+                                        var toolName = modelData.name || "tool"
+                                        return conversationView.getToolIcon(toolName) + " " + qsTr("Tool Output: %1").arg(conversationView.getToolDisplayName(toolName))
+                                    }
+                                    if (msgItem.hasToolCalls) {
+                                        var firstTool = msgItem.toolCalls[0].function ? msgItem.toolCalls[0].function.name : ""
+                                        return "🤖 " + qsTr("Assistant") + " (" + conversationView.getToolDisplayName(firstTool) + ")"
+                                    }
+                                    return "🤖 " + qsTr("Assistant")
                                 }
-                                if (msgItem.isToolMessage) {
-                                    var toolName = modelData.name || "tool"
-                                    return conversationView.getToolIcon(toolName) + " " + qsTr("Tool Output: %1").arg(conversationView.getToolDisplayName(toolName))
-                                }
-                                if (msgItem.hasToolCalls) {
-                                    var firstTool = msgItem.toolCalls[0].function ? msgItem.toolCalls[0].function.name : ""
-                                    return "🤖 " + qsTr("Assistant") + " (" + conversationView.getToolDisplayName(firstTool) + ")"
-                                }
-                                return "🤖 " + qsTr("Assistant")
+                                font.pixelSize: Theme.fontSizeExtraSmall
+                                font.bold: true
+                                color: msgItem.isToolMessage ? Theme.secondaryColor : Theme.primaryColor
+                                anchors.verticalCenter: parent.verticalCenter
+                                truncationMode: TruncationMode.Fade
+                                width: parent.width
                             }
-                            font.pixelSize: Theme.fontSizeExtraSmall
-                            font.bold: true
-                            color: msgItem.isToolMessage ? Theme.secondaryColor : Theme.primaryColor
-                            truncationMode: TruncationMode.Fade
-                            width: parent.width
+                        }
+
+                        Row {
+                            id: headerActionRow
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: Theme.paddingSmall / 2
+
+                            IconButton {
+                                id: resendBtn
+                                visible: msgItem.isUserMessage && msgItem.hasContent && !conversationView.agentBusy
+                                icon.source: "image://theme/icon-m-refresh"
+                                icon.width: Theme.iconSizeSmall
+                                icon.height: Theme.iconSizeSmall
+                                width: Theme.itemSizeExtraSmall
+                                height: Theme.itemSizeExtraSmall
+                                anchors.verticalCenter: parent.verticalCenter
+                                onClicked: {
+                                    conversationView.resendRequested(modelData.content || "")
+                                }
+                            }
+
+                            IconButton {
+                                id: copyBtn
+                                visible: (msgItem.isAssistantMessage || msgItem.isUserMessage) && msgItem.hasContent
+                                icon.source: "image://theme/icon-m-clipboard"
+                                icon.width: Theme.iconSizeSmall
+                                icon.height: Theme.iconSizeSmall
+                                width: Theme.itemSizeExtraSmall
+                                height: Theme.itemSizeExtraSmall
+                                anchors.verticalCenter: parent.verticalCenter
+                                onClicked: {
+                                    Clipboard.text = modelData.content || ""
+                                }
+                            }
                         }
                     }
 
@@ -301,11 +332,11 @@ Column {
         }
     }
 
-    // Live Streaming Assistant Bubble
+    // Live Active / Streaming Assistant Bubble
     Item {
         width: parent.width
-        height: liveMsgBubble.height + Theme.paddingSmall
-        visible: conversationView.agentBusy && conversationView.streamingText.length > 0
+        height: liveMsgBubble.height
+        visible: conversationView.agentBusy
 
         Rectangle {
             id: liveMsgBubble
@@ -324,53 +355,63 @@ Column {
                 anchors.margins: Theme.paddingMedium
                 spacing: Theme.paddingSmall
 
-                Row {
-                    spacing: Theme.paddingSmall
-                    Label {
-                        text: "🤖 " + qsTr("Assistant")
-                        font.pixelSize: Theme.fontSizeExtraSmall
-                        font.bold: true
-                        color: Theme.primaryColor
-                    }
-                    BusyIndicator {
-                        size: BusyIndicatorSize.ExtraSmall
-                        running: true
+                // Header with Assistant Icon/Label, BusyIndicator, and Cancel IconButton
+                Item {
+                    width: parent.width
+                    height: Theme.itemSizeExtraSmall
+
+                    Row {
+                        anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.paddingSmall
+
+                        Label {
+                            text: "🤖 " + qsTr("Assistant")
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            font.bold: true
+                            color: Theme.primaryColor
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        BusyIndicator {
+                            size: BusyIndicatorSize.ExtraSmall
+                            running: conversationView.agentBusy
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    IconButton {
+                        id: cancelBtn
+                        icon.source: "image://theme/icon-m-clear"
+                        icon.width: Theme.iconSizeSmall
+                        icon.height: Theme.iconSizeSmall
+                        width: Theme.itemSizeExtraSmall
+                        height: Theme.itemSizeExtraSmall
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        onClicked: conversationView.cancelRequested()
                     }
                 }
 
+                // Streaming Text Content (when LLM is generating text)
                 Label {
                     width: parent.width
+                    visible: conversationView.streamingText.length > 0
                     text: conversationView.streamingText
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.primaryColor
                     wrapMode: Text.Wrap
                 }
-            }
-        }
-    }
 
-    // Busy Indicator (when waiting for LLM or executing tools)
-    Item {
-        width: parent.width
-        height: Theme.itemSizeMedium
-        visible: conversationView.agentBusy && conversationView.streamingText.length === 0
-
-        Row {
-            anchors.centerIn: parent
-            spacing: Theme.paddingMedium
-
-            BusyIndicator {
-                running: conversationView.agentBusy && conversationView.streamingText.length === 0
-                size: BusyIndicatorSize.Small
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Label {
-                text: qsTr("AI is thinking & executing tools...")
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.secondaryHighlightColor
-                anchors.verticalCenter: parent.verticalCenter
+                // Status Label (when waiting for LLM or executing tools before streaming)
+                Label {
+                    width: parent.width
+                    visible: conversationView.streamingText.length === 0
+                    text: qsTr("AI is thinking & executing tools...")
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.secondaryHighlightColor
+                    wrapMode: Text.Wrap
+                }
             }
         }
     }

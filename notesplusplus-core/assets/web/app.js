@@ -1,4 +1,5 @@
 import { createApp, onMounted, watch, nextTick } from 'vue';
+import { storeToRefs } from 'pinia';
 import { pinia } from '/stores/index.js';
 import { setHealthCallbacks } from '/stores/api.js';
 import { formatMarkdown, getRequestedNote } from '/composables/utils.js';
@@ -119,29 +120,39 @@ const app = createApp({
       setInterval(() => theme.fetchTheme(), 10000);
     });
 
-    // Return template bindings — proxy to all stores
-    return new Proxy({}, {
-      get(_, prop) {
-        if (prop in notes) return notes[prop];
-        if (prop in auth) return auth[prop];
-        if (prop in theme) return theme[prop];
-        if (prop in health) return health[prop];
-        if (prop in ai) return ai[prop];
-        if (prop in ui) return ui[prop];
-        if (prop in pres) return pres[prop];
-        if (prop in imp) return imp[prop];
-        if (prop in link) return link[prop];
-        if (prop in editor) return editor[prop];
-        if (prop === 'formatMessageContent') return (content) => formatMarkdown(content);
-        if (prop === 'createNote') return () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate);
-        return undefined;
+    // Expose store references and template bindings directly
+    const stores = [notes, auth, theme, health, ai, ui, pres, imp, link, editor];
+    const bindings = {
+      // Direct store references
+      notes,
+      auth,
+      theme,
+      health,
+      ai,
+      ui,
+      pres,
+      imp,
+      link,
+      editor,
+
+      // App-level template helpers
+      formatMessageContent: (content) => formatMarkdown(content),
+      createNote: () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate),
+    };
+
+    // Expose reactive state/getters and bound actions for seamless template access
+    for (const store of stores) {
+      Object.assign(bindings, storeToRefs(store));
+      for (const key of Object.keys(store)) {
+        if (typeof store[key] === 'function' && !key.startsWith('$')) {
+          bindings[key] = store[key].bind(store);
+        }
       }
-    });
+    }
+
+    return bindings;
   }
 });
 
 app.use(pinia);
 app.mount('#app');
-// DIAGNOSTIC: confirm Vue mounted
-const diag = document.getElementById('diagnostic');
-if (diag) diag.textContent = 'Vue mounted OK';

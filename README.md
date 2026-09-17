@@ -11,7 +11,7 @@ A fast, offline-first AsciiDoc notes app for **Sailfish OS** with an AI assistan
 - **Web Editor** — Embedded HTTPS server with a Vue 3 split-pane editor, live preview, and full AI assistant access from any browser
 - **Full-Text Search** — Instant SQLite FTS5 search across all notes
 - **Journal** — Daily notes with checkbox task lists
-- **Authentication** — HTTP Basic Auth, OIDC/OAuth 2.0 PKCE, and TOTP for secure remote access
+- **Authentication** — Verification code challenge with approve/deny on the phone for secure remote access
 
 ## Screenshots
 

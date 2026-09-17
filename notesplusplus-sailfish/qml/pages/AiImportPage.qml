@@ -77,22 +77,21 @@ Page {
         }
     }
 
-    property string pendingTranscription: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.last_transcription : ""
-    onPendingTranscriptionChanged: {
-        if (aiImportPage.status !== PageStatus.Active) return
-        var trans = pendingTranscription
-        if (trans && trans.trim().length > 0) {
-            var clean = trans.trim()
-            if (sourceTextArea.text.length > 0) {
-                sourceTextArea.text = sourceTextArea.text + " " + clean
-            } else {
-                sourceTextArea.text = clean
-            }
-        }
-    }
-
     Connections {
         target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
+
+        onTranscription_completed: function(text) {
+            if (aiImportPage.status !== PageStatus.Active) return
+            if (text && text.trim().length > 0) {
+                var clean = text.trim()
+                if (sourceTextArea.text.length > 0) {
+                    sourceTextArea.text = sourceTextArea.text + " " + clean
+                } else {
+                    sourceTextArea.text = clean
+                }
+            }
+        }
+
         onError_occurred: {
             var errMsg = (typeof message !== "undefined" && message) ? message :
                          ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")

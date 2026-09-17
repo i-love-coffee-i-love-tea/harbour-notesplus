@@ -258,12 +258,16 @@ ApplicationWindow {
         }
     }
 
-    function openAssistant(contextFilename, contextContent, extraContext) {
-        pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), {
+    function openAssistant(contextFilename, contextContent, extraContext, attachedNotes) {
+        var props = {
             contextFilename: contextFilename || "",
             contextContent: contextContent || "",
             extraContext: extraContext || ""
-        })
+        }
+        if (attachedNotes && attachedNotes.length > 0) {
+            props.attachedNotes = attachedNotes
+        }
+        pageStack.push(Qt.resolvedUrl("pages/AssistantPage.qml"), props)
     }
 
     function openAiImport() {

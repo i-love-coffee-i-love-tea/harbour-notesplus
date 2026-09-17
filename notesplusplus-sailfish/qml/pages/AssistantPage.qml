@@ -7,31 +7,121 @@ Page {
     id: assistantPage
     allowedOrientations: Orientation.All
 
+    property var attachedNotes: []
     property string contextFilename: ""
     property string contextContent: ""
     property string extraContext: ""
 
-    readonly property bool hasContext: (contextFilename.length > 0) || (contextContent.length > 0) || (extraContext.length > 0)
+    readonly property bool hasNote: (attachedNotes && attachedNotes.length > 0) || (contextFilename.length > 0) || (contextContent.length > 0)
+    readonly property bool hasContext: hasNote || (extraContext.length > 0)
     property bool hasContextOrInput: hasContext || (promptBar && promptBar.text && promptBar.text.trim().length > 0)
 
-    function attachNote(filename, content) {
-        contextFilename = filename
-        contextContent = content
-        agentBridge.reset_session(contextFilename, contextContent, extraContext)
-        remorsePopup.execute(qsTr("Attached note: %1").arg(filename), function() {})
+    function getCombinedNotesContent() {
+        if (!attachedNotes || attachedNotes.length === 0) {
+            return contextContent || ""
+        }
+        if (attachedNotes.length === 1) {
+            return attachedNotes[0].content || ""
+        }
+        var parts = []
+        for (var i = 0; i < attachedNotes.length; i++) {
+            var n = attachedNotes[i]
+            var titleOrFn = (n.title && n.title.length > 0) ? n.title : n.filename
+            parts.push("=== Note: " + titleOrFn + " (" + n.filename + ") ===\n" + (n.content || ""))
+        }
+        return parts.join("\n\n")
     }
 
-    function detachNote() {
-        contextFilename = ""
-        contextContent = ""
-        agentBridge.reset_session("", "", extraContext)
-        remorsePopup.execute(qsTr("Detached note context"), function() {})
+    function getCombinedFilenames() {
+        if (!attachedNotes || attachedNotes.length === 0) {
+            return contextFilename || ""
+        }
+        var names = []
+        for (var i = 0; i < attachedNotes.length; i++) {
+            names.push(attachedNotes[i].filename)
+        }
+        return names.join(", ")
+    }
+
+    function syncSessionContext(resetAgentSession) {
+        if (resetAgentSession === undefined) resetAgentSession = true
+        contextFilename = getCombinedFilenames()
+        contextContent = getCombinedNotesContent()
+        if (resetAgentSession && typeof agentBridge !== "undefined" && agentBridge) {
+            agentBridge.reset_session(contextFilename, contextContent, extraContext)
+        }
+    }
+
+    function attachNote(filename, content, title) {
+        if (!filename && !content) return
+        var found = false
+        var updated = []
+        var curNotes = attachedNotes ? attachedNotes.slice(0) : []
+        for (var i = 0; i < curNotes.length; i++) {
+            if (curNotes[i].filename === filename) {
+                updated.push({
+                    filename: filename,
+                    title: title || curNotes[i].title || filename,
+                    content: content
+                })
+                found = true
+            } else {
+                updated.push(curNotes[i])
+            }
+        }
+        if (!found) {
+            updated.push({
+                filename: filename,
+                title: title || filename,
+                content: content
+            })
+        }
+        attachedNotes = updated
+        syncSessionContext(true)
+        remorsePopup.execute(qsTr("Attached note: %1").arg(title || filename), function() {})
+    }
+
+    function setAttachedNotes(notesList) {
+        attachedNotes = notesList || []
+        syncSessionContext(true)
+        if (attachedNotes.length === 1) {
+            remorsePopup.execute(qsTr("Attached note: %1").arg(attachedNotes[0].title || attachedNotes[0].filename), function() {})
+        } else if (attachedNotes.length > 1) {
+            remorsePopup.execute(qsTr("Attached %1 notes").arg(attachedNotes.length), function() {})
+        } else {
+            remorsePopup.execute(qsTr("Detached note context"), function() {})
+        }
+    }
+
+    function detachNote(filename, index) {
+        var updated = []
+        var detachedName = filename || ""
+        var curNotes = attachedNotes ? attachedNotes.slice(0) : []
+        for (var i = 0; i < curNotes.length; i++) {
+            if (index !== undefined && index !== null && index >= 0) {
+                if (i === index) {
+                    detachedName = curNotes[i].title || curNotes[i].filename
+                    continue
+                }
+            } else if (filename && curNotes[i].filename === filename) {
+                detachedName = curNotes[i].title || curNotes[i].filename
+                continue
+            }
+            updated.push(curNotes[i])
+        }
+        attachedNotes = updated
+        syncSessionContext(true)
+        if (detachedName && detachedName.length > 0) {
+            remorsePopup.execute(qsTr("Detached note: %1").arg(detachedName), function() {})
+        } else {
+            remorsePopup.execute(qsTr("Detached note context"), function() {})
+        }
     }
 
     function attachClipboard() {
         if (Clipboard.text && Clipboard.text.length > 0) {
             extraContext = Clipboard.text
-            agentBridge.reset_session(contextFilename, contextContent, extraContext)
+            syncSessionContext(true)
             remorsePopup.execute(qsTr("Attached clipboard context"), function() {})
         } else {
             remorsePopup.execute(qsTr("Clipboard is empty"), function() {})
@@ -40,29 +130,75 @@ Page {
 
     function detachExtraContext() {
         extraContext = ""
-        agentBridge.reset_session(contextFilename, contextContent, "")
+        syncSessionContext(true)
         remorsePopup.execute(qsTr("Detached clipboard context"), function() {})
     }
 
     function clearAllContext() {
+        attachedNotes = []
         contextFilename = ""
         contextContent = ""
         extraContext = ""
-        agentBridge.reset_session("", "", "")
+        if (typeof agentBridge !== "undefined" && agentBridge) {
+            agentBridge.reset_session("", "", "")
+        }
         remorsePopup.execute(qsTr("Cleared all context"), function() {})
     }
 
     function openAttachNoteDialog() {
+        var preselected = []
+        var curNotes = attachedNotes || []
+        for (var i = 0; i < curNotes.length; i++) {
+            preselected.push(curNotes[i].filename)
+        }
         var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
-            mode: "select"
+            mode: "select",
+            allowMultiple: true,
+            selectedFilenames: preselected
         })
         dialog.accepted.connect(function() {
-            var fn = dialog.targetPageFilename
-            if (fn && fn.length > 0) {
-                var content = bridge.get_page_source(fn)
-                assistantPage.attachNote(fn, content)
+            if (dialog.selectedPages && dialog.selectedPages.length > 0) {
+                var notesToAdd = []
+                for (var i = 0; i < dialog.selectedPages.length; i++) {
+                    var fn = dialog.selectedPages[i].filename
+                    if (fn && fn.length > 0) {
+                        var content = bridge.get_page_source(fn)
+                        notesToAdd.push({
+                            filename: fn,
+                            title: dialog.selectedPages[i].title || fn.replace(/\.adoc$/, ""),
+                            content: content
+                        })
+                    }
+                }
+                assistantPage.setAttachedNotes(notesToAdd)
+            } else if (dialog.targetPageFilename && dialog.targetPageFilename.length > 0) {
+                var fn2 = dialog.targetPageFilename
+                var content2 = bridge.get_page_source(fn2)
+                assistantPage.attachNote(fn2, content2, dialog.targetPageTitle || fn2)
             }
         })
+    }
+
+    Component.onCompleted: {
+        if ((!attachedNotes || attachedNotes.length === 0) && (contextFilename.length > 0 || contextContent.length > 0)) {
+            attachedNotes = [{
+                filename: contextFilename,
+                title: contextFilename.replace(/\.adoc$/, ""),
+                content: contextContent
+            }]
+            syncSessionContext(false)
+        }
+    }
+
+    function appendTranscribedText(text) {
+        if (!text || text.trim().length === 0) return
+        var clean = text.trim()
+        if (promptBar.text.length > 0) {
+            promptBar.text = promptBar.text + " " + clean
+        } else {
+            promptBar.text = clean
+        }
+        assistantPage.scrollToBottom()
     }
 
     // Speech capture state comes from SpeechBridge (native 16 kHz mono WAV recorder).
@@ -146,25 +282,14 @@ Page {
         }
     }
 
-    // Dsnote-style property binding: QML re-evaluates this when the NOTIFY
-    // signal (transcription_completed) fires, so no signal parameter needed.
-    property string pendingTranscription: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.last_transcription : ""
-    onPendingTranscriptionChanged: {
-        if (assistantPage.status !== PageStatus.Active) return
-        var trans = pendingTranscription
-        if (trans && trans.trim().length > 0) {
-            var clean = trans.trim()
-            if (promptBar.text.length > 0) {
-                promptBar.text = promptBar.text + " " + clean
-            } else {
-                promptBar.text = clean
-            }
-            assistantPage.scrollToBottom()
-        }
-    }
-
     Connections {
         target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
+
+        onTranscription_completed: function(text) {
+            if (assistantPage.status !== PageStatus.Active) return
+            assistantPage.appendTranscribedText(text)
+        }
+
         onError_occurred: {
             var errMsg = (typeof message !== "undefined" && message) ? message :
                          ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")
@@ -255,31 +380,24 @@ Page {
             PageHeader {
                 title: qsTr("AI Assistant")
                 description: {
-                    if (assistantPage.hasContext) {
-                        if (contextFilename.length > 0 && extraContext.length > 0) {
-                            return qsTr("Context: %1 + Clipboard").arg(contextFilename)
-                        } else if (contextFilename.length > 0) {
-                            return qsTr("Context: %1").arg(contextFilename)
-                        } else {
-                            return qsTr("Context: Clipboard text")
-                        }
+                    var noteCount = assistantPage.attachedNotes ? assistantPage.attachedNotes.length : 0
+                    var hasClip = assistantPage.extraContext.length > 0
+                    if (noteCount > 1) {
+                        return hasClip ? qsTr("Context: %1 notes + Clipboard").arg(noteCount)
+                                       : qsTr("Context: %1 notes").arg(noteCount)
+                    } else if (noteCount === 1) {
+                        var fn = assistantPage.attachedNotes[0].title || assistantPage.attachedNotes[0].filename
+                        return hasClip ? qsTr("Context: %1 + Clipboard").arg(fn)
+                                       : qsTr("Context: %1").arg(fn)
+                    } else if (assistantPage.contextFilename.length > 0) {
+                        return hasClip ? qsTr("Context: %1 + Clipboard").arg(assistantPage.contextFilename)
+                                       : qsTr("Context: %1").arg(assistantPage.contextFilename)
+                    } else if (hasClip) {
+                        return qsTr("Context: Clipboard text")
                     } else {
                         return qsTr("No context attached")
                     }
                 }
-            }
-
-            // Context Display Card (shows attached note/clipboard or explicit "No context" state with attach actions)
-            AiContextCard {
-                contextFilename: assistantPage.contextFilename
-                contextContent: assistantPage.contextContent
-                extraContext: assistantPage.extraContext
-                agentBusy: agentBridge.agent_busy
-                onAttachNoteRequested: assistantPage.openAttachNoteDialog()
-                onDetachNoteRequested: assistantPage.detachNote()
-                onAttachClipboardRequested: assistantPage.attachClipboard()
-                onDetachExtraContextRequested: assistantPage.detachExtraContext()
-                onClearAllContextRequested: assistantPage.clearAllContext()
             }
 
             // Chat Messages & Streaming View
@@ -294,13 +412,13 @@ Page {
                         assistantPage.scrollToBottom()
                     }
                 }
+                onCancelRequested: agentBridge.cancel_operation()
             }
 
             // Undo Banner
             UndoBanner {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Theme.horizontalPageMargin
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
                 visible: agentBridge.can_undo
                 onUndoTriggered: {
                     agentBridge.undo_last_action()
@@ -309,9 +427,8 @@ Page {
 
             // Pending Confirmation Card
             ConfirmationCard {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Theme.horizontalPageMargin
+                width: parent.width - Theme.horizontalPageMargin * 2
+                anchors.horizontalCenter: parent.horizontalCenter
                 visible: agentBridge.has_pending_action
                 actionData: {
                     try {
@@ -325,29 +442,52 @@ Page {
                 }
             }
 
-            // Quick Preset & Custom Action Instructions
-            AiTemplateBar {
-                id: templateBar
-                enabled: !agentBridge.agent_busy
+            // Integrated Prompt Bar & Context Actions
+            AiPromptBar {
+                id: promptBar
                 agentBusy: agentBridge.agent_busy
-                hasContextOrInput: assistantPage.hasContextOrInput
-                onExpandedChanged: {
+                attachedNotes: assistantPage.attachedNotes
+                contextFilename: assistantPage.contextFilename
+                contextContent: assistantPage.contextContent
+                extraContext: assistantPage.extraContext
+                isSpeechRecording: assistantPage.isSpeechRecording
+                isSpeechTranscribing: assistantPage.isSpeechTranscribing
+                liveAudioLevel: assistantPage.liveAudioLevel
+                liveWaveform: assistantPage.liveWaveform
+                sttEnabled: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
+                onShowInstructionsChanged: {
                     assistantPage.scrollToBottom()
                 }
+                onSubmitPrompt: function(txt) {
+                    assistantPage.applyConfig()
+                    agentBridge.send_prompt(txt)
+                    promptBar.text = ""
+                    assistantPage.scrollToBottom()
+                }
+                onToggleMic: assistantPage.handleMicClick()
+                onCancelRecording: assistantPage.cancelActiveRecording()
+                onAttachNoteRequested: assistantPage.openAttachNoteDialog()
+                onDetachNoteRequested: function(filename, index) {
+                    assistantPage.detachNote(filename, index)
+                }
+                onAttachClipboardRequested: assistantPage.attachClipboard()
+                onDetachExtraContextRequested: assistantPage.detachExtraContext()
+                onClearAllContextRequested: assistantPage.clearAllContext()
                 onInstructionSelected: function(item) {
                     if (!assistantPage.hasContextOrInput) {
                         assistantPage.openAttachNoteDialog()
                         return
                     }
                     assistantPage.applyConfig()
-                    var ctx = contextContent
-                    if (extraContext.length > 0) {
-                        ctx = ctx.length > 0 ? (ctx + "\n\n" + extraContext) : extraContext
+                    var ctx = assistantPage.getCombinedNotesContent()
+                    if (assistantPage.extraContext.length > 0) {
+                        ctx = ctx.length > 0 ? (ctx + "\n\n" + assistantPage.extraContext) : assistantPage.extraContext
                     }
+                    var fn = assistantPage.getCombinedFilenames()
                     if (item.instruction && item.instruction.length > 0) {
-                        agentBridge.run_custom_instruction(item.instruction, promptBar.text, contextFilename, ctx)
+                        agentBridge.run_custom_instruction(item.instruction, promptBar.text, fn, ctx)
                     } else if (item.id) {
-                        agentBridge.run_template(item.id, promptBar.text, contextFilename, ctx)
+                        agentBridge.run_template(item.id, promptBar.text, fn, ctx)
                     }
                     promptBar.text = ""
                     assistantPage.scrollToBottom()
@@ -368,26 +508,6 @@ Page {
                         "isEdit": true
                     })
                 }
-            }
-
-            // Input Bar with Mic & Live Waveform
-            AiPromptBar {
-                id: promptBar
-                agentBusy: agentBridge.agent_busy
-                isSpeechRecording: assistantPage.isSpeechRecording
-                isSpeechTranscribing: assistantPage.isSpeechTranscribing
-                liveAudioLevel: assistantPage.liveAudioLevel
-                liveWaveform: assistantPage.liveWaveform
-                sttEnabled: (typeof app !== "undefined" && app.sttEnabled !== undefined) ? app.sttEnabled : true
-                onSubmitPrompt: function(txt) {
-                    assistantPage.applyConfig()
-                    agentBridge.send_prompt(txt)
-                    promptBar.text = ""
-                    assistantPage.scrollToBottom()
-                }
-                onToggleMic: assistantPage.handleMicClick()
-                onCancelRecording: assistantPage.cancelActiveRecording()
-                onCancelOperation: agentBridge.cancel_operation()
             }
         }
     }

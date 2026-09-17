@@ -92,9 +92,8 @@ void AgentBridge::reportError(const QString &msg)
 void AgentBridge::beginOperation()
 {
     m_agentBusy = true;
+    m_errorMessage.clear();
     m_streamingText.clear();
-    m_streamingActivity = false;
-    m_completionIdleRetries = 0;
     emit busy_changed();
     emit streaming_text_changed();
 }
@@ -116,102 +115,45 @@ void AgentBridge::appendUserMessage(const QString &text)
     emit messages_changed();
 }
 
+void AgentBridge::appendAssistantMessage(const QString &text)
+{
+    if (text.trimmed().isEmpty()) return;
+    QJsonDocument doc = QJsonDocument::fromJson(m_messagesJson.toUtf8());
+    QJsonArray arr = doc.isArray() ? doc.array() : QJsonArray();
+
+    QJsonObject asstMsg;
+    asstMsg[QStringLiteral("role")]    = QStringLiteral("assistant");
+    asstMsg[QStringLiteral("content")] = text;
+    arr.append(asstMsg);
+
+    m_messagesJson = QString::fromUtf8(
+        QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    emit messages_changed();
+}
+
 /* ================================================================== */
-/* Streaming callback (called from Rust worker thread)                 */
+/* Streaming callback (called from worker thread)                      */
 /* ================================================================== */
 
-static void agentStreamingTokenCallback(void *userData, const char *token, int isDone)
+static void agentStreamingTokenCallback(void *userData, const char *token, int /*isDone*/)
 {
     AgentBridge *bridge = static_cast<AgentBridge*>(userData);
-    if (!bridge) return;
+    if (!bridge || !token) return;
 
-    if (token) {
-        QString tokenStr = QString::fromUtf8(token);
-        QTimer::singleShot(0, bridge, [bridge, tokenStr]() {
-            bridge->appendStreamingToken(tokenStr);
-        });
-    }
-    if (isDone) {
-        QTimer::singleShot(0, bridge, [bridge]() {
-            bridge->handleAgentCompletion();
-        });
-    }
+    QString tokenStr = QString::fromUtf8(token);
+    QMetaObject::invokeMethod(bridge, "appendStreamingToken",
+                              Qt::QueuedConnection,
+                              Q_ARG(QString, tokenStr));
 }
 
 void AgentBridge::appendStreamingToken(const QString &token)
 {
     m_streamingText += token;
-    m_streamingActivity = true;
     emit streaming_text_changed();
-}
-
-/* Called (via QTimer::singleShot) when the streaming callback reports
- * isDone. Polls the Rust side for the final result.  In multi-step
- * operations (tool calls), isDone fires after each LLM turn, but the
- * agent continues executing.  We keep polling as long as streaming
- * tokens keep arriving (m_streamingActivity resets the deadline).
- * Once tokens stop, we wait up to 2 s for the final result. */
-void AgentBridge::handleAgentCompletion()
-{
-    if (!m_session) return;
-
-    char *outJson = nullptr;
-    int status = notes_core_agent_poll(m_session.get(), &outJson);
-
-    if (status == 0) {
-        /* Still running — check if tokens are still arriving. */
-        if (m_streamingActivity) {
-            /* New tokens arrived since the last check — the agent is
-             * actively working (e.g., executing tools).  Reset and
-             * retry soon. */
-            m_streamingActivity = false;
-            m_completionIdleRetries = 0;
-            QTimer::singleShot(50, this, [this]() {
-                handleAgentCompletion();
-            });
-        } else {
-            /* No new tokens — give the agent up to 2 s to finish. */
-            if (m_completionIdleRetries < 40) {   // 40 × 50 ms = 2 s
-                ++m_completionIdleRetries;
-                QTimer::singleShot(50, this, [this]() {
-                    handleAgentCompletion();
-                });
-            } else {
-                m_completionIdleRetries = 0;
-                /* Timed out — force completion. */
-                m_agentBusy = false;
-                m_streamingText.clear();
-                emit streaming_text_changed();
-                emit busy_changed();
-            }
-        }
-        return;
-    }
-
-    /* status == 1 (success) or status == -1 (error) — done. */
-    m_completionIdleRetries = 0;
-
-    QString resultJson;
-    if (status == 1 && outJson) {
-        resultJson = ffiStringToQString(outJson);
-    }
-
-    if (!resultJson.isEmpty()) {
-        processAgentResult(resultJson);
-    }
-
-    m_agentBusy = false;
-    m_streamingText.clear();
-    emit streaming_text_changed();
-    emit busy_changed();
-
-    if (status == -1) {
-        reportError(QStringLiteral("Agent operation failed"));
-    }
 }
 
 /* ================================================================== */
-/* Start an agent send (streaming) — tokens arrive via callback.       */
+/* Start an agent send (streaming) — runs directly on worker thread.   */
 /* ================================================================== */
 
 void AgentBridge::sendInBackground(const QString &prompt)
@@ -219,12 +161,39 @@ void AgentBridge::sendInBackground(const QString &prompt)
     beginOperation();
 
     QtConcurrent::run([this, prompt]() {
-        notes_core_agent_send_streaming(
+        char *resultRaw = notes_core_agent_send_streaming_direct(
             m_session.get(),
             qstrToFFI(prompt),
             &agentStreamingTokenCallback,
             this);
+
+        QString resultJson;
+        if (resultRaw) {
+            resultJson = ffiStringToQString(resultRaw);
+        }
+
+        QMetaObject::invokeMethod(this, "handleSendResult",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, resultJson));
     });
+}
+
+void AgentBridge::handleSendResult(const QString &resultJson)
+{
+    if (!m_agentBusy) return;
+
+    if (!resultJson.isEmpty()) {
+        processAgentResult(resultJson);
+    } else {
+        if (!m_streamingText.trimmed().isEmpty()) {
+            appendAssistantMessage(m_streamingText);
+        }
+        reportError(QStringLiteral("Agent returned empty response"));
+    }
+    m_agentBusy = false;
+    m_streamingText.clear();
+    emit streaming_text_changed();
+    emit busy_changed();
 }
 
 /* Format a prompt with optional context (active note content).
@@ -340,58 +309,6 @@ void AgentBridge::processAgentResult(const QString &resultJson)
         reportError(errMsg);
     }
     // type == "RequiresConfirmation" → pending_action already updated above
-}
-
-/* ================================================================== */
-/* One-shot completion handler for fetch/undo/confirm workers.         */
-/* Called once via QTimer::singleShot from the worker thread.          */
-/* ================================================================== */
-
-void AgentBridge::handleWorkerCompletion()
-{
-    /* ---- 1. Check fetch-worker result (URL / file) ---- */
-    {
-        QMutexLocker lock(&m_fetchMutex);
-        if (m_fetchReady) {
-            m_fetchReady = false;
-            bool ok       = m_fetchSuccess;
-            QString data  = m_fetchContent;
-            lock.unlock();
-
-            m_isFetching = false;
-            emit fetching_changed();
-            if (ok) {
-                emit fetch_completed(data);
-            } else {
-                emit fetch_error(data);
-            }
-        }
-    }
-
-    /* ---- 2. Check undo-worker result ---- */
-    {
-        QMutexLocker lock(&m_undoMutex);
-        if (m_undoReady) {
-            m_undoReady = false;
-            bool ok        = m_undoSuccess;
-            QString msg    = m_undoMessage;
-            lock.unlock();
-
-            if (ok) {
-                // Get updated session state
-                char *pollJson = nullptr;
-                int ps = notes_core_agent_poll(m_session.get(), &pollJson);
-                if (ps == 1 && pollJson) {
-                    processAgentResult(ffiStringToQString(pollJson));
-                }
-                emit undo_completed(msg);
-            } else {
-                reportError(msg);
-            }
-            m_agentBusy = false;
-            emit busy_changed();
-        }
-    }
 }
 
 /* ================================================================== */
@@ -544,28 +461,33 @@ void AgentBridge::fetch_url_content(QString url)
     m_isFetching = true;
     emit fetching_changed();
 
-    {
-        QMutexLocker lock(&m_fetchMutex);
-        m_fetchReady = false;
-    }
-
     QtConcurrent::run([this, url]() {
         char *raw = notes_core_fetch_url(qstrToFFI(url));
-
-        QMutexLocker lock(&m_fetchMutex);
+        QString data;
+        bool ok = false;
         if (raw) {
-            m_fetchContent = ffiStringToQString(raw);
-            m_fetchSuccess = true;
+            data = ffiStringToQString(raw);
+            ok = true;
         } else {
-            m_fetchContent = QStringLiteral("Error: fetch returned null");
-            m_fetchSuccess = false;
+            data = QStringLiteral("Error: fetch returned null");
         }
-        m_fetchReady = true;
 
-        QTimer::singleShot(0, this, [this]() {
-            this->handleWorkerCompletion();
-        });
+        QMetaObject::invokeMethod(this, "handleFetchUrlResult",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, data),
+                                  Q_ARG(bool, ok));
     });
+}
+
+void AgentBridge::handleFetchUrlResult(const QString &data, bool ok)
+{
+    m_isFetching = false;
+    emit fetching_changed();
+    if (ok) {
+        emit fetch_completed(data);
+    } else {
+        emit fetch_error(data);
+    }
 }
 
 /* ================================================================== */
@@ -588,11 +510,6 @@ void AgentBridge::read_local_file(QString file_path)
     m_isFetching = true;
     emit fetching_changed();
 
-    {
-        QMutexLocker lock(&m_fetchMutex);
-        m_fetchReady = false;
-    }
-
     QtConcurrent::run([this, p]() {
         /* Resolve ~ to home directory */
         QString expanded = p;
@@ -609,45 +526,54 @@ void AgentBridge::read_local_file(QString file_path)
         QFileInfo fi(expanded);
         QString canonical = fi.canonicalFilePath();
         if (canonical.isEmpty()) {
-            QMutexLocker lock(&m_fetchMutex);
-            m_fetchContent = QStringLiteral("Error: could not resolve path: ") + expanded;
-            m_fetchSuccess = false;
-            m_fetchReady   = true;
+            QString err = QStringLiteral("Error: could not resolve path: ") + expanded;
+            QMetaObject::invokeMethod(this, "handleReadLocalFileResult",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(QString, err),
+                                      Q_ARG(bool, false));
             return;
         }
 
         /* Containment check — must be inside notes_dir */
         if (!canonical.startsWith(notesDir)) {
-            QMutexLocker lock(&m_fetchMutex);
-            m_fetchContent = QStringLiteral(
-                "Error: access denied — file is outside the notes directory");
-            m_fetchSuccess = false;
-            m_fetchReady   = true;
+            QString err = QStringLiteral("Error: access denied — file is outside the notes directory");
+            QMetaObject::invokeMethod(this, "handleReadLocalFileResult",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(QString, err),
+                                      Q_ARG(bool, false));
             return;
         }
 
         /* Read the file */
         QFile file(canonical);
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            QMutexLocker lock(&m_fetchMutex);
-            m_fetchContent = QStringLiteral("Error reading file: ")
-                             + file.errorString();
-            m_fetchSuccess = false;
-            m_fetchReady   = true;
+            QString err = QStringLiteral("Error reading file: ") + file.errorString();
+            QMetaObject::invokeMethod(this, "handleReadLocalFileResult",
+                                      Qt::QueuedConnection,
+                                      Q_ARG(QString, err),
+                                      Q_ARG(bool, false));
             return;
         }
 
-        QString content = QString::fromUtf8(file.readAll());
+        QString data = QString::fromUtf8(file.readAll());
+        file.close();
 
-        QMutexLocker lock(&m_fetchMutex);
-        m_fetchContent = content;
-        m_fetchSuccess = true;
-        m_fetchReady   = true;
-
-        QTimer::singleShot(0, this, [this]() {
-            this->handleWorkerCompletion();
-        });
+        QMetaObject::invokeMethod(this, "handleReadLocalFileResult",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, data),
+                                  Q_ARG(bool, true));
     });
+}
+
+void AgentBridge::handleReadLocalFileResult(const QString &data, bool ok)
+{
+    m_isFetching = false;
+    emit fetching_changed();
+    if (ok) {
+        emit fetch_completed(data);
+    } else {
+        emit fetch_error(data);
+    }
 }
 
 /* ================================================================== */
@@ -661,27 +587,41 @@ void AgentBridge::confirm_action(bool approved)
 
     beginOperation();
 
-    QtConcurrent::run([this, approved]() {
-        notes_core_agent_confirm(m_session.get(), approved ? 1 : 0);
+    int approvedInt = approved ? 1 : 0;
+    QtConcurrent::run([this, approvedInt]() {
+        char *resultRaw = notes_core_agent_confirm_streaming_direct(
+            m_session.get(),
+            approvedInt,
+            &agentStreamingTokenCallback,
+            this);
 
-        /* Fetch final result immediately — confirm is a one-shot operation,
-         * no streaming callback to deliver it. */
-        char *outJson = nullptr;
-        int status = notes_core_agent_poll(m_session.get(), &outJson);
-        if (status == 1 && outJson) {
-            QString resultJson = ffiStringToQString(outJson);
-            QTimer::singleShot(0, this, [this, resultJson]() {
-                processAgentResult(resultJson);
-                m_agentBusy = false;
-                emit busy_changed();
-            });
-        } else {
-            QTimer::singleShot(0, this, [this]() {
-                m_agentBusy = false;
-                emit busy_changed();
-            });
+        QString resultJson;
+        if (resultRaw) {
+            resultJson = ffiStringToQString(resultRaw);
         }
+
+        QMetaObject::invokeMethod(this, "handleConfirmResult",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, resultJson));
     });
+}
+
+void AgentBridge::handleConfirmResult(const QString &resultJson)
+{
+    if (!m_agentBusy) return;
+
+    if (!resultJson.isEmpty()) {
+        processAgentResult(resultJson);
+    } else {
+        if (!m_streamingText.trimmed().isEmpty()) {
+            appendAssistantMessage(m_streamingText);
+        }
+        reportError(QStringLiteral("Confirmation returned empty response"));
+    }
+    m_agentBusy = false;
+    m_streamingText.clear();
+    emit streaming_text_changed();
+    emit busy_changed();
 }
 
 /* ================================================================== */
@@ -695,28 +635,32 @@ void AgentBridge::undo_last_action()
 
     beginOperation();
 
-    {
-        QMutexLocker lock(&m_undoMutex);
-        m_undoReady = false;
-    }
-
     QtConcurrent::run([this]() {
-        char *raw = notes_core_agent_undo(m_session.get());
+        char *resultRaw = notes_core_agent_undo_direct(m_session.get());
 
-        QMutexLocker lock(&m_undoMutex);
-        if (raw) {
-            m_undoMessage = ffiStringToQString(raw);
-            m_undoSuccess = true;
-        } else {
-            m_undoMessage = QStringLiteral("Undo returned no message");
-            m_undoSuccess = false;
+        QString resultJson;
+        if (resultRaw) {
+            resultJson = ffiStringToQString(resultRaw);
         }
-        m_undoReady = true;
 
-        QTimer::singleShot(0, this, [this]() {
-            this->handleWorkerCompletion();
-        });
+        QMetaObject::invokeMethod(this, "handleUndoResult",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, resultJson));
     });
+}
+
+void AgentBridge::handleUndoResult(const QString &resultJson)
+{
+    if (!m_agentBusy) return;
+
+    if (!resultJson.isEmpty()) {
+        processAgentResult(resultJson);
+        emit undo_completed(QStringLiteral("Action undone"));
+    } else {
+        reportError(QStringLiteral("Undo failed"));
+    }
+    m_agentBusy = false;
+    emit busy_changed();
 }
 
 /* ================================================================== */
@@ -726,6 +670,10 @@ void AgentBridge::undo_last_action()
 void AgentBridge::cancel_operation()
 {
     if (!m_agentBusy) return;
+
+    if (!m_streamingText.trimmed().isEmpty()) {
+        appendAssistantMessage(m_streamingText);
+    }
 
     m_agentBusy = false;
     m_streamingText.clear();

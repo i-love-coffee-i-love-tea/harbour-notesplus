@@ -35,37 +35,44 @@ Rectangle {
         }
         spacing: Theme.paddingSmall
 
-        // Header Row
-        Row {
+        // Header with Title and optional Clear All Action
+        Item {
             width: parent.width
-            spacing: Theme.paddingSmall
+            height: Theme.itemSizeExtraSmall
 
-            Icon {
-                source: contextCard.hasContext ? "image://theme/icon-m-attach" : "image://theme/icon-m-about"
-                width: Theme.iconSizeSmall
-                height: Theme.iconSizeSmall
-                color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
+            Row {
+                anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.paddingSmall
+
+                Icon {
+                    source: contextCard.hasContext ? "image://theme/icon-m-attach" : "image://theme/icon-m-about"
+                    width: Theme.iconSizeSmall
+                    height: Theme.iconSizeSmall
+                    color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Label {
+                    text: contextCard.hasContext ? qsTr("Attached Context") : qsTr("Context")
+                    font.bold: true
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
 
-            Label {
-                text: contextCard.hasContext ? qsTr("Attached Context") : qsTr("No Context Attached")
-                font.bold: true
-                font.pixelSize: Theme.fontSizeSmall
-                color: contextCard.hasContext ? Theme.primaryColor : Theme.secondaryColor
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - (contextCard.hasContext ? (clearAllBtn.width + Theme.iconSizeSmall + Theme.paddingMedium * 2) : (Theme.iconSizeSmall + Theme.paddingSmall))
-                truncationMode: TruncationMode.Fade
-            }
-
-            Button {
+            IconButton {
                 id: clearAllBtn
-                text: qsTr("Detach All")
-                preferredWidth: Theme.buttonWidthExtraSmall
+                icon.source: "image://theme/icon-m-clear"
+                icon.width: Theme.iconSizeSmall
+                icon.height: Theme.iconSizeSmall
+                width: Theme.itemSizeExtraSmall
                 height: Theme.itemSizeExtraSmall
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 visible: contextCard.hasContext
                 enabled: !contextCard.agentBusy
-                anchors.verticalCenter: parent.verticalCenter
                 onClicked: contextCard.clearAllContextRequested()
             }
         }
@@ -213,31 +220,52 @@ Rectangle {
         Label {
             width: parent.width
             visible: !contextCard.hasContext
-            text: qsTr("No note or file is attached to this chat session. The AI Assistant will answer using general knowledge and available note tools (reading, searching, or editing notes as needed).")
+            text: qsTr("No note or clipboard context attached. The AI will answer using general knowledge and available note tools.")
             font.pixelSize: Theme.fontSizeExtraSmall
             color: Theme.secondaryColor
             wrapMode: Text.Wrap
         }
 
-        // Action Buttons Row (Attach Note / Attach Clipboard)
+        // Action Buttons Row (When no context attached)
         Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: Theme.paddingSmall
+            spacing: Theme.paddingMedium
+            visible: !contextCard.hasContext
 
             Button {
-                text: qsTr("📎 Attach Note...")
-                preferredWidth: Theme.buttonWidthExtraSmall
-                height: Theme.itemSizeExtraSmall
+                text: qsTr("Attach Note")
+                preferredWidth: Theme.buttonWidthSmall
                 enabled: !contextCard.agentBusy
                 onClicked: contextCard.attachNoteRequested()
             }
 
             Button {
-                text: qsTr("📋 Attach Clipboard")
-                preferredWidth: Theme.buttonWidthExtraSmall
-                height: Theme.itemSizeExtraSmall
-                enabled: !contextCard.agentBusy && contextCard.extraContext.length === 0
+                text: qsTr("Attach Clipboard")
+                preferredWidth: Theme.buttonWidthSmall
+                enabled: !contextCard.agentBusy
+                onClicked: contextCard.attachClipboardRequested()
+            }
+        }
+
+        // Secondary Action Buttons Row (When partial context is attached)
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Theme.paddingMedium
+            visible: contextCard.hasContext && ((contextCard.contextFilename.length === 0 && contextCard.contextContent.length === 0) || contextCard.extraContext.length === 0)
+
+            Button {
+                text: qsTr("Attach Note")
+                preferredWidth: Theme.buttonWidthSmall
+                visible: contextCard.contextFilename.length === 0 && contextCard.contextContent.length === 0
+                enabled: !contextCard.agentBusy
+                onClicked: contextCard.attachNoteRequested()
+            }
+
+            Button {
+                text: qsTr("Attach Clipboard")
+                preferredWidth: Theme.buttonWidthSmall
                 visible: contextCard.extraContext.length === 0
+                enabled: !contextCard.agentBusy
                 onClicked: contextCard.attachClipboardRequested()
             }
         }

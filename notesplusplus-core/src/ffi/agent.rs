@@ -322,6 +322,165 @@ pub unsafe extern "C" fn notes_core_agent_confirm(
     notes_core_agent_confirm_streaming(ffi, approved, None, std::ptr::null_mut())
 }
 
+/// Send a prompt to the agent with a streaming token callback synchronously on the calling thread.
+/// Returns allocated JSON string with WorkerResult details.
+///
+/// # Safety
+/// `ffi` must point to a valid `FfiAgentSession`. `prompt` must be a valid, null-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn notes_core_agent_send_streaming_direct(
+    ffi: *mut FfiAgentSession,
+    prompt: *const c_char,
+    callback: Option<FfiTokenCallback>,
+    user_data: *mut std::os::raw::c_void,
+) -> *mut c_char {
+    if ffi.is_null() { return std::ptr::null_mut(); }
+    let ffi = &mut *ffi;
+    let prompt_str = cstr_to_string(prompt);
+    let udata_addr = user_data as usize;
+
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let step_result = sess.send_prompt_streaming(&prompt_str, |tok| {
+            if let Some(cb) = callback {
+                let c_tok = string_to_c(tok.to_string());
+                unsafe {
+                    cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
+                    crate::ffi::common::notes_core_free_string(c_tok);
+                }
+            }
+        });
+
+        let messages_json = serde_json::to_string(&sess.messages())
+            .unwrap_or_else(|_| "[]".to_string());
+        let pending_action = sess.pending_action();
+        let can_undo = sess.can_undo();
+        let last_snapshot_id = sess.last_snapshot_id();
+        let last_created_note = sess.last_created_note();
+
+        let (step_type, content, err_msg) = match &step_result {
+            AgentStepResult::Finished { content, .. } => ("Finished", content.clone(), String::new()),
+            AgentStepResult::RequiresConfirmation(_) => ("RequiresConfirmation", String::new(), String::new()),
+            AgentStepResult::Error(e) => ("Error", e.clone(), e.clone()),
+        };
+
+        let json = serde_json::json!({
+            "messages_json": messages_json,
+            "pending_action_json": pending_action.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default()).unwrap_or_default(),
+            "has_pending_action": pending_action.is_some(),
+            "can_undo": can_undo,
+            "last_snapshot_id": last_snapshot_id,
+            "last_created_note": last_created_note,
+            "step_result": {
+                "type": step_type,
+                "content": content,
+            },
+            "error": err_msg,
+        });
+
+        serde_json::to_string(&json).unwrap_or_default()
+    }));
+
+    match res {
+        Ok(json_str) => string_to_c(json_str),
+        Err(_) => {
+            let json = serde_json::json!({
+                "messages_json": "[]",
+                "pending_action_json": "",
+                "has_pending_action": false,
+                "can_undo": false,
+                "last_snapshot_id": null,
+                "last_created_note": null,
+                "step_result": {
+                    "type": "Error",
+                    "content": "Agent panicked during execution",
+                },
+                "error": "Agent panicked during execution",
+            });
+            string_to_c(serde_json::to_string(&json).unwrap_or_default())
+        }
+    }
+}
+
+/// Confirm or deny a pending action with a streaming token callback synchronously on the calling thread.
+/// Returns allocated JSON string with WorkerResult details.
+///
+/// # Safety
+/// `ffi` must point to a valid `FfiAgentSession`.
+#[no_mangle]
+pub unsafe extern "C" fn notes_core_agent_confirm_streaming_direct(
+    ffi: *mut FfiAgentSession,
+    approved: i32,
+    callback: Option<FfiTokenCallback>,
+    user_data: *mut std::os::raw::c_void,
+) -> *mut c_char {
+    if ffi.is_null() { return std::ptr::null_mut(); }
+    let ffi = &mut *ffi;
+    let udata_addr = user_data as usize;
+
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let step_result = sess.confirm_pending_action_streaming(approved != 0, |tok| {
+            if let Some(cb) = callback {
+                let c_tok = string_to_c(tok.to_string());
+                unsafe {
+                    cb(udata_addr as *mut std::os::raw::c_void, c_tok, false);
+                    crate::ffi::common::notes_core_free_string(c_tok);
+                }
+            }
+        });
+
+        let messages_json = serde_json::to_string(&sess.messages())
+            .unwrap_or_else(|_| "[]".to_string());
+        let pending_action = sess.pending_action();
+        let can_undo = sess.can_undo();
+        let last_snapshot_id = sess.last_snapshot_id();
+        let last_created_note = sess.last_created_note();
+
+        let (step_type, content, err_msg) = match &step_result {
+            AgentStepResult::Finished { content, .. } => ("Finished", content.clone(), String::new()),
+            AgentStepResult::RequiresConfirmation(_) => ("RequiresConfirmation", String::new(), String::new()),
+            AgentStepResult::Error(e) => ("Error", e.clone(), e.clone()),
+        };
+
+        let json = serde_json::json!({
+            "messages_json": messages_json,
+            "pending_action_json": pending_action.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default()).unwrap_or_default(),
+            "has_pending_action": pending_action.is_some(),
+            "can_undo": can_undo,
+            "last_snapshot_id": last_snapshot_id,
+            "last_created_note": last_created_note,
+            "step_result": {
+                "type": step_type,
+                "content": content,
+            },
+            "error": err_msg,
+        });
+
+        serde_json::to_string(&json).unwrap_or_default()
+    }));
+
+    match res {
+        Ok(json_str) => string_to_c(json_str),
+        Err(_) => {
+            let json = serde_json::json!({
+                "messages_json": "[]",
+                "pending_action_json": "",
+                "has_pending_action": false,
+                "can_undo": false,
+                "last_snapshot_id": null,
+                "last_created_note": null,
+                "step_result": {
+                    "type": "Error",
+                    "content": "Agent confirmation panicked during execution",
+                },
+                "error": "Agent confirmation panicked during execution",
+            });
+            string_to_c(serde_json::to_string(&json).unwrap_or_default())
+        }
+    }
+}
+
 /// Undo the last agent action. Returns allocated result string.
 #[no_mangle]
 pub extern "C" fn notes_core_agent_undo(
@@ -333,6 +492,72 @@ pub extern "C" fn notes_core_agent_undo(
     match sess.undo_last_action() {
         Ok(msg) => string_to_c(msg),
         Err(e) => ffi_err!(e),
+    }
+}
+
+/// Undo the last agent action directly and return updated session state JSON.
+///
+/// # Safety
+/// `ffi` must point to a valid `FfiAgentSession`.
+#[no_mangle]
+pub unsafe extern "C" fn notes_core_agent_undo_direct(
+    ffi: *mut FfiAgentSession,
+) -> *mut c_char {
+    if ffi.is_null() { return std::ptr::null_mut(); }
+    let ffi = &mut *ffi;
+
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let step_result = sess.undo_last_action();
+        let messages_json = serde_json::to_string(&sess.messages()).unwrap_or_else(|_| "[]".to_string());
+        let pending_action = sess.pending_action();
+        let can_undo = sess.can_undo();
+        let last_snapshot_id = sess.last_snapshot_id();
+        let last_created_note = sess.last_created_note();
+
+        let (step_type, content, err_msg) = match step_result {
+            Ok(msg) => ("Finished", msg, String::new()),
+            Err(e) => {
+                let s = e.to_string();
+                ("Error", s.clone(), s)
+            }
+        };
+
+        let json = serde_json::json!({
+            "messages_json": messages_json,
+            "pending_action_json": pending_action.as_ref().map(|p| serde_json::to_string(p).unwrap_or_default()).unwrap_or_default(),
+            "has_pending_action": pending_action.is_some(),
+            "can_undo": can_undo,
+            "last_snapshot_id": last_snapshot_id,
+            "last_created_note": last_created_note,
+            "step_result": {
+                "type": step_type,
+                "content": content,
+            },
+            "error": err_msg,
+        });
+
+        serde_json::to_string(&json).unwrap_or_default()
+    }));
+
+    match res {
+        Ok(json_str) => string_to_c(json_str),
+        Err(_) => {
+            let json = serde_json::json!({
+                "messages_json": "[]",
+                "pending_action_json": "",
+                "has_pending_action": false,
+                "can_undo": false,
+                "last_snapshot_id": null,
+                "last_created_note": null,
+                "step_result": {
+                    "type": "Error",
+                    "content": "Undo panicked during execution",
+                },
+                "error": "Undo panicked during execution",
+            });
+            string_to_c(serde_json::to_string(&json).unwrap_or_default())
+        }
     }
 }
 

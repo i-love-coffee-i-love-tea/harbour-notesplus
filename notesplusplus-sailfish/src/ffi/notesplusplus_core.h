@@ -167,6 +167,16 @@ char* notes_core_agent_poll_streaming(FfiAgentSession* ffi);
 /* Returns: 0=running, 1=ready, -1=error. On ready, *out_json is set. */
 int   notes_core_agent_poll(FfiAgentSession* ffi, char** out_json);
 int   notes_core_agent_confirm(FfiAgentSession* ffi, int approved);
+int   notes_core_agent_confirm_streaming(
+    FfiAgentSession* ffi, int approved,
+    FfiTokenCallback callback, void* user_data);
+char* notes_core_agent_send_streaming_direct(
+    FfiAgentSession* ffi, const char* prompt,
+    FfiTokenCallback callback, void* user_data);
+char* notes_core_agent_confirm_streaming_direct(
+    FfiAgentSession* ffi, int approved,
+    FfiTokenCallback callback, void* user_data);
+char* notes_core_agent_undo_direct(FfiAgentSession* ffi);
 char* notes_core_agent_undo(FfiAgentSession* ffi);
 void  notes_core_agent_configure(FfiAgentSession* ffi, const char* config_json);
 void  notes_core_agent_reset_session(

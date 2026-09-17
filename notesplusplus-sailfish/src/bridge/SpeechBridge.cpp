@@ -612,9 +612,7 @@ void SpeechBridge::beginTranscription(const QString &path)
         }
         m_transcribeDone.store(true);
 
-        QTimer::singleShot(0, this, [this]() {
-            this->poll_worker();
-        });
+        QMetaObject::invokeMethod(this, "poll_worker", Qt::QueuedConnection);
     });
 
     // Keep poll timer running while transcribing
@@ -751,6 +749,7 @@ bool SpeechBridge::start_recording()
         m_audioLevel = 0.0;
         m_waveformJson = DEFAULT_WAVEFORM_JSON;
         m_errorMessage.clear();
+        m_lastTranscription.clear();
         emit recording_changed();
         emit audio_level_changed();
         if (!m_pollTimer->isActive()) m_pollTimer->start();
