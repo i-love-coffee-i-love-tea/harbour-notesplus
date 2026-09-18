@@ -1,5 +1,6 @@
 """Tests for PDF export engine and layout formatting."""
 import os
+import re
 import tempfile
 import pytest
 from PyQt6.QtCore import QMarginsF, QSizeF
@@ -87,6 +88,39 @@ def patch_pdf_internal_links(pdf_path: str, anchor_positions: dict, left_margin_
 
 def render_html_to_pdf(html: str, output_path: str) -> bool:
     """Render an HTML string to a vector PDF using QPdfWriter and QTextDocument."""
+    # Preprocess title and TOC identically to ExportHelper.cpp
+    html = re.sub(
+        r'<h1(\s+class="document-title"[^>]*)>(.*?)</h1>',
+        r'<div\1>\2</div>',
+        html,
+        flags=re.DOTALL
+    )
+
+    def replace_heading(match):
+        lvl = match.group(1)
+        attrs = match.group(2)
+        content = match.group(3)
+        if 'class="' in attrs:
+            new_attrs = re.sub(r'class="([^"]*)"', rf'class="\1 h{lvl}"', attrs)
+        elif "class='" in attrs:
+            new_attrs = re.sub(r"class='([^']*)'", rf"class='\1 h{lvl}'", attrs)
+        else:
+            new_attrs = attrs + f' class="sect-heading h{lvl} sect{lvl}"'
+        return f'<div{new_attrs}>{content}</div>'
+
+    html = re.sub(r'<h([1-6])(\b[^>]*)>(.*?)</h\1>', replace_heading, html, flags=re.DOTALL)
+
+    def clean_toc(match):
+        toc = match.group(0)
+        toc = re.sub(r'<ul\b[^>]*class="([^"]*)"[^>]*>', r'<div class="\1">', toc)
+        toc = re.sub(r'<ul\b[^>]*>', '<div>', toc)
+        toc = toc.replace('</ul>', '</div>')
+        toc = re.sub(r'<li\b[^>]*>', '<div class="toc-item">', toc)
+        toc = toc.replace('</li>', '</div>')
+        return toc
+
+    html = re.sub(r'<nav\b[^>]*class="toc"[^>]*>.*?</nav>', clean_toc, html, flags=re.DOTALL)
+
     writer = QPdfWriter(output_path)
     writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
     writer.setResolution(300)
@@ -100,8 +134,30 @@ def render_html_to_pdf(html: str, output_path: str) -> bool:
 
     print_css = (
         "body { font-family: sans-serif; font-size: 10pt; color: #222222; }\n"
-        "h1 { font-size: 20pt; font-weight: bold; margin-bottom: 12px; color: #111111; }\n"
-        "h2 { font-size: 15pt; font-weight: bold; margin-top: 14px; margin-bottom: 8px; }\n"
+        ".document-header { border-bottom: 2px solid #24292f; padding-bottom: 6px; margin-bottom: 14px; }\n"
+        ".sect-heading, .document-title, h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 { color: #111111; font-weight: bold; }\n"
+        ".h1, .sect1, h1 { font-size: 15pt; margin-top: 16px; margin-bottom: 6px; border-bottom: 1px solid #d0d7de; padding-bottom: 3px; }\n"
+        ".h1 *, .sect1 *, h1 * { font-size: 15pt; }\n"
+        ".h2, .sect2, h2 { font-size: 13.5pt; margin-top: 14px; margin-bottom: 5px; border-bottom: 1px solid #e1e4e8; padding-bottom: 2px; }\n"
+        ".h2 *, .sect2 *, h2 * { font-size: 13.5pt; }\n"
+        ".h3, .sect3, h3 { font-size: 12pt; margin-top: 12px; margin-bottom: 4px; }\n"
+        ".h3 *, .sect3 *, h3 * { font-size: 12pt; }\n"
+        ".h4, .sect4, h4 { font-size: 11pt; margin-top: 10px; margin-bottom: 3px; }\n"
+        ".h4 *, .sect4 *, h4 * { font-size: 11pt; }\n"
+        ".h5, .sect5, h5 { font-size: 10pt; margin-top: 8px; margin-bottom: 2px; }\n"
+        ".h5 *, .sect5 *, h5 * { font-size: 10pt; }\n"
+        ".h6, .sect6, h6 { font-size: 9.5pt; font-style: italic; margin-top: 8px; margin-bottom: 2px; }\n"
+        ".h6 *, .sect6 *, h6 * { font-size: 9.5pt; }\n"
+        ".document-title { font-size: 18pt; margin-top: 0px; margin-bottom: 4px; }\n"
+        ".document-title * { font-size: 18pt; }\n"
+        ".toc { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 8px 12px; margin-top: 8px; margin-bottom: 14px; }\n"
+        ".toctitle { font-size: 11pt; font-weight: bold; color: #1f2328; margin-bottom: 4px; }\n"
+        ".toc-item { margin-top: 2px; margin-bottom: 2px; font-size: 9.5pt; }\n"
+        ".sectlevel1 { margin-left: 0px; }\n"
+        ".sectlevel2 { margin-left: 15px; }\n"
+        ".sectlevel3 { margin-left: 30px; }\n"
+        ".sectlevel4 { margin-left: 45px; }\n"
+        ".sectlevel5 { margin-left: 60px; }\n"
         "pre, code { font-family: monospace; font-size: 9pt; background-color: #1e1e24; color: #f0f6fc; }\n"
         "table { border-collapse: collapse; width: 100%; margin-top: 8px; margin-bottom: 12px; }\n"
         "th, td { border: 1px solid #cccccc; padding: 5px 8px; font-size: 9pt; }\n"
@@ -599,3 +655,30 @@ def test_chronicles_first_heading_renders_italics(qapp):
         assert "The Dangerous & Thrilling Documentation" in result.stdout
         assert "Chronicles: Based on True Events" in result.stdout
         assert "_Thrilling_" not in result.stdout
+
+        # Verify that the document title height is proportional (~45-50 pt) and does not fill half the page
+        bbox_res = subprocess.run(
+            ["pdftotext", "-f", "1", "-l", "1", "-layout", "-bbox-layout", pdf_out, "-"],
+            capture_output=True,
+            text=True
+        )
+        assert bbox_res.returncode == 0
+        match_the = re.search(r'<word xMin="[0-9.]+" yMin="([0-9.]+)" xMax="[0-9.]+" yMax="[0-9.]+">The</word>', bbox_res.stdout)
+        match_chronicles = re.search(r'<word xMin="[0-9.]+" yMin="[0-9.]+" xMax="[0-9.]+" yMax="([0-9.]+)">Chronicles:</word>', bbox_res.stdout)
+        assert match_the is not None
+        assert match_chronicles is not None
+        title_top = float(match_the.group(1))
+        title_bottom = float(match_chronicles.group(1))
+        title_height = title_bottom - title_top
+        # The title height should be around 50-60 pt, well below 80 pt (not >150 pt as when filling half the page)
+        assert title_height < 80.0
+        # Title bottom should be well above the middle of the A4 page (A4 height is 842 pt; middle is 421 pt)
+        assert title_bottom < 160.0
+
+        # Verify that section headings are scaled proportionally and not oversized (13.5pt font size => ~24.5pt bbox, vs 32.7pt for 18pt title)
+        matches_siege = list(re.finditer(r'<word xMin="[0-9.]+" yMin="([0-9.]+)" xMax="[0-9.]+" yMax="([0-9.]+)">Siege</word>', bbox_res.stdout))
+        assert len(matches_siege) >= 1
+        # Check the section heading occurrence (last occurrence on page 1)
+        siege_match = matches_siege[-1]
+        siege_h = float(siege_match.group(2)) - float(siege_match.group(1))
+        assert siege_h <= 26.0

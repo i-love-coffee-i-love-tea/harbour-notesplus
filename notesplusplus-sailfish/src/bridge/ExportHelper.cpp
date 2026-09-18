@@ -42,43 +42,73 @@ static const char *s_pdfPrintCss =
     "}\n"
     ".document-header {\n"
     "    border-bottom: 2px solid #24292f;\n"
-    "    padding-bottom: 8px;\n"
-    "    margin-bottom: 20px;\n"
+    "    padding-bottom: 6px;\n"
+    "    margin-bottom: 14px;\n"
     "}\n"
-    ".document-title {\n"
-    "    font-size: 24pt;\n"
-    "    font-weight: bold;\n"
-    "    color: #111111;\n"
-    "    margin-top: 0px;\n"
-    "    margin-bottom: 6px;\n"
-    "}\n"
-    "h1, h2, h3, h4, h5, h6 {\n"
+    ".sect-heading, .document-title, h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {\n"
     "    color: #111111;\n"
     "    font-weight: bold;\n"
     "}\n"
-    "h1 {\n"
-    "    font-size: 18pt;\n"
-    "    margin-top: 18px;\n"
-    "    margin-bottom: 8px;\n"
-    "    border-bottom: 1px solid #d0d7de;\n"
-    "    padding-bottom: 4px;\n"
-    "}\n"
-    "h2 {\n"
-    "    font-size: 14pt;\n"
+    ".h1, .sect1, h1 {\n"
+    "    font-size: 15pt;\n"
     "    margin-top: 16px;\n"
-    "    margin-bottom: 8px;\n"
-    "    border-bottom: 1px solid #e1e4e8;\n"
+    "    margin-bottom: 6px;\n"
+    "    border-bottom: 1px solid #d0d7de;\n"
     "    padding-bottom: 3px;\n"
     "}\n"
-    "h3 {\n"
+    ".h1 *, .sect1 *, h1 * {\n"
+    "    font-size: 15pt;\n"
+    "}\n"
+    ".h2, .sect2, h2 {\n"
+    "    font-size: 13.5pt;\n"
+    "    margin-top: 14px;\n"
+    "    margin-bottom: 5px;\n"
+    "    border-bottom: 1px solid #e1e4e8;\n"
+    "    padding-bottom: 2px;\n"
+    "}\n"
+    ".h2 *, .sect2 *, h2 * {\n"
+    "    font-size: 13.5pt;\n"
+    "}\n"
+    ".h3, .sect3, h3 {\n"
     "    font-size: 12pt;\n"
     "    margin-top: 12px;\n"
-    "    margin-bottom: 6px;\n"
-    "}\n"
-    "h4, h5, h6 {\n"
-    "    font-size: 10pt;\n"
-    "    margin-top: 10px;\n"
     "    margin-bottom: 4px;\n"
+    "}\n"
+    ".h3 *, .sect3 *, h3 * {\n"
+    "    font-size: 12pt;\n"
+    "}\n"
+    ".h4, .sect4, h4 {\n"
+    "    font-size: 11pt;\n"
+    "    margin-top: 10px;\n"
+    "    margin-bottom: 3px;\n"
+    "}\n"
+    ".h4 *, .sect4 *, h4 * {\n"
+    "    font-size: 11pt;\n"
+    "}\n"
+    ".h5, .sect5, h5 {\n"
+    "    font-size: 10pt;\n"
+    "    margin-top: 8px;\n"
+    "    margin-bottom: 2px;\n"
+    "}\n"
+    ".h5 *, .sect5 *, h5 * {\n"
+    "    font-size: 10pt;\n"
+    "}\n"
+    ".h6, .sect6, h6 {\n"
+    "    font-size: 9.5pt;\n"
+    "    font-style: italic;\n"
+    "    margin-top: 8px;\n"
+    "    margin-bottom: 2px;\n"
+    "}\n"
+    ".h6 *, .sect6 *, h6 * {\n"
+    "    font-size: 9.5pt;\n"
+    "}\n"
+    ".document-title {\n"
+    "    font-size: 18pt;\n"
+    "    margin-top: 0px;\n"
+    "    margin-bottom: 4px;\n"
+    "}\n"
+    ".document-title * {\n"
+    "    font-size: 18pt;\n"
     "}\n"
     "p {\n"
     "    margin-top: 0px;\n"
@@ -185,15 +215,15 @@ static const char *s_pdfPrintCss =
     ".toc {\n"
     "    background-color: #f6f8fa;\n"
     "    border: 1px solid #d0d7de;\n"
-    "    padding: 10px 14px;\n"
-    "    margin-top: 10px;\n"
-    "    margin-bottom: 16px;\n"
+    "    padding: 8px 12px;\n"
+    "    margin-top: 8px;\n"
+    "    margin-bottom: 14px;\n"
     "}\n"
     ".toctitle {\n"
     "    font-size: 11pt;\n"
     "    font-weight: bold;\n"
     "    color: #1f2328;\n"
-    "    margin-bottom: 6px;\n"
+    "    margin-bottom: 4px;\n"
     "}\n"
     ".toc ul {\n"
     "    list-style: none;\n"
@@ -211,6 +241,16 @@ static const char *s_pdfPrintCss =
     "    margin-bottom: 3px;\n"
     "    font-size: 9.5pt;\n"
     "}\n"
+    ".toc-item {\n"
+    "    margin-top: 2px;\n"
+    "    margin-bottom: 2px;\n"
+    "    font-size: 9.5pt;\n"
+    "}\n"
+    ".sectlevel1 { margin-left: 0px; }\n"
+    ".sectlevel2 { margin-left: 15px; }\n"
+    ".sectlevel3 { margin-left: 30px; }\n"
+    ".sectlevel4 { margin-left: 45px; }\n"
+    ".sectlevel5 { margin-left: 60px; }\n"
     "ul, ol {\n"
     "    margin-top: 0px;\n"
     "    margin-bottom: 8px;\n"
@@ -408,6 +448,61 @@ bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QSt
         QString imgTag = QStringLiteral("<img src=\"data:image/svg+xml;base64,") + b64 + QStringLiteral("\">");
         html.replace(match.capturedStart(0), match.capturedLength(0), imgTag);
         match = svgRegex.match(html);
+    }
+
+    // Convert <h1 class="document-title"...> to <div class="document-title"...>
+    // so QTextDocument does not force hardcoded 20pt h1 font sizing and giant margins.
+    static const QRegularExpression titleH1Regex(
+        QStringLiteral("<h1(\\s+class=\"document-title\"[^>]*)>(.*?)</h1>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    html.replace(titleH1Regex, QStringLiteral("<div\\1>\\2</div>"));
+
+    // Convert section headings <h1...h6> to <div class="hX ..."> so QTextDocument respects
+    // proportional CSS font sizes instead of enforcing its hardcoded 20pt/15pt/12pt heading sizes.
+    static const QRegularExpression headingRegex(
+        QStringLiteral("<h([1-6])(\\b[^>]*)>(.*?)</h\\1>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    int headingOffset = 0;
+    while (true) {
+        QRegularExpressionMatch hMatch = headingRegex.match(html, headingOffset);
+        if (!hMatch.hasMatch())
+            break;
+        QString lvl = hMatch.captured(1);
+        QString attrs = hMatch.captured(2);
+        QString content = hMatch.captured(3);
+        QString newAttrs;
+        if (attrs.contains(QStringLiteral("class=\""))) {
+            newAttrs = attrs;
+            newAttrs.replace(QStringLiteral("class=\""), QStringLiteral("class=\"h") + lvl + QStringLiteral(" "));
+        } else if (attrs.contains(QStringLiteral("class='"))) {
+            newAttrs = attrs;
+            newAttrs.replace(QStringLiteral("class='"), QStringLiteral("class='h") + lvl + QStringLiteral(" "));
+        } else {
+            newAttrs = attrs + QStringLiteral(" class=\"sect-heading sect") + lvl + QStringLiteral(" h") + lvl + QStringLiteral("\"");
+        }
+        QString divTag = QStringLiteral("<div") + newAttrs + QStringLiteral(">") + content + QStringLiteral("</div>");
+        html.replace(hMatch.capturedStart(0), hMatch.capturedLength(0), divTag);
+        headingOffset = hMatch.capturedStart(0) + divTag.length();
+    }
+
+    // In QTextDocument, <ul> and <li> always render disc bullets because QTextDocument
+    // does not support CSS 'list-style: none'. Convert <ul> and <li> inside the TOC
+    // to styled <div> elements to render a clean, professional bulletless table of contents.
+    static const QRegularExpression tocRegex(
+        QStringLiteral("<nav\\b[^>]*class=\"toc\"[^>]*>.*?</nav>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpressionMatch tocMatch = tocRegex.match(html);
+    if (tocMatch.hasMatch()) {
+        QString toc = tocMatch.captured(0);
+        static const QRegularExpression ulRegex(QStringLiteral("<ul\\b[^>]*class=\"([^\"]*)\"[^>]*>"));
+        toc.replace(ulRegex, QStringLiteral("<div class=\"\\1\">"));
+        static const QRegularExpression ulPlainRegex(QStringLiteral("<ul\\b[^>]*>"));
+        toc.replace(ulPlainRegex, QStringLiteral("<div>"));
+        toc.replace(QStringLiteral("</ul>"), QStringLiteral("</div>"));
+        static const QRegularExpression liRegex(QStringLiteral("<li\\b[^>]*>"));
+        toc.replace(liRegex, QStringLiteral("<div class=\"toc-item\">"));
+        toc.replace(QStringLiteral("</li>"), QStringLiteral("</div>"));
+        html.replace(tocMatch.capturedStart(0), tocMatch.capturedLength(0), toc);
     }
 
     const qreal pdfPageHeightPt = 842.0; // Standard A4 height in points
