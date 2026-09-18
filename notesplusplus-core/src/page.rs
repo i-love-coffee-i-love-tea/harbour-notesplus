@@ -815,7 +815,14 @@ pub fn extract_doc_title(content: &str, fallback_filename: &str) -> String {
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("= ") {
-            return trimmed.trim_start_matches("= ").trim().to_string();
+            let raw = trimmed.trim_start_matches("= ").trim();
+            let spans = crate::inline::parse_inline(raw);
+            let plain = spans.iter().map(|s| s.plain_text()).collect::<String>();
+            let plain_trimmed = plain.trim();
+            if !plain_trimmed.is_empty() {
+                return plain_trimmed.to_string();
+            }
+            return raw.to_string();
         }
     }
     fallback_filename.trim_end_matches(".adoc").replace('_', " ")

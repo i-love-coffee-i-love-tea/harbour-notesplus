@@ -705,7 +705,7 @@ impl<'a> HtmlRenderContext<'a> {
         )
     }
 
-    fn render_spans(&mut self, spans: &[InlineSpan]) -> String {
+    pub(crate) fn render_spans(&mut self, spans: &[InlineSpan]) -> String {
         let mut out = String::new();
         for span in spans {
             out.push_str(&self.render_span(span));

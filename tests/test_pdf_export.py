@@ -112,14 +112,14 @@ def render_html_to_pdf(html: str, output_path: str) -> bool:
 
     doc = QTextDocument()
     doc.setDefaultStyleSheet(print_css)
-    paint_size = QSizeF(layout.paintRectPixels(writer.resolution()).size())
+    paint_size = QSizeF(layout.paintRect(QPageLayout.Unit.Point).size())
     doc.setPageSize(paint_size)
     doc.setHtml(html)
 
     # Collect anchor positions
     anchor_positions = {}
     doc_layout = doc.documentLayout()
-    page_height_px = paint_size.height()
+    page_height_pt = paint_size.height()
     pdf_page_height_pt = 842.0
     top_margin_pt = 15.0 * 72.0 / 25.4
     printable_height_pt = pdf_page_height_pt - (top_margin_pt * 2)
@@ -134,9 +134,9 @@ def render_html_to_pdf(html: str, output_path: str) -> bool:
                 names = frag.charFormat().anchorNames()
                 if names:
                     block_top = doc_layout.blockBoundingRect(b).top()
-                    page_idx = int(block_top // page_height_px)
-                    y_on_page = block_top - (page_idx * page_height_px)
-                    ratio = y_on_page / page_height_px if page_height_px > 0 else 0
+                    page_idx = int(block_top // page_height_pt)
+                    y_on_page = block_top - (page_idx * page_height_pt)
+                    ratio = y_on_page / page_height_pt if page_height_pt > 0 else 0
                     pdf_y = (pdf_page_height_pt - top_margin_pt) - (ratio * printable_height_pt)
                     for name in names:
                         if name not in anchor_positions:
@@ -539,3 +539,63 @@ def test_pdf_internal_link_destinations(qapp):
 
         assert b"/Dest" in live_bytes
         assert b"/URI (https://example.org)" in live_bytes
+
+
+def test_pdf_font_sizing_points(qapp):
+    """Verify that body text in generated PDF uses true typography points and is not downscaled."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_out = os.path.join(tmpdir, "font_test.pdf")
+        html = "<!DOCTYPE html><html><body><p>Hello world 10pt test.</p></body></html>"
+        success = render_html_to_pdf(html, pdf_out)
+        assert success is True
+        assert os.path.exists(pdf_out)
+
+        # Check word bounding box layout
+        result = subprocess.run(
+            ["pdftotext", "-f", "1", "-l", "1", "-layout", "-bbox-layout", pdf_out, "-"],
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0
+        # Parse bbox for "Hello"
+        import re
+        match = re.search(r'<word xMin="([0-9.]+)" yMin="([0-9.]+)" xMax="([0-9.]+)" yMax="([0-9.]+)">Hello</word>', result.stdout)
+        assert match is not None
+        ymin = float(match.group(2))
+        ymax = float(match.group(4))
+        height = ymax - ymin
+        # Font height in points must be at least 10 pt (not collapsed to 4 pt)
+        assert height >= 10.0
+
+
+def test_chronicles_first_heading_renders_italics(qapp):
+    """Verify that in chronicles.adoc the first heading renders italic text without literal underscores."""
+    import ctypes, subprocess
+    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    core.notes_core_render_page_html5.restype = ctypes.c_void_p
+
+    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    ptr = core.notes_core_render_page_html5(examples_dir, b"chronicles.adoc")
+    html = ctypes.string_at(ptr).decode("utf-8")
+
+    # Heading must contain <em>Thrilling</em> and not literal _Thrilling_
+    assert "<em>Thrilling</em>" in html
+    assert "_Thrilling_" not in html
+
+    # Document title in <title> must be clean plain text without underscore markup
+    assert "<title>The Dangerous &amp; Thrilling Documentation Chronicles: Based on True Events</title>" in html
+
+    # Render to PDF and verify extracted text
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_out = os.path.join(tmpdir, "chronicles_heading_test.pdf")
+        success = render_html_to_pdf(html, pdf_out)
+        assert success is True
+        assert os.path.exists(pdf_out)
+
+        result = subprocess.run(["pdftotext", pdf_out, "-"], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert "The Dangerous & Thrilling Documentation" in result.stdout
+        assert "Chronicles: Based on True Events" in result.stdout
+        assert "_Thrilling_" not in result.stdout

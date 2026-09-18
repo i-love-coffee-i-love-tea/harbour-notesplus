@@ -101,12 +101,14 @@ pub fn blocks_to_html5_with_search_dirs(
     // It is rendered in the <header class="document-header"> and should not be
     // duplicated as a <h1> in the document body or included in the Table of Contents.
     let mut title_skipped = false;
+    let mut title_spans: Option<Vec<crate::inline::InlineSpan>> = None;
     let filtered_blocks: Vec<Block> = blocks
         .iter()
         .filter(|b| {
             if !title_skipped {
-                if let Block::Heading { level: 1, .. } = b {
+                if let Block::Heading { level: 1, spans, .. } = b {
                     title_skipped = true;
+                    title_spans = Some(spans.clone());
                     return false;
                 }
             }
@@ -115,13 +117,24 @@ pub fn blocks_to_html5_with_search_dirs(
         .cloned()
         .collect();
 
-    // Collect TOC from all blocks (including title) but render body from filtered blocks
-    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, blocks);
+    // Collect TOC and render body from filtered blocks (excluding title)
+    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, &filtered_blocks);
     let body_html = ctx.render_blocks(&filtered_blocks);
     let footnotes_html = ctx.render_footnotes();
 
+    let (title_plain, title_html) = if let Some(spans) = title_spans {
+        let plain = spans.iter().map(|s| s.plain_text()).collect::<String>();
+        let html = ctx.render_spans(&spans);
+        (plain, html)
+    } else {
+        let parsed = crate::inline::parse_inline(&doc_title);
+        let plain = parsed.iter().map(|s| s.plain_text()).collect::<String>();
+        let html = ctx.render_spans(&parsed);
+        (plain, html)
+    };
+
     // Generate an id for the document title so the TOC can link to it
-    let title_id: String = doc_title
+    let title_id: String = title_plain
         .chars()
         .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
         .collect::<String>()
@@ -143,7 +156,7 @@ pub fn blocks_to_html5_with_search_dirs(
 <body class="notes-body">
     <div class="notes-container">
         <header class="document-header">
-            <h1 class="document-title" id="{title_id}">{title}</h1>
+            <h1 class="document-title" id="{title_id}">{title_heading}</h1>
         </header>
         <main class="document-content">
 {body}
@@ -158,7 +171,9 @@ pub fn blocks_to_html5_with_search_dirs(
     </script>
 </body>
 </html>"#,
-        title = escape_html(&doc_title),
+        title = escape_html(&title_plain),
+        title_id = title_id,
+        title_heading = title_html,
         css = DOCUMENT_CSS,
         js = DOCUMENT_JS,
         body = body_html,
@@ -698,5 +713,20 @@ An inline icon image:logo.png[Logo, 32] here.
         assert!(html.contains(r#"height="200""#));
         assert!(html.contains(r#"alt="Wolpertinger""#));
         assert!(html.contains(r#"alt="Logo""#));
+    }
+
+    #[test]
+    fn test_title_heading_with_inline_formatting() {
+        let adoc = "= The Dangerous & _Thrilling_ Documentation Chronicles: Based on True Events\n\nSome body text.";
+        let html = adoc_to_html5(adoc, "", None);
+
+        // Header h1 must contain rendered italics (<em>), not literal _Thrilling_
+        assert!(html.contains("<h1 class=\"document-title\""));
+        assert!(html.contains("The Dangerous &amp; <em>Thrilling</em> Documentation Chronicles: Based on True Events</h1>"));
+        // HTML <title> tag must contain plain text without underscore formatting characters
+        assert!(html.contains("<title>The Dangerous &amp; Thrilling Documentation Chronicles: Based on True Events</title>"));
+        // Extracted doc title via page::extract_doc_title must also be plain text
+        let extracted = crate::page::extract_doc_title(adoc, "chronicles.adoc");
+        assert_eq!(extracted, "The Dangerous & Thrilling Documentation Chronicles: Based on True Events");
     }
 }

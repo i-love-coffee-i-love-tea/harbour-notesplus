@@ -433,7 +433,7 @@ bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QSt
         QTextDocument doc;
         doc.setBaseUrl(QUrl::fromLocalFile(notesPath + QStringLiteral("/")));
         doc.setDefaultStyleSheet(QString::fromLatin1(s_pdfPrintCss));
-        QSizeF paintSize = QSizeF(layout.paintRectPixels(writer.resolution()).size());
+        QSizeF paintSize = QSizeF(layout.paintRect(QPageLayout::Point).size());
         doc.setPageSize(paintSize);
         doc.setHtml(html);
 
@@ -466,7 +466,7 @@ bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QSt
 
         // Collect anchor positions (page index and PDF point Y coordinate)
         QAbstractTextDocumentLayout *docLayout = doc.documentLayout();
-        const qreal pageHeightPx = paintSize.height();
+        const qreal pageHeightPt = paintSize.height();
 
         for (QTextBlock b = doc.begin(); b.isValid(); b = b.next()) {
             for (QTextBlock::iterator it = b.begin(); !it.atEnd(); ++it) {
@@ -476,9 +476,9 @@ bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QSt
                     const QStringList names = fmt.anchorNames();
                     if (!names.isEmpty()) {
                         qreal blockTop = docLayout->blockBoundingRect(b).top();
-                        int pageIdx = static_cast<int>(blockTop / pageHeightPx);
-                        qreal yOnPage = blockTop - (pageIdx * pageHeightPx);
-                        qreal ratio = pageHeightPx > 0 ? (yOnPage / pageHeightPx) : 0;
+                        int pageIdx = static_cast<int>(blockTop / pageHeightPt);
+                        qreal yOnPage = blockTop - (pageIdx * pageHeightPt);
+                        qreal ratio = pageHeightPt > 0 ? (yOnPage / pageHeightPt) : 0;
                         qreal pdfY = (pdfPageHeightPt - topMarginPt) - (ratio * printableHeightPt);
                         for (const QString &name : names) {
                             if (!anchorPositions.contains(name)) {
