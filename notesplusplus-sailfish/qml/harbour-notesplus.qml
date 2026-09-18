@@ -396,16 +396,6 @@ ApplicationWindow {
         id: agentBridge
     }
 
-    Timer {
-        id: speechPollTimer
-        interval: 50
-        running: typeof speechBridge !== "undefined" && speechBridge && (speechBridge.is_downloading || speechBridge.is_transcribing || speechBridge.is_recording)
-        repeat: true
-        onTriggered: {
-            speechBridge.poll_worker()
-        }
-    }
-
     initialPage: Component { MainPage {} }
     cover: Component { CoverPage {} }
 
