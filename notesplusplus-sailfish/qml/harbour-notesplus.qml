@@ -325,14 +325,6 @@ ApplicationWindow {
         pageStack.forceActiveFocus()
     }
 
-    Timer {
-        id: pollTimer
-        interval: 50
-        running: bridge.is_loading
-        repeat: true
-        onTriggered: bridge.poll_results()
-    }
-
     property var activeAuthPromptPage: null
 
     function showOrUpdateAuthPrompt(challengeId, verificationCode) {
