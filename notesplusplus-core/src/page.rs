@@ -11,10 +11,34 @@ use crate::db;
 use crate::xref::rewrite_xrefs;
 
 pub const NOTE_CARD_PALETTE: [&str; 12] = [
-    "#e67e22", "#3498db", "#2ecc71", "#9b59b6",
-    "#f1c40f", "#e74c3c", "#1abc9c", "#e84393",
-    "#00cec9", "#6c5ce7", "#fdcb6e", "#00b894",
+    "#e74c3c", // Red
+    "#e67e22", // Orange
+    "#f1c40f", // Yellow
+    "#8bc34a", // Lime
+    "#2ecc71", // Green
+    "#00b894", // Teal
+    "#00a8ff", // Sky Blue
+    "#3498db", // Blue
+    "#3c40c6", // Indigo
+    "#9b59b6", // Purple
+    "#e84393", // Pink
+    "#e17055", // Coral
 ];
+
+/// Picks a random color from NOTE_CARD_PALETTE.
+pub fn random_note_color() -> &'static str {
+    let mut buf = [0u8; 4];
+    let sys_rand = ring::rand::SystemRandom::new();
+    if sys_rand.fill(&mut buf).is_ok() {
+        let val = u32::from_ne_bytes(buf) as usize;
+        return NOTE_CARD_PALETTE[val % NOTE_CARD_PALETTE.len()];
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    NOTE_CARD_PALETTE[(nanos as usize) % NOTE_CARD_PALETTE.len()]
+}
 
 /// Deterministically computes note card color from title matching QML's hash algorithm.
 pub fn compute_note_color(name: &str) -> &'static str {
@@ -137,7 +161,7 @@ pub fn create_page(
     let chosen_color = if let Some(c) = color.map(|s| s.trim()).filter(|s| !s.is_empty()) {
         c.to_string()
     } else {
-        compute_note_color(&clean_title).to_string()
+        random_note_color().to_string()
     };
 
     // Write initial content
@@ -206,19 +230,32 @@ pub fn save_and_index_page(
     } else {
         extract_doc_title(content, &filename)
     };
-    let color = extract_doc_color(content).unwrap_or_default();
-    let now = chrono::Utc::now().to_rfc3339();
-
     // Check if page already exists in DB
-    let existing_id: Option<i64> = conn
+    let existing_page: Option<(i64, String)> = conn
         .query_row(
-            "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
+            "SELECT id, color FROM pages WHERE group_path = ?1 AND filename = ?2",
             rusqlite::params![group_path, filename],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get::<_, Option<String>>(1)?.unwrap_or_default())),
         )
         .ok();
 
-    let id = if let Some(id) = existing_id {
+    let color = match extract_doc_color(content) {
+        Some(c) => c,
+        None => {
+            if let Some((_, ref prev_color)) = existing_page {
+                if !prev_color.is_empty() {
+                    prev_color.clone()
+                } else {
+                    random_note_color().to_string()
+                }
+            } else {
+                random_note_color().to_string()
+            }
+        }
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let id = if let Some((id, _)) = existing_page {
         conn.execute(
             "UPDATE pages SET title = ?1, updated_at = ?2, color = ?3 WHERE id = ?4",
             rusqlite::params![title, now, color, id],
@@ -558,7 +595,11 @@ pub fn set_page_color(
 
     let target_filename = page.full_path();
     let old_content = read_page(notes_dir, &target_filename)?;
-    let new_content = update_content_color(&old_content, color);
+    let assigned_color = match color.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        Some(c) => c,
+        None => random_note_color(),
+    };
+    let new_content = update_content_color(&old_content, Some(assigned_color));
     save_and_index_page(conn, notes_dir, &target_filename, &new_content)
 }
 
@@ -645,11 +686,12 @@ fn copy_dir_recursive(
                         std::fs::copy(&path, &dest)?;
                         let content = std::fs::read_to_string(&dest).unwrap_or_default();
                         let title = extract_doc_title(&content, &filename);
+                        let color = extract_doc_color(&content).unwrap_or_else(|| random_note_color().to_string());
                         let now = chrono::Utc::now().to_rfc3339();
                         conn.execute(
-                            "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
-                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0)",
-                            rusqlite::params![filename, current_group, title, now],
+                            "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
+                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0, ?5)",
+                            rusqlite::params![filename, current_group, title, now, color],
                         )?;
                         if let Ok(page_id) = conn.query_row(
                             "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
@@ -1795,9 +1837,17 @@ mod tests {
         let fetched2 = get_page(&conn, "ColorNote").unwrap().unwrap();
         assert_eq!(fetched2.color, "#9b59b6");
 
-        // Clear color (reverts to computed hash color)
+        // Clear color (assigns a random palette color)
         let cleared = set_page_color(&conn, &notes, "ColorNote", None).unwrap();
-        assert_eq!(cleared.color, "");
-        assert_eq!(cleared.effective_color(), compute_note_color("ColorNote"));
+        assert!(NOTE_CARD_PALETTE.contains(&cleared.color.as_str()));
+        assert_eq!(cleared.effective_color(), cleared.color);
+    }
+
+    #[test]
+    fn test_random_note_color() {
+        for _ in 0..50 {
+            let color = random_note_color();
+            assert!(NOTE_CARD_PALETTE.contains(&color));
+        }
     }
 }

@@ -37,11 +37,10 @@ Dialog {
 
         Button {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("Default Color")
+            text: qsTr("Random Color")
             preferredWidth: Theme.buttonWidthMedium
             onClicked: {
-                colorPickerDialog.selectedColor = ""
-                colorPickerDialog.accept()
+                colorPickerDialog.selectedColor = TC.randomNoteColor()
             }
         }
 

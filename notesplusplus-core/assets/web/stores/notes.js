@@ -140,10 +140,14 @@ export const useNotesStore = defineStore('notes', () => {
   });
 
   const notePalette = [
-    "#e67e22", "#3498db", "#2ecc71", "#9b59b6",
-    "#f1c40f", "#e74c3c", "#1abc9c", "#e84393",
-    "#00cec9", "#6c5ce7", "#fdcb6e", "#00b894"
+    "#e74c3c", "#e67e22", "#f1c40f", "#8bc34a",
+    "#2ecc71", "#00b894", "#00a8ff", "#3498db",
+    "#3c40c6", "#9b59b6", "#e84393", "#e17055"
   ];
+
+  function randomNoteColor() {
+    return notePalette[Math.floor(Math.random() * notePalette.length)];
+  }
 
   async function fetchNotesList() {
     try {
@@ -317,10 +321,7 @@ export const useNotesStore = defineStore('notes', () => {
       starterContent = `= ${title}\n:icons: font\n\nWelcome to ${title}.\n\n== Agenda\n* Introduction\n* Key Architecture\n* Demonstration\n* Summary\n\n== Key Architecture\n[source,rust]\n----\n// Clean & Modular\npub fn present_deck() {\n    println!("Presenting slides offline");\n}\n----\n\n== Summary\n* Responsive presentation view\n* AsciiDoc page break & heading support\n* Pure local execution\n`;
     }
     try {
-      const payload = { title, content: starterContent };
-      if (color) {
-        payload.color = color;
-      }
+      const payload = { title, content: starterContent, color: color || randomNoteColor() };
       const data = await apiJson('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -342,11 +343,12 @@ export const useNotesStore = defineStore('notes', () => {
   async function setNoteColor(filename, color) {
     const target = filename || currentFilename.value;
     if (!target) return;
+    const resolvedColor = color || randomNoteColor();
     try {
       await apiJson(`/api/notes/${encodeURI(target)}/color`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ color: color || '' })
+        body: JSON.stringify({ color: resolvedColor })
       });
       await Promise.all([
         fetchNotesList(),
@@ -408,7 +410,7 @@ export const useNotesStore = defineStore('notes', () => {
     currentFilename, notesList, groupTree, gallerySearchQuery, collapsedGroups,
     searchResults, isSearching, activeSearchTerm, isSearchActive,
     rawContent, isSaving, saveStatusText, saveStatusClass,
-    renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle, currentNoteColor, notePalette,
+    renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle, currentNoteColor, notePalette, randomNoteColor,
     updateRenderedHtml, fetchNotesList, fetchGroupTree, toggleGroupCollapse, isGroupCollapsed,
     performSearch, clearSearch, selectSearchResultNote, clearDocumentHighlight,
     loadNote, selectNote, onNoteSelect, saveCurrentNote, onContentChange,

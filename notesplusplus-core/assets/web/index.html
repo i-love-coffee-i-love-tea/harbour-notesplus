@@ -122,7 +122,7 @@
                   type="button"
                   class="btn-reset-color"
                   @click="setNoteColor(currentFilename, ''); showColorMenu = false;"
-                >Reset to Default</button>
+                >Random Color</button>
               </div>
             </div>
           </div>
@@ -955,7 +955,7 @@
             <option value="presentation">Slide Deck (Presentation)</option>
           </select>
         </label>
-        <label>Note Color:
+        <label>Note Color: <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">(Random by default)</span>
           <div class="color-picker-grid" style="margin-top: 6px;">
             <button
               type="button"

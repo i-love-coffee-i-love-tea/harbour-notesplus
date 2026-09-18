@@ -1828,7 +1828,7 @@ fn test_note_color_selection_and_persistence() {
     assert_eq!(found_page["color"], "#00b894");
     assert_eq!(found_page["custom_color"], "#00b894");
 
-    // 5. Reset color to default (empty string)
+    // 5. Reset color (empty string assigns a random palette color)
     let reset_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "application/json")
@@ -1836,8 +1836,9 @@ fn test_note_color_selection_and_persistence() {
         .unwrap();
     assert_eq!(reset_res.status(), 200);
     let reset_info: serde_json::Value = reset_res.into_json().unwrap();
-    assert_eq!(reset_info["custom_color"], "");
-    assert_eq!(reset_info["color"], notesplusplus_core::page::compute_note_color("Design Specs"));
+    let reset_color = reset_info["color"].as_str().unwrap();
+    assert!(notesplusplus_core::page::NOTE_CARD_PALETTE.contains(&reset_color));
+    assert_eq!(reset_info["custom_color"], reset_color);
 
     server_handle.stop();
 }

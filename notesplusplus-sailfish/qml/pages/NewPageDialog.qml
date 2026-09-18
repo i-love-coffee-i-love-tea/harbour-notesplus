@@ -8,7 +8,7 @@ Dialog {
 
     property string targetGroup: ""
     property var parsedGroups: []
-    property string selectedColor: ""
+    property string selectedColor: TC.randomNoteColor()
 
     property string pageName: {
         var baseName = nameField ? nameField.text.trim() : ""

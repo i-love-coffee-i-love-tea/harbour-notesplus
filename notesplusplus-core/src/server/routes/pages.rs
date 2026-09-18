@@ -44,7 +44,8 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                             "filename": r.page.filename,
                             "group_path": r.page.group_path,
                             "full_path": r.page.full_path(),
-                            "color": page::compute_note_color(&r.page.title),
+                            "color": r.page.effective_color(),
+                            "custom_color": r.page.color,
                             "snippet": r.snippet
                         })
                     })
@@ -62,7 +63,8 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
                         "filename": p.filename,
                         "group_path": p.group_path,
                         "full_path": p.full_path(),
-                        "color": page::compute_note_color(&p.title),
+                        "color": p.effective_color(),
+                        "custom_color": p.color,
                         "snippet": ""
                     })
                 })
