@@ -433,6 +433,12 @@ pub fn get_page_preview_values_with_options(
 
             let block_html = if let (Some(theme), Some(opts)) = (qt_theme, qt_options) {
                 crate::html::qt_html::render_qt_block(&block, idx, theme, opts)
+            } else if qt_options.is_some() || qt_theme.is_some() {
+                let default_theme = crate::html::qt_html::QtThemeColors::default();
+                let default_opts = crate::html::qt_html::QtRenderOptions::default();
+                let theme = qt_theme.unwrap_or(&default_theme);
+                let opts = qt_options.unwrap_or(&default_opts);
+                crate::html::qt_html::render_qt_block(&block, idx, theme, opts)
             } else {
                 crate::html::blocks_to_html_body(&[block.clone()], Some(notes_dir))
             };

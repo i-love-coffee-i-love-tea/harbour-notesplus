@@ -397,6 +397,11 @@ ApplicationWindow {
                 showOrUpdateAuthPrompt(bridge.auth_challenge_id, bridge.auth_verification_code)
             }
         }
+        onInitialized_changed: {
+            if (bridge.initialized) {
+                syncTheme()
+            }
+        }
     }
 
     SpeechBridge {

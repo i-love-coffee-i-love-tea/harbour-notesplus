@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::os::raw::c_char;
 
 use crate::group;
-use crate::html::qt_html::QtThemeColors;
+use crate::html::qt_html::{QtRenderOptions, QtThemeColors};
 use crate::page;
 use crate::tree;
 use super::common::{cstr_to_path, cstr_to_string, ffi_err, parse_qt_render_options, string_to_c};
@@ -183,7 +183,7 @@ pub extern "C" fn notes_core_build_group_tree_json(
     let theme: HashMap<String, String> =
         serde_json::from_str(&theme_str).unwrap_or_default();
     let qt_theme = if theme.is_empty() {
-        None
+        Some(QtThemeColors::default())
     } else {
         Some(QtThemeColors::from_map(&theme))
     };
@@ -241,8 +241,10 @@ pub extern "C" fn notes_core_load_main_page_data_json(
 
     let pages = page::list_pages(conn).unwrap_or_default();
     let groups = group::get_groups_flat(conn).unwrap_or_default();
+    let default_theme = QtThemeColors::default();
+    let default_opts = QtRenderOptions::default();
     let tree_json = crate::tree::build_group_tree(
-        &pages, &groups, depth, Some(&dir), drop_comments != 0, None, None,
+        &pages, &groups, depth, Some(&dir), drop_comments != 0, Some(&default_theme), Some(&default_opts),
     );
 
     let result = serde_json::json!({

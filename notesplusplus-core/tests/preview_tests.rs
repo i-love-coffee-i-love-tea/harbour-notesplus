@@ -248,3 +248,25 @@ fn preview_stem_math() {
     let html = render_preview("The equation stem:[E = mc^2]");
     assert!(html.contains("E = mc") || html.contains("stem") || html.contains("formula"), "Expected stem/math, got: {}", html);
 }
+
+#[test]
+fn test_preview_generation_qt_options_without_theme_uses_qt_renderer() {
+    let tmp = tempfile::tempdir().unwrap();
+    let note_path = tmp.path().join("Note.adoc");
+    std::fs::write(&note_path, "= My Document\n\nSome paragraph text.\n").unwrap();
+
+    let opts = QtRenderOptions::default();
+    let values = notesplusplus_core::page::get_page_preview_values_with_options(
+        tmp.path(),
+        "Note.adoc",
+        5,
+        true,
+        None,
+        Some(&opts),
+    );
+
+    assert!(!values.is_empty());
+    let heading_html = values[0]["html"].as_str().unwrap();
+    assert!(heading_html.contains("<h3"), "Should use compact <h3> tag for Qt, got: {}", heading_html);
+    assert!(!heading_html.contains("sect-heading"), "Should not use web-heading for Qt: {}", heading_html);
+}

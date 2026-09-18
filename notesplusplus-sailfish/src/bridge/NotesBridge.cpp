@@ -40,6 +40,7 @@ static QString dbPathFor(const QString &dataDir)
 NotesBridge::NotesBridge(QObject *parent)
     : QObject(parent)
     , paths_(notes_core_app_paths_new())
+    , m_themeColorsJson(QStringLiteral("{\"highlightColor\":\"#0088cc\",\"primaryColor\":\"#ffffff\",\"highlightBackgroundColor\":\"rgba(0,136,204,0.25)\"}"))
     , m_blockListModel(new BlockListModel(this))
     , m_alive(std::make_shared<std::atomic<bool>>(true))
 {
