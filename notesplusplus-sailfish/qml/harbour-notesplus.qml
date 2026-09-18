@@ -298,16 +298,11 @@ ApplicationWindow {
         app.activate()
     }
 
-    Timer {
-        id: startupTimer
-        interval: 50
-        running: false
-        repeat: true
-        onTriggered: {
-            if (!bridge.initialized) {
+    Connections {
+        target: bridge
+        onInitialized_changed: {
+            if (bridge.initialized) {
                 bridge.load_main_page_data()
-            } else {
-                startupTimer.stop()
             }
         }
     }
@@ -328,7 +323,6 @@ ApplicationWindow {
             syncTheme()
         }
         pageStack.forceActiveFocus()
-        startupTimer.start()
     }
 
     Timer {
