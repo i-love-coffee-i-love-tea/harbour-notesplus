@@ -14,30 +14,6 @@ Page {
         }
     }
 
-    Timer {
-        id: searchPoll
-        interval: 100
-        repeat: true
-        onTriggered: {
-            if (bridge.poll_search()) {
-                // Initial results delivered, start polling for previews
-                searchPoll.stop()
-                previewPoll.start()
-            }
-        }
-    }
-
-    Timer {
-        id: previewPoll
-        interval: 100
-        repeat: true
-        onTriggered: {
-            if (bridge.poll_search_previews()) {
-                previewPoll.stop()
-            }
-        }
-    }
-
     property var parsedSearchResults: {
         var list = []
         for (var i = 0; i < bridge.search_results.length; i++) {
@@ -392,9 +368,7 @@ Page {
                 onTextChanged: {
                     if (text.length > 0) {
                         bridge.do_search(text)
-                        searchPoll.start()
                     } else {
-                        searchPoll.stop()
                         bridge.search("")
                     }
                 }
