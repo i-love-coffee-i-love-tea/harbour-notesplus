@@ -119,8 +119,9 @@ int   notes_core_journal_append(void* conn, const char* notes_dir, const char* t
 char* notes_core_journal_recent_lines(const char* notes_dir, int limit);
 
 /* ------------------------------------------------------------------ */
-/* HTML export                                                         */
+/* HTML & PDF export                                                  */
 /* ------------------------------------------------------------------ */
+char* notes_core_render_page_html5(const char* notes_dir, const char* rel_path);
 char* notes_core_export_html5(
     const char* notes_dir, const char* rel_path,
     const char* full_path, const char* output_path);
@@ -129,6 +130,8 @@ char* notes_core_export_all_html5(const char* notes_dir, const char* output_dir)
 /* ------------------------------------------------------------------ */
 /* Web server                                                          */
 /* ------------------------------------------------------------------ */
+typedef int (*PdfExporterCallback)(const char* note_rel_path, const char* out_pdf_path);
+
 HttpServerHandle* notes_core_server_start(
     const char* notes_dir, const char* db_path, const char* backup_dir,
     uint16_t port, const char* config_json);
@@ -136,6 +139,7 @@ void    notes_core_server_stop(HttpServerHandle* handle);
 int     notes_core_server_is_running(const HttpServerHandle* handle);
 uint16_t notes_core_server_port(const HttpServerHandle* handle);
 char*   notes_core_server_urls_json(const HttpServerHandle* handle);
+void    notes_core_server_set_pdf_exporter(HttpServerHandle* handle, PdfExporterCallback callback);
 
 /* ------------------------------------------------------------------ */
 /* TLS                                                                 */

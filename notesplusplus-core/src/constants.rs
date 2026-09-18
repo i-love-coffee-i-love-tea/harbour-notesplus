@@ -44,6 +44,7 @@ pub const API_ROUTE_GROUPS: &str = "api/groups";
 pub const API_ROUTE_GROUPS_PREFIX: &str = "api/groups/";
 pub const API_ROUTE_PAGES_PREFIX: &str = "api/pages/";
 pub const API_ROUTE_EXPORT_HTML: &str = "api/export/html";
+pub const API_ROUTE_EXPORT_PDF: &str = "api/export/pdf";
 pub const API_ROUTE_EXPORT_ALL: &str = "api/export/all";
 pub const API_ROUTE_AUTH_PREFIX: &str = "api/auth/";
 pub const API_ROUTE_RENDER: &str = "api/render";
@@ -81,5 +82,6 @@ pub const MAX_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 // Content-Types & MIME types
 pub const MIME_JSON: &str = "application/json; charset=utf-8";
 pub const MIME_HTML: &str = "text/html; charset=utf-8";
+pub const MIME_PDF: &str = "application/pdf";
 pub const MIME_EVENT_STREAM: &str = "text/event-stream";
 pub const MIME_TEXT_PLAIN: &str = "text/plain; charset=utf-8";

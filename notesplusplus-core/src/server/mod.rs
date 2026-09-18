@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -120,6 +120,8 @@ impl Drop for PermitGuard {
     }
 }
 
+pub type PdfExporterFn = Arc<dyn Fn(&str, &Path) -> Result<(), String> + Send + Sync>;
+
 /// Shared runtime context passed across request worker threads.
 #[derive(Clone)]
 pub struct ServerContext {
@@ -140,6 +142,7 @@ pub struct ServerContext {
     pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
     pub repository: Arc<dyn crate::repository::NoteRepository>,
     pub is_tls: bool,
+    pub pdf_exporter: Arc<Mutex<Option<PdfExporterFn>>>,
 }
 
 impl ServerContext {
@@ -199,6 +202,7 @@ impl ServerContext {
             theme_colors: Arc::new(Mutex::new(HashMap::new())),
             repository,
             is_tls,
+            pdf_exporter: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -267,6 +271,54 @@ impl ServerContext {
     pub fn take_auth_challenge(&self) -> Option<String> {
         let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
         guard.take()
+    }
+
+    /// Register a PDF exporter function (e.g. for testing or native binding).
+    pub fn set_pdf_exporter_fn<F>(&self, exporter: F)
+    where
+        F: Fn(&str, &Path) -> Result<(), String> + Send + Sync + 'static,
+    {
+        let mut guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = Some(Arc::new(exporter));
+    }
+
+    /// Register a C-compatible PDF exporter callback from FFI.
+    pub fn set_pdf_exporter_callback(&self, cb: crate::ffi::server::PdfExporterCallback) {
+        self.set_pdf_exporter_fn(move |note_rel: &str, out_path: &Path| {
+            let c_rel = std::ffi::CString::new(note_rel).map_err(|e| e.to_string())?;
+            let c_out = std::ffi::CString::new(out_path.to_string_lossy().as_bytes())
+                .map_err(|e| e.to_string())?;
+            let res = unsafe { cb(c_rel.as_ptr(), c_out.as_ptr()) };
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(format!("PDF exporter callback returned status {}", res))
+            }
+        });
+    }
+
+    /// Clear the registered PDF exporter.
+    pub fn clear_pdf_exporter(&self) {
+        let mut guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = None;
+    }
+
+    /// Returns whether a PDF exporter is currently registered.
+    pub fn has_pdf_exporter(&self) -> bool {
+        self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    }
+
+    /// Export a note to PDF at the specified output path using the registered exporter.
+    pub fn export_pdf(&self, note_rel: &str, out_path: &Path) -> Result<(), String> {
+        let exporter = {
+            let guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+            guard.clone()
+        };
+        if let Some(exp) = exporter {
+            exp(note_rel, out_path)
+        } else {
+            Err("No PDF exporter registered".to_string())
+        }
     }
 }
 

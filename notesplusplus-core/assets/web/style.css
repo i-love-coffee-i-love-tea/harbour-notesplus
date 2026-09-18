@@ -122,7 +122,8 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  z-index: 100;
+  position: relative;
+  z-index: 600;
   flex-shrink: 0;
   box-sizing: border-box;
 }
@@ -450,7 +451,7 @@ html, body {
   min-width: 160px;
   display: flex;
   flex-direction: column;
-  z-index: 200;
+  z-index: 700;
 }
 .dropdown-menu a {
   padding: 8px 14px;
@@ -664,7 +665,7 @@ button:disabled {
   min-width: 160px;
   display: flex;
   flex-direction: column;
-  z-index: 200;
+  z-index: 700;
 }
 .dropdown-menu a {
   padding: 8px 14px;

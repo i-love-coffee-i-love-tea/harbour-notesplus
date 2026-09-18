@@ -1,4 +1,5 @@
 SOURCES += \
+    $$files(qml/*.qml, true) \
     $$files(qml/pages/*.qml, true) \
     $$files(qml/components/*.qml, true) \
     $$files(qml/components/delegates/*.qml, true) \

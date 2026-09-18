@@ -25,6 +25,31 @@ pub fn adoc_to_html5(adoc_content: &str, title: &str, notes_dir: Option<&Path>) 
     blocks_to_html5(&blocks, title, notes_dir)
 }
 
+/// Convert raw AsciiDoc content into a standalone HTML5 document with explicit candidate directories.
+pub fn adoc_to_html5_with_paths(
+    content: &str,
+    title: &str,
+    notes_dir: &Path,
+    assets_dir: &Path,
+    adoc_path: &Path,
+) -> String {
+    let blocks = parser::parse_blocks(content);
+    let mut search_dirs = Vec::new();
+    if let Some(parent) = adoc_path.parent() {
+        search_dirs.push(parent.to_path_buf());
+        search_dirs.push(parent.join("assets"));
+        if let Some(stem) = adoc_path.file_stem().and_then(|s| s.to_str()) {
+            search_dirs.push(parent.join(stem));
+        }
+    }
+    search_dirs.push(notes_dir.to_path_buf());
+    search_dirs.push(assets_dir.to_path_buf());
+    if let Some(stem) = adoc_path.file_stem().and_then(|s| s.to_str()) {
+        search_dirs.push(notes_dir.join(stem));
+    }
+    blocks_to_html5_with_search_dirs(&blocks, title, Some(notes_dir), search_dirs)
+}
+
 /// Convert raw AsciiDoc content into an HTML body snippet (for web preview & embeds).
 pub fn adoc_to_html_body(adoc_content: &str, notes_dir: Option<&Path>) -> String {
     let blocks = parser::parse_blocks(adoc_content);
@@ -33,7 +58,12 @@ pub fn adoc_to_html_body(adoc_content: &str, notes_dir: Option<&Path>) -> String
 
 /// Convert an AST of blocks into an HTML body snippet.
 pub fn blocks_to_html_body(blocks: &[Block], notes_dir: Option<&Path>) -> String {
-    let mut ctx = HtmlRenderContext::new(notes_dir, blocks);
+    let mut search_dirs = Vec::new();
+    if let Some(nd) = notes_dir {
+        search_dirs.push(nd.to_path_buf());
+        search_dirs.push(nd.join("assets"));
+    }
+    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, blocks);
     let body = ctx.render_blocks(blocks);
     let footnotes = ctx.render_footnotes();
     if footnotes.is_empty() {
@@ -45,8 +75,21 @@ pub fn blocks_to_html_body(blocks: &[Block], notes_dir: Option<&Path>) -> String
 
 /// Convert an AST of blocks into a standalone HTML5 document.
 pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) -> String {
-    let mut ctx = HtmlRenderContext::new(notes_dir, blocks);
-    
+    let mut search_dirs = Vec::new();
+    if let Some(nd) = notes_dir {
+        search_dirs.push(nd.to_path_buf());
+        search_dirs.push(nd.join("assets"));
+    }
+    blocks_to_html5_with_search_dirs(blocks, title, notes_dir, search_dirs)
+}
+
+/// Convert an AST of blocks into a standalone HTML5 document with custom search directories.
+pub fn blocks_to_html5_with_search_dirs(
+    blocks: &[Block],
+    title: &str,
+    notes_dir: Option<&Path>,
+    search_dirs: Vec<PathBuf>,
+) -> String {
     // First pass: extract document title if not provided and collect headings for TOC
     let doc_title = if title.is_empty() {
         extract_title(blocks).unwrap_or_else(|| "Notes Plus Document".to_string())
@@ -54,7 +97,26 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
         title.to_string()
     };
 
-    let body_html = ctx.render_blocks(blocks);
+    // If the first heading block is level 1, it represents the document title.
+    // It is rendered in the <header class="document-header"> and should not be
+    // duplicated as a <h1> in the document body or included in the Table of Contents.
+    let mut title_skipped = false;
+    let filtered_blocks: Vec<Block> = blocks
+        .iter()
+        .filter(|b| {
+            if !title_skipped {
+                if let Block::Heading { level: 1, .. } = b {
+                    title_skipped = true;
+                    return false;
+                }
+            }
+            true
+        })
+        .cloned()
+        .collect();
+
+    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, &filtered_blocks);
+    let body_html = ctx.render_blocks(&filtered_blocks);
     let footnotes_html = ctx.render_footnotes();
 
     format!(
@@ -96,6 +158,27 @@ pub fn blocks_to_html5(blocks: &[Block], title: &str, notes_dir: Option<&Path>) 
     )
 }
 
+/// Render a specific note page from `notes_dir` to an in-memory HTML5 string.
+/// `notes_dir` is used for reading .adoc files; `assets_dir` is used for image resolution.
+pub fn render_page_to_html5_string(
+    notes_dir: &Path,
+    assets_dir: &Path,
+    filename: &str,
+) -> Result<String, NotesError> {
+    let adoc_path = if notes_dir.join(filename).is_file() {
+        notes_dir.join(filename)
+    } else {
+        crate::page::safe_note_path(notes_dir, filename)
+    };
+
+    let content = std::fs::read_to_string(&adoc_path)
+        .map_err(NotesError::Io)?;
+
+    let clean_name = filename.rsplit('/').next().unwrap_or(filename);
+    let title = crate::page::extract_doc_title(&content, clean_name);
+    Ok(adoc_to_html5_with_paths(&content, &title, notes_dir, assets_dir, &adoc_path))
+}
+
 /// Export a specific note page from `notes_dir` to an output HTML file.
 /// `notes_dir` is used for reading .adoc files; `assets_dir` is used for image resolution.
 pub fn export_page_to_html5(
@@ -104,20 +187,15 @@ pub fn export_page_to_html5(
     filename: &str,
     output_path: &Path,
 ) -> Result<PathBuf, NotesError> {
-    let adoc_path = notes_dir.join(filename);
-    let content = std::fs::read_to_string(&adoc_path)
-        .map_err(|e| NotesError::Io(e))?;
-
-    let title = filename.strip_suffix(".adoc").unwrap_or(filename);
-    let html = adoc_to_html5(&content, title, Some(assets_dir));
+    let html = render_page_to_html5_string(notes_dir, assets_dir, filename)?;
 
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| NotesError::Io(e))?;
+            .map_err(NotesError::Io)?;
     }
 
     std::fs::write(output_path, html.as_bytes())
-        .map_err(|e| NotesError::Io(e))?;
+        .map_err(NotesError::Io)?;
 
     Ok(output_path.to_path_buf())
 }
@@ -557,5 +635,59 @@ And another reference: footnote:defops[].
         assert!(!html_rendered.contains("href=\"javascript:"));
         assert!(html_rendered.contains("href=\"#blocked:"));
         assert!(html_rendered.contains("Malicious Link"));
+    }
+
+    #[test]
+    fn test_render_page_to_html5_string() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let notes_dir = temp_dir.path().join("notes");
+        let assets_dir = notes_dir.join("assets");
+        std::fs::create_dir_all(&assets_dir).unwrap();
+
+        let doc_path = notes_dir.join("sample.adoc");
+        std::fs::write(&doc_path, "= Sample Title\n\nParagraph text here.").unwrap();
+
+        let html = render_page_to_html5_string(&notes_dir, &assets_dir, "sample.adoc").unwrap();
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("<title>Sample Title</title>"));
+        assert!(html.contains("Paragraph text here."));
+
+        // Also test without .adoc extension
+        let html2 = render_page_to_html5_string(&notes_dir, &assets_dir, "sample").unwrap();
+        assert!(html2.contains("<title>Sample Title</title>"));
+    }
+
+    #[test]
+    fn test_image_resolution_with_search_dirs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let notes_dir = temp_dir.path().join("notes");
+        let assets_dir = notes_dir.join("assets");
+        let note_media_dir = notes_dir.join("chronicles");
+        std::fs::create_dir_all(&assets_dir).unwrap();
+        std::fs::create_dir_all(&note_media_dir).unwrap();
+
+        // Write dummy images
+        let jpg_bytes = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x01\x00\x60\x00\x60\x00\x00\xFF\xDB";
+        let png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01";
+        std::fs::write(note_media_dir.join("wolpertinger.jpg"), jpg_bytes).unwrap();
+        std::fs::write(assets_dir.join("logo.png"), png_bytes).unwrap();
+
+        let doc_path = notes_dir.join("chronicles.adoc");
+        let adoc_content = r#"= Chronicles
+Author
+
+image::wolpertinger.jpg[Wolpertinger, 300, 200]
+
+An inline icon image:logo.png[Logo, 32] here.
+"#;
+        std::fs::write(&doc_path, adoc_content).unwrap();
+
+        let html = render_page_to_html5_string(&notes_dir, &assets_dir, "chronicles.adoc").unwrap();
+        assert!(html.contains("data:image/jpeg;base64,"));
+        assert!(html.contains("data:image/png;base64,"));
+        assert!(html.contains(r#"width="300""#));
+        assert!(html.contains(r#"height="200""#));
+        assert!(html.contains(r#"alt="Wolpertinger""#));
+        assert!(html.contains(r#"alt="Logo""#));
     }
 }

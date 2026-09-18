@@ -6,6 +6,13 @@ use crate::agent::LlmConfig;
 use crate::server;
 use super::common::{cstr_to_path, cstr_to_string, ffi_err, string_to_c};
 
+/// Callback type for external PDF exporter (e.g. Qt QTextDocument + QPdfWriter in C++ bridge).
+/// Returns 0 on success, non-zero on error.
+pub type PdfExporterCallback = unsafe extern "C" fn(
+    note_rel_path: *const c_char,
+    out_pdf_path: *const c_char,
+) -> i32;
+
 /// Start the web server. Returns opaque handle or NULL on failure.
 #[no_mangle]
 pub extern "C" fn notes_core_server_start(
@@ -230,4 +237,20 @@ pub extern "C" fn notes_core_server_auth_deny(
     let h = unsafe { &*handle };
     let id = unsafe { cstr_to_string(challenge_id) };
     if h.context().auth_challenges.deny_challenge(&id) { 1 } else { 0 }
+}
+
+/// Register or clear the PDF exporter callback on the running server handle.
+#[no_mangle]
+pub extern "C" fn notes_core_server_set_pdf_exporter(
+    handle: *mut server::HttpServerHandle,
+    callback: Option<PdfExporterCallback>,
+) {
+    if !handle.is_null() {
+        let h = unsafe { &mut *handle };
+        if let Some(cb) = callback {
+            h.context().set_pdf_exporter_callback(cb);
+        } else {
+            h.context().clear_pdf_exporter();
+        }
+    }
 }

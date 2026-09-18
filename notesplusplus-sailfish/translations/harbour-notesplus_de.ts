@@ -390,6 +390,72 @@
         <source>Type text, task (* [ ]), or heading...</source>
         <translation>Text, Aufgabe (* [ ]) oder Überschrift eingeben...</translation>
     </message>
+    <message>
+        <source>Export as PDF</source>
+        <translation>Als PDF exportieren</translation>
+    </message>
+    <message>
+        <source>Exported PDF to %1</source>
+        <translation>PDF nach %1 exportiert</translation>
+    </message>
+    <message>
+        <source>Share as PDF</source>
+        <translation>Als PDF teilen</translation>
+    </message>
+    <message>
+        <source>Overwrite PDF?</source>
+        <translation>PDF überschreiben?</translation>
+    </message>
+    <message>
+        <source>The file '%1' already exists in Exports. Do you want to overwrite it?</source>
+        <translation>Die Datei '%1' existiert bereits in Exports. Möchten Sie sie überschreiben?</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>Überschreiben</translation>
+    </message>
+</context>
+<context>
+    <name>ConfirmDialog</name>
+    <message>
+        <source>Confirm</source>
+        <translation>Bestätigen</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Ja</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Abbrechen</translation>
+    </message>
+</context>
+<context>
+    <name>ServicesSettingsTab</name>
+    <message>
+        <source>Export All Notes as PDF</source>
+        <translation>Alle Notizen als PDF exportieren</translation>
+    </message>
+    <message>
+        <source>Exported %1 notes to PDF</source>
+        <translation>%1 Notizen als PDF exportiert</translation>
+    </message>
+    <message>
+        <source>Exported notes to PDF</source>
+        <translation>Notizen als PDF exportiert</translation>
+    </message>
+    <message>
+        <source>Overwrite Existing PDFs?</source>
+        <translation>Bestehende PDFs überschreiben?</translation>
+    </message>
+    <message>
+        <source>Some notes already have exported PDF files in Notes++ Exports. Do you want to overwrite them?</source>
+        <translation>Einige Notizen haben bereits exportierte PDF-Dateien in Notes++ Exports. Möchten Sie sie überschreiben?</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>Überschreiben</translation>
+    </message>
 </context>
 <context>
     <name>SearchResultsPage</name>
@@ -726,6 +792,13 @@
     <message>
         <source>No speech models available.</source>
         <translation>Keine Sprachmodelle verfügbar.</translation>
+    </message>
+</context>
+<context>
+    <name>harbour-notesplus</name>
+    <message>
+        <source>Tap to open</source>
+        <translation>Zum Öffnen tippen</translation>
     </message>
 </context>
 </TS>

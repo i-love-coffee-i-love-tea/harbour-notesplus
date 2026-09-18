@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::block::{AdmonitionKind, Block};
 use crate::inline::InlineSpan;
@@ -161,6 +161,7 @@ pub(crate) fn render_toc_tree(headings: &[TocHeading]) -> String {
 
 pub(crate) struct HtmlRenderContext<'a> {
     pub(crate) notes_dir: Option<&'a Path>,
+    pub(crate) search_dirs: Vec<PathBuf>,
     footnotes: Vec<FootnoteItem>,
     footnote_id_to_idx: HashMap<String, usize>,
     heading_counts: HashMap<String, usize>,
@@ -168,12 +169,22 @@ pub(crate) struct HtmlRenderContext<'a> {
 }
 
 impl<'a> HtmlRenderContext<'a> {
+    #[allow(dead_code)]
     pub(crate) fn new(notes_dir: Option<&'a Path>, blocks: &[Block]) -> Self {
+        Self::with_search_dirs(notes_dir, Vec::new(), blocks)
+    }
+
+    pub(crate) fn with_search_dirs(
+        notes_dir: Option<&'a Path>,
+        search_dirs: Vec<PathBuf>,
+        blocks: &[Block],
+    ) -> Self {
         let mut toc_headings = Vec::new();
         let mut heading_counts = HashMap::new();
         collect_headings_recursive(blocks, &mut toc_headings, &mut heading_counts);
         Self {
             notes_dir,
+            search_dirs,
             footnotes: Vec::new(),
             footnote_id_to_idx: HashMap::new(),
             heading_counts: HashMap::new(),
@@ -617,11 +628,38 @@ impl<'a> HtmlRenderContext<'a> {
         let title_html = Self::render_title_html(title);
         let img_src = self.resolve_image_source(target);
         let mut style = String::new();
+        let mut width_attr = String::new();
+        let mut height_attr = String::new();
+
         if let Some(w) = width {
-            style.push_str(&format!("max-width:{};", escape_html(w)));
+            let w_trimmed = w.trim();
+            if !w_trimmed.is_empty() {
+                if w_trimmed.chars().all(|c| c.is_ascii_digit()) {
+                    width_attr = format!(r#" width="{}""#, w_trimmed);
+                    style.push_str(&format!("max-width:{}px;", w_trimmed));
+                } else {
+                    let digits: String = w_trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !digits.is_empty() {
+                        width_attr = format!(r#" width="{}""#, digits);
+                    }
+                    style.push_str(&format!("max-width:{};", escape_html(w_trimmed)));
+                }
+            }
         }
         if let Some(h) = height {
-            style.push_str(&format!("height:{};", escape_html(h)));
+            let h_trimmed = h.trim();
+            if !h_trimmed.is_empty() {
+                if h_trimmed.chars().all(|c| c.is_ascii_digit()) {
+                    height_attr = format!(r#" height="{}""#, h_trimmed);
+                    style.push_str(&format!("height:{}px;", h_trimmed));
+                } else {
+                    let digits: String = h_trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !digits.is_empty() {
+                        height_attr = format!(r#" height="{}""#, digits);
+                    }
+                    style.push_str(&format!("height:{};", escape_html(h_trimmed)));
+                }
+            }
         }
         let style_attr = if !style.is_empty() {
             format!(r#" style="{}""#, style)
@@ -630,10 +668,12 @@ impl<'a> HtmlRenderContext<'a> {
         };
 
         format!(
-            r#"<div class="imageblock">{title}<img src="{src}" alt="{alt}"{style} loading="lazy"></div>"#,
+            r#"<div class="imageblock">{title}<img src="{src}" alt="{alt}"{w_attr}{h_attr}{style} loading="lazy"></div>"#,
             title = title_html,
             src = img_src,
             alt = escape_html(alt),
+            w_attr = width_attr,
+            h_attr = height_attr,
             style = style_attr
         )
     }
@@ -777,33 +817,111 @@ impl<'a> HtmlRenderContext<'a> {
     }
 
     fn resolve_image_source(&self, target: &str) -> String {
-        if target.starts_with("http://") || target.starts_with("https://") || target.starts_with("data:") {
-            return escape_html(target);
+        if target.starts_with("data:") {
+            return target.to_string();
         }
 
-        if let Some(dir) = self.notes_dir {
-            if target.contains("..") {
-                return escape_html(target);
-            }
-            let path = dir.join(target);
+        // Try direct file:// URI
+        if let Some(stripped) = target.strip_prefix("file://") {
+            let path = Path::new(stripped);
             if path.is_file() {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
-                    let mime = match ext.as_str() {
-                        "jpg" | "jpeg" => "image/jpeg",
-                        "svg" => "image/svg+xml",
-                        "png" => "image/png",
-                        "gif" => "image/gif",
-                        "webp" => "image/webp",
-                        _ => "image/png",
-                    };
-                    let b64 = base64_encode(&bytes);
-                    return format!("data:{};base64,{}", mime, b64);
+                if let Some(data_uri) = Self::read_image_file_to_data_uri(path) {
+                    return data_uri;
+                }
+            }
+        }
+
+        // Try absolute filesystem path
+        if target.starts_with('/') {
+            let path = Path::new(target);
+            if path.is_file() {
+                if let Some(data_uri) = Self::read_image_file_to_data_uri(path) {
+                    return data_uri;
+                }
+            }
+        }
+
+        // Collect candidate search directories
+        let mut dirs: Vec<&Path> = Vec::new();
+        for d in &self.search_dirs {
+            dirs.push(d.as_path());
+        }
+        if let Some(dir) = self.notes_dir {
+            if !dirs.contains(&dir) {
+                dirs.push(dir);
+            }
+        }
+
+        let clean_target = target.trim_start_matches("./");
+        for dir in dirs {
+            let candidates = [
+                dir.join(clean_target),
+                dir.join("assets").join(clean_target),
+                if clean_target.starts_with("assets/") {
+                    dir.join(&clean_target[7..])
+                } else {
+                    dir.join(clean_target)
+                },
+            ];
+
+            for candidate in &candidates {
+                if candidate.is_file() {
+                    if let Some(data_uri) = Self::read_image_file_to_data_uri(candidate) {
+                        return data_uri;
+                    }
+                }
+            }
+
+            if clean_target.contains("..") {
+                if let Ok(canon) = dir.join(clean_target).canonicalize() {
+                    if canon.is_file() {
+                        if let Some(data_uri) = Self::read_image_file_to_data_uri(&canon) {
+                            return data_uri;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback check against known examples locations if target is still unresolved
+        let examples_candidates = [
+            PathBuf::from("/usr/share/harbour-notesplus/examples"),
+            PathBuf::from("examples"),
+            PathBuf::from("notesplusplus-core/examples"),
+        ];
+        for ex_dir in &examples_candidates {
+            if ex_dir.is_dir() {
+                let candidates = [
+                    ex_dir.join(clean_target),
+                    ex_dir.join("assets").join(clean_target),
+                ];
+                for candidate in &candidates {
+                    if candidate.is_file() {
+                        if let Some(data_uri) = Self::read_image_file_to_data_uri(candidate) {
+                            return data_uri;
+                        }
+                    }
                 }
             }
         }
 
         escape_html(target)
+    }
+
+    fn read_image_file_to_data_uri(path: &Path) -> Option<String> {
+        let bytes = std::fs::read(path).ok()?;
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("png").to_ascii_lowercase();
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "svg" => "image/svg+xml",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "bmp" => "image/bmp",
+            _ => "image/png",
+        };
+        let b64 = base64_encode(&bytes);
+        Some(format!("data:{};base64,{}", mime, b64))
     }
 
     pub(crate) fn render_footnotes(&self) -> String {

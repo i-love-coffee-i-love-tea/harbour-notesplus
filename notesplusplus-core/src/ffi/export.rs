@@ -1,7 +1,22 @@
 use std::os::raw::c_char;
 
 use crate::html;
-use super::common::{cstr_to_path, ffi_err, string_to_c};
+use super::common::{cstr_to_path, cstr_to_string, ffi_err, string_to_c};
+
+/// Render a single page to HTML5 in memory. Returns allocated C string (caller frees) or error.
+#[no_mangle]
+pub extern "C" fn notes_core_render_page_html5(
+    notes_dir: *const c_char,
+    rel_path: *const c_char,
+) -> *mut c_char {
+    let ndir = unsafe { cstr_to_path(notes_dir) };
+    let rel = unsafe { cstr_to_string(rel_path) };
+    let assets = ndir.join("assets");
+    match html::render_page_to_html5_string(&ndir, &assets, &rel) {
+        Ok(html_str) => string_to_c(html_str),
+        Err(e) => ffi_err!(e),
+    }
+}
 
 /// Export a single page to HTML5. Returns allocated output path or error.
 #[no_mangle]

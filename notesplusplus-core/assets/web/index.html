@@ -186,6 +186,7 @@
               </svg>
             </button>
             <div v-if="showExportMenu" class="dropdown-menu">
+              <a :href="'/export/' + currentFilename.replace(/\.adoc$/, '') + '.pdf'" target="_blank" @click="showExportMenu = false">Download PDF</a>
               <a :href="'/export/' + currentFilename" target="_blank" @click="showExportMenu = false">Download HTML5</a>
               <a :href="'/raw/' + currentFilename" target="_blank" @click="showExportMenu = false">View Raw AsciiDoc</a>
             </div>
@@ -216,7 +217,7 @@
 
         <!-- Account / Session & System Dropdown Widget -->
         <div class="nav-group nav-account-group account-dropdown-wrapper">
-          <button type="button" @click="showAccountMenu = !showAccountMenu" class="btn-group-action btn-account" :title="'Account & Session: ' + (authUser || 'Anonymous') + (sessionRemainingText ? ' (Expires: ' + sessionRemainingText + ')' : '')">
+          <button type="button" @click.stop="showAccountMenu = !showAccountMenu" class="btn-group-action btn-account" :title="'Account & Session: ' + (authUser || 'Anonymous') + (sessionRemainingText ? ' (Expires: ' + sessionRemainingText + ')' : '')">
             <!-- Connection Status Dot -->
             <span class="status-dot connection-dot" :class="{ online: isPhoneReachable, offline: !isPhoneReachable }"></span>
             

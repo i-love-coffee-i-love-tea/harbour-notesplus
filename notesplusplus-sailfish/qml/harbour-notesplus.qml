@@ -435,8 +435,16 @@ ApplicationWindow {
     Rectangle {
         id: notification
         property alias text: notificationLabel.text
+        property string targetFilePath: ""
 
-        function show() {
+        function show(msg, filePath) {
+            if (typeof msg === "string" && msg.length > 0) {
+                notificationLabel.text = msg
+            }
+            if (!notificationLabel.text || notificationLabel.text.length === 0) {
+                return
+            }
+            targetFilePath = (typeof filePath === "string") ? filePath : ""
             notification.opacity = 1.0
             hideTimer.restart()
         }
@@ -444,8 +452,8 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.topMargin: Theme.paddingLarge * 2
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width - Theme.horizontalPageMargin * 2, notificationLabel.implicitWidth + Theme.paddingLarge * 2)
-        height: Math.max(Theme.itemSizeExtraSmall, notificationLabel.implicitHeight + Theme.paddingSmall * 2)
+        width: Math.min(parent.width - Theme.horizontalPageMargin * 2, contentCol.implicitWidth + Theme.paddingLarge * 2)
+        height: Math.max(Theme.itemSizeExtraSmall, contentCol.implicitHeight + Theme.paddingSmall * 2)
         color: Qt.tint(
                    Theme.rgba(Theme.overlayBackgroundColor, Theme.opacityOverlay),
                    Theme.rgba(Theme.highlightBackgroundColor, Theme.highlightBackgroundOpacity))
@@ -457,27 +465,55 @@ ApplicationWindow {
 
         Behavior on opacity { FadeAnimation {} }
 
-        Label {
-            id: notificationLabel
-            anchors.fill: parent
-            anchors.margins: Theme.paddingSmall
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            wrapMode: Text.Wrap
-            color: Theme.primaryColor
-            font.pixelSize: Theme.fontSizeExtraSmall
+        Column {
+            id: contentCol
+            anchors.centerIn: parent
+            width: Math.min(notification.parent ? (notification.parent.width - Theme.horizontalPageMargin * 2 - Theme.paddingLarge * 2) : 300, implicitWidth)
+            spacing: Theme.paddingSmall / 2
+
+            Label {
+                id: notificationLabel
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(notification.parent ? (notification.parent.width - Theme.horizontalPageMargin * 2 - Theme.paddingLarge * 2) : 300, implicitWidth)
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: Theme.primaryColor
+                font.pixelSize: Theme.fontSizeExtraSmall
+            }
+
+            Label {
+                id: hintLabel
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: notification.targetFilePath.length > 0
+                text: qsTr("Tap to open")
+                color: Theme.highlightColor
+                font.pixelSize: Theme.fontSizeTiny
+            }
         }
 
         Timer {
             id: hideTimer
-            interval: 3500
-            onTriggered: notification.opacity = 0.0
+            interval: notification.targetFilePath.length > 0 ? 5000 : 3500
+            onTriggered: {
+                notification.opacity = 0.0
+                notification.targetFilePath = ""
+            }
         }
 
         MouseArea {
             anchors.fill: parent
             enabled: notification.opacity > 0
-            onClicked: notification.opacity = 0.0
+            onClicked: {
+                if (notification.targetFilePath && notification.targetFilePath.length > 0) {
+                    var target = notification.targetFilePath
+                    if (target.indexOf("file://") !== 0) {
+                        target = "file://" + target
+                    }
+                    Qt.openUrlExternally(target)
+                }
+                notification.opacity = 0.0
+                notification.targetFilePath = ""
+            }
         }
     }
 }

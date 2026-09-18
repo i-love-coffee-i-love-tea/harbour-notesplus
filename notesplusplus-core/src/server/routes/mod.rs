@@ -201,6 +201,10 @@ fn dispatch_api(
         pages::handle_export_html_api(writer, req, ctx, cors);
         return;
     }
+    if clean_path == API_ROUTE_EXPORT_PDF {
+        pages::handle_export_pdf_api(writer, req, ctx, cors);
+        return;
+    }
     if clean_path == API_ROUTE_EXPORT_ALL {
         pages::handle_export_all_api(writer, ctx, cors);
         return;

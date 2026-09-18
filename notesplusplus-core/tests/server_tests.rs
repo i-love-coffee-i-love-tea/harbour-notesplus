@@ -1847,3 +1847,152 @@ fn test_note_color_selection_and_persistence() {
 
     server_handle.stop();
 }
+
+#[test]
+fn test_server_pdf_export_without_exporter() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_pdf_no_exp.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    fs::write(notes_dir.join("welcome.adoc"), "= Welcome Note\nPDF export test content.").unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19005, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // 1. GET /export/welcome.pdf without exporter -> 501 Not Implemented
+    let resp = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.pdf", port))
+        .set("Cookie", &session_cookie)
+        .call();
+    match resp {
+        Ok(r) => panic!("Expected error status, got {}", r.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 501),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+
+    // 2. GET /api/pages/welcome/pdf without exporter -> 501 Not Implemented
+    let resp2 = ureq::get(&format!("http://127.0.0.1:{}/api/pages/welcome/pdf", port))
+        .set("Cookie", &session_cookie)
+        .call();
+    match resp2 {
+        Ok(r) => panic!("Expected error status, got {}", r.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 501),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+
+    // 3. GET /page/welcome?export=pdf without exporter -> 501 Not Implemented
+    let resp3 = ureq::get(&format!("http://127.0.0.1:{}/page/welcome?export=pdf", port))
+        .set("Cookie", &session_cookie)
+        .call();
+    match resp3 {
+        Ok(r) => panic!("Expected error status, got {}", r.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 501),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_server_pdf_export_with_exporter() {
+    use std::io::Read;
+
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_pdf_with_exp.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    fs::write(notes_dir.join("report.adoc"), "= Annual Report\nImportant metrics.").unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19006, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    // Register a mock PDF exporter
+    server_handle.context().set_pdf_exporter_fn(|note_rel, out_path| {
+        if note_rel.contains("fail") {
+            return Err("Synthetic export failure".to_string());
+        }
+        let fake_pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n";
+        fs::write(out_path, fake_pdf).map_err(|e| e.to_string())?;
+        Ok(())
+    });
+
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // 1. GET /export/report.pdf -> 200 OK, application/pdf, attachment header
+    let res1 = ureq::get(&format!("http://127.0.0.1:{}/export/report.pdf", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res1.status(), 200);
+    assert_eq!(res1.header("Content-Type").unwrap(), "application/pdf");
+    assert!(res1.header("Content-Disposition").unwrap().contains("attachment; filename=\"report.pdf\""));
+    let mut bytes1 = Vec::new();
+    res1.into_reader().read_to_end(&mut bytes1).unwrap();
+    assert!(bytes1.starts_with(b"%PDF-1.4"));
+
+    // 2. GET /api/pages/report/pdf -> 200 OK
+    let res2 = ureq::get(&format!("http://127.0.0.1:{}/api/pages/report/pdf", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res2.status(), 200);
+    assert_eq!(res2.header("Content-Type").unwrap(), "application/pdf");
+    assert!(res2.header("Content-Disposition").unwrap().contains("attachment; filename=\"report.pdf\""));
+
+    // 3. GET /page/report?export=pdf -> 200 OK
+    let res3 = ureq::get(&format!("http://127.0.0.1:{}/page/report?export=pdf", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res3.status(), 200);
+    assert_eq!(res3.header("Content-Type").unwrap(), "application/pdf");
+
+    // 4. GET / (web companion app) contains Download PDF link
+    let res_index = ureq::get(&format!("http://127.0.0.1:{}/", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res_index.status(), 200);
+    let index_body = res_index.into_string().unwrap();
+    assert!(index_body.contains("Download PDF"));
+
+    // 5. GET /page/report?view=rendered contains Download PDF button linking to /export/report.pdf
+    let res_view = ureq::get(&format!("http://127.0.0.1:{}/page/report?view=rendered", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(res_view.status(), 200);
+    let view_body = res_view.into_string().unwrap();
+    assert!(view_body.contains("Download PDF"));
+    assert!(view_body.contains("/export/report.pdf"));
+
+    // 6. GET /export/nonexistent.pdf -> 404 Not Found
+    let res_404 = ureq::get(&format!("http://127.0.0.1:{}/export/nonexistent.pdf", port))
+        .set("Cookie", &session_cookie)
+        .call();
+    match res_404 {
+        Ok(r) => panic!("Expected 404, got {}", r.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 404),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+
+    // 7. Failure handling: note that triggers export failure -> 500 Internal Server Error
+    fs::write(notes_dir.join("fail_doc.adoc"), "= Fail Note\nShould trigger error.").unwrap();
+    let res_500 = ureq::get(&format!("http://127.0.0.1:{}/export/fail_doc.pdf", port))
+        .set("Cookie", &session_cookie)
+        .call();
+    match res_500 {
+        Ok(r) => panic!("Expected 500, got {}", r.status()),
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 500),
+        Err(e) => panic!("Unexpected error: {}", e),
+    }
+
+    server_handle.stop();
+}

@@ -151,6 +151,11 @@ public:
     // Export
     Q_INVOKABLE QString export_html(QString page_name);
     Q_INVOKABLE QString export_all_html();
+    Q_INVOKABLE QString export_pdf(QString page_name);
+    Q_INVOKABLE QString export_all_pdf();
+    Q_INVOKABLE QString get_pdf_export_path(QString page_name);
+    Q_INVOKABLE bool    pdf_export_exists(QString page_name);
+    Q_INVOKABLE bool    any_pdf_export_exists();
     Q_INVOKABLE QString open_in_browser(QString page_name);
 
     // Server

@@ -78,6 +78,7 @@ pub fn list_all_notes_json_with_db(notes_dir: &Path, db_path: Option<&Path>, sea
 
 pub fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, filename: &str) -> String {
     let standalone = adoc_to_html5(adoc_content, title, Some(notes_dir));
+    let clean_filename = filename.strip_suffix(".adoc").unwrap_or(filename);
 
     let top_bar = format!(
         r#"<div class="web-page-topbar">
@@ -87,11 +88,13 @@ pub fn render_web_page_html(adoc_content: &str, title: &str, notes_dir: &Path, f
             </div>
             <div class="topbar-right">
                 <a class="action-btn" href="/raw/{}" target="_blank">Raw AsciiDoc</a>
+                <a class="action-btn" href="/export/{}.pdf">Download PDF</a>
                 <a class="action-btn primary" href="/export/{}">Download HTML5</a>
             </div>
         </div>"#,
         escape_html(title),
         filename,
+        clean_filename,
         filename
     );
 
@@ -149,6 +152,12 @@ pub fn handle_page_detail_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
+    if filename.ends_with("/pdf") || req.query.as_deref().map(|q| q.contains("export=pdf")).unwrap_or(false) {
+        let note_clean = filename.strip_suffix("/pdf").unwrap_or(filename);
+        handle_pdf_export_response(stream, ctx, note_clean, cors_origin);
+        return;
+    }
+
     if filename.ends_with("/color") {
         let base_name = filename.strip_suffix("/color").unwrap();
         match req.method.as_str() {
@@ -869,6 +878,93 @@ pub fn handle_export_all_api<W: Write>(
     }
 }
 
+pub fn handle_pdf_export_response<W: Write>(
+    stream: &mut W,
+    ctx: &ServerContext,
+    note_name: &str,
+    cors_origin: &str,
+) {
+    let adoc_filename = sanitize_note_filename(note_name);
+    let resolved_path = if ctx.repository.note_exists(&adoc_filename) {
+        adoc_filename
+    } else if let Ok(Some(p)) = ctx.repository.get_page(note_name) {
+        p.full_path()
+    } else {
+        adoc_filename
+    };
+
+    if !ctx.repository.note_exists(&resolved_path) {
+        send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", note_name), cors_origin);
+        return;
+    }
+
+    if !ctx.has_pdf_exporter() {
+        send_json_error(stream, 501, "Not Implemented", "PDF exporter is not available", cors_origin);
+        return;
+    }
+
+    let temp_file = match tempfile::Builder::new().prefix("export_").suffix(".pdf").tempfile() {
+        Ok(t) => t,
+        Err(e) => {
+            log::error!("Failed to create temporary file for PDF export: {}", e);
+            send_json_error(stream, 500, "Internal Server Error", "Internal server error", cors_origin);
+            return;
+        }
+    };
+    let temp_path = temp_file.path().to_path_buf();
+
+    match ctx.export_pdf(&resolved_path, &temp_path) {
+        Ok(()) => {
+            match std::fs::read(&temp_path) {
+                Ok(bytes) => {
+                    let clean_name = resolved_path.rsplit('/').next().unwrap_or(&resolved_path);
+                    let title = clean_name.strip_suffix(".adoc").unwrap_or(clean_name);
+                    send_attachment_response(
+                        stream,
+                        200,
+                        "OK",
+                        crate::constants::MIME_PDF,
+                        &bytes,
+                        &format!("{}.pdf", title),
+                        cors_origin,
+                    );
+                }
+                Err(e) => {
+                    log::error!("Failed to read generated PDF: {}", e);
+                    send_json_error(stream, 500, "Internal Server Error", "Failed to read generated PDF", cors_origin);
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("PDF exporter failed: {}", e);
+            send_json_error(stream, 500, "Internal Server Error", &format!("PDF export failed: {}", e), cors_origin);
+        }
+    }
+}
+
+pub fn handle_export_pdf_api<W: Write>(
+    stream: &mut W,
+    req: &ParsedHttpRequest,
+    ctx: &ServerContext,
+    cors_origin: &str,
+) {
+    let filename = if req.method == "POST" {
+        let json_val = req.json_body();
+        json_val.get("filename").and_then(|v| v.as_str()).unwrap_or("").to_string()
+    } else {
+        req.query.as_deref().and_then(|q| {
+            q.split('&').find_map(|p| p.strip_prefix("filename="))
+        }).unwrap_or("").to_string()
+    };
+
+    if filename.is_empty() {
+        send_json_error(stream, 400, "Bad Request", "filename query parameter or JSON property required", cors_origin);
+        return;
+    }
+
+    handle_pdf_export_response(stream, ctx, &filename, cors_origin);
+}
+
 pub fn handle_page_url<W: Write>(
     stream: &mut W,
     req: &ParsedHttpRequest,
@@ -883,7 +979,10 @@ pub fn handle_page_url<W: Write>(
         .unwrap_or("");
 
     if let Some(q) = req.query.as_deref() {
-        if q.contains("export=1") || q.contains("download=1") {
+        if q.contains("export=pdf") || q.contains("download=pdf") {
+            handle_pdf_export_response(stream, ctx, note_name, cors_origin);
+            return;
+        } else if q.contains("export=1") || q.contains("download=1") {
             if let Ok(content) = ctx.repository.read_note_content(note_name) {
                 let title = note_name.rsplit('/').next().unwrap_or(note_name).strip_suffix(".adoc").unwrap_or(note_name);
                 let html = adoc_to_html5(&content, title, Some(&ctx.notes_dir));
@@ -925,6 +1024,12 @@ pub fn handle_export_url<W: Write>(
     cors_origin: &str,
 ) {
     let note_name = clean_path.strip_prefix("export/").unwrap_or("");
+    if note_name.ends_with(".pdf") {
+        let stripped = note_name.strip_suffix(".pdf").unwrap_or(note_name);
+        handle_pdf_export_response(stream, ctx, stripped, cors_origin);
+        return;
+    }
+
     let stripped = note_name.strip_suffix(".html").unwrap_or(note_name);
 
     if let Ok(content) = ctx.repository.read_note_content(stripped) {

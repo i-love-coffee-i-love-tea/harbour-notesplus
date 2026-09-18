@@ -245,6 +245,37 @@ Column {
 
     Button {
         anchors.horizontalCenter: parent.horizontalCenter
+        text: qsTr("Export All Notes as PDF")
+        onClicked: {
+            var doExportAll = function() {
+                var out = bridge.export_all_pdf()
+                if (out) {
+                    try {
+                        var arr = JSON.parse(out)
+                        servicesRemorsePopup.execute(qsTr("Exported %1 notes to PDF").arg(arr.length), function() {})
+                    } catch (e) {
+                        servicesRemorsePopup.execute(qsTr("Exported notes to PDF"), function() {})
+                    }
+                }
+            }
+
+            if (bridge.any_pdf_export_exists()) {
+                var dialog = pageStack.push(Qt.resolvedUrl("../pages/ConfirmDialog.qml"), {
+                    title: qsTr("Overwrite Existing PDFs?"),
+                    message: qsTr("Some notes already have exported PDF files in Notes++ Exports. Do you want to overwrite them?"),
+                    acceptText: qsTr("Overwrite")
+                })
+                dialog.accepted.connect(function() {
+                    doExportAll()
+                })
+            } else {
+                doExportAll()
+            }
+        }
+    }
+
+    Button {
+        anchors.horizontalCenter: parent.horizontalCenter
         text: qsTr("Export All Notes as HTML5")
         onClicked: {
             var out = bridge.export_all_html()

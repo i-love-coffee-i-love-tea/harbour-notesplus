@@ -156,7 +156,7 @@ impl ParsedHttpRequest {
 }
 
 pub fn sanitize_header_value(s: &str) -> String {
-    s.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect()
+    s.chars().filter(|c| *c != '\r' && *c != '\n').collect()
 }
 
 /// Helper to extract host from Origin or URL header.
@@ -403,7 +403,7 @@ pub fn send_attachment_response<W: Write>(
     filename: &str,
     cors_origin: &str,
 ) {
-    let safe_filename = sanitize_header_value(filename);
+    let safe_filename: String = filename.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n' && *c != '\\').collect();
     let disposition = format!("attachment; filename=\"{}\"", safe_filename);
     send_response_full(
         stream,

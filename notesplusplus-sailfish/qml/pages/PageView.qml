@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import Sailfish.Share 1.0
 import "../components"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 import "../js/EditorHelpers.js" as EH
@@ -241,35 +242,6 @@ Page {
 
         PullDownMenu {
             MenuItem {
-                text: qsTr("Delete Page")
-                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
-                onClicked: {
-                    var fullPath = pageView.pageFullPath
-                    remorsePopup.execute(qsTr("Deleting page"), function() {
-                        bridge.delete_page(fullPath)
-                        pageStack.pop()
-                    })
-                }
-            }
-            MenuItem {
-                text: qsTr("Move to Group...")
-                visible: !pageView.isJournalPage && pageName !== "Journal" && pageName !== "journal"
-                onClicked: {
-                    var fullPath = pageView.pageFullPath
-                    var dialog = pageStack.push(Qt.resolvedUrl("MovePageDialog.qml"), {
-                        pageFullPath: fullPath,
-                        pageTitle: pageName,
-                        currentGroup: pageView.pageGroupPath
-                    })
-                    dialog.accepted.connect(function() {
-                        var target = dialog.targetGroup
-                        remorsePopup.execute(qsTr("Moving to %1").arg(target.length > 0 ? target : qsTr("Root")), function() {
-                            bridge.move_page_to_group(fullPath, target)
-                        })
-                    })
-                }
-            }
-            MenuItem {
                 text: qsTr("Find in Page")
                 onClicked: {
                     if (pageView.showFindBar) {
@@ -308,6 +280,66 @@ Page {
                     if (url) {
                         Clipboard.text = url
                         remorsePopup.execute(qsTr("Copied: ") + url, function() {}, 3000)
+                    }
+                }
+            }
+            MenuItem {
+                text: qsTr("Export as PDF")
+                onClicked: {
+                    var fullPath = pageView.pageFullPath
+                    var doExport = function() {
+                        var path = bridge.export_pdf(fullPath)
+                        if (path && path.length > 0) {
+                            if (typeof app !== "undefined" && app && app.notification) {
+                                app.notification.show(qsTr("Exported PDF to %1").arg(path), path)
+                            } else {
+                                remorsePopup.execute(qsTr("Exported PDF to %1").arg(path), function() {}, 4000)
+                            }
+                        }
+                    }
+
+                    if (bridge.pdf_export_exists(fullPath)) {
+                        var outPath = bridge.get_pdf_export_path(fullPath)
+                        var fileName = outPath.split("/").pop()
+                        var dialog = pageStack.push(Qt.resolvedUrl("ConfirmDialog.qml"), {
+                            title: qsTr("Overwrite PDF?"),
+                            message: qsTr("The file '%1' already exists in Exports. Do you want to overwrite it?").arg(fileName),
+                            acceptText: qsTr("Overwrite")
+                        })
+                        dialog.accepted.connect(function() {
+                            doExport()
+                        })
+                    } else {
+                        doExport()
+                    }
+                }
+            }
+            MenuItem {
+                text: qsTr("Share as PDF")
+                onClicked: {
+                    var fullPath = pageView.pageFullPath
+                    var doShare = function() {
+                        var path = bridge.export_pdf(fullPath)
+                        if (path && path.length > 0) {
+                            shareAction.title = pageName
+                            shareAction.resources = [path]
+                            shareAction.trigger()
+                        }
+                    }
+
+                    if (bridge.pdf_export_exists(fullPath)) {
+                        var outPath = bridge.get_pdf_export_path(fullPath)
+                        var fileName = outPath.split("/").pop()
+                        var dialog = pageStack.push(Qt.resolvedUrl("ConfirmDialog.qml"), {
+                            title: qsTr("Overwrite PDF?"),
+                            message: qsTr("The file '%1' already exists in Exports. Do you want to overwrite it?").arg(fileName),
+                            acceptText: qsTr("Overwrite")
+                        })
+                        dialog.accepted.connect(function() {
+                            doShare()
+                        })
+                    } else {
+                        doShare()
                     }
                 }
             }
@@ -476,6 +508,10 @@ Page {
         }
 
         RemorsePopup { id: remorsePopup }
+        ShareAction {
+            id: shareAction
+            mimeType: "application/pdf"
+        }
     }
 
     // Stationary floating action sidebar for in-place editing (transparent, non-moving)

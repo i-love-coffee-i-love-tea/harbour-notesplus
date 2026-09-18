@@ -390,6 +390,72 @@
         <source>Type text, task (* [ ]), or heading...</source>
         <translation>Type text, task (* [ ]), or heading...</translation>
     </message>
+    <message>
+        <source>Export as PDF</source>
+        <translation>Export as PDF</translation>
+    </message>
+    <message>
+        <source>Exported PDF to %1</source>
+        <translation>Exported PDF to %1</translation>
+    </message>
+    <message>
+        <source>Share as PDF</source>
+        <translation>Share as PDF</translation>
+    </message>
+    <message>
+        <source>Overwrite PDF?</source>
+        <translation>Overwrite PDF?</translation>
+    </message>
+    <message>
+        <source>The file '%1' already exists in Exports. Do you want to overwrite it?</source>
+        <translation>The file '%1' already exists in Exports. Do you want to overwrite it?</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>Overwrite</translation>
+    </message>
+</context>
+<context>
+    <name>ConfirmDialog</name>
+    <message>
+        <source>Confirm</source>
+        <translation>Confirm</translation>
+    </message>
+    <message>
+        <source>Yes</source>
+        <translation>Yes</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+</context>
+<context>
+    <name>ServicesSettingsTab</name>
+    <message>
+        <source>Export All Notes as PDF</source>
+        <translation>Export All Notes as PDF</translation>
+    </message>
+    <message>
+        <source>Exported %1 notes to PDF</source>
+        <translation>Exported %1 notes to PDF</translation>
+    </message>
+    <message>
+        <source>Exported notes to PDF</source>
+        <translation>Exported notes to PDF</translation>
+    </message>
+    <message>
+        <source>Overwrite Existing PDFs?</source>
+        <translation>Overwrite Existing PDFs?</translation>
+    </message>
+    <message>
+        <source>Some notes already have exported PDF files in Notes++ Exports. Do you want to overwrite them?</source>
+        <translation>Some notes already have exported PDF files in Notes++ Exports. Do you want to overwrite them?</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>Overwrite</translation>
+    </message>
 </context>
 <context>
     <name>SearchResultsPage</name>
@@ -726,6 +792,13 @@
     <message>
         <source>No speech models available.</source>
         <translation>No speech models available.</translation>
+    </message>
+</context>
+<context>
+    <name>harbour-notesplus</name>
+    <message>
+        <source>Tap to open</source>
+        <translation>Tap to open</translation>
     </message>
 </context>
 </TS>

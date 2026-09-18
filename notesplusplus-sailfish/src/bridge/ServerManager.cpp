@@ -2,6 +2,7 @@
 
 #include "ServerManager.h"
 #include "NetworkHelper.h"
+#include "ExportHelper.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -119,6 +120,7 @@ QString ServerManager::start_web_server()
     }
 
     m_server.reset(handle);
+    notes_core_server_set_pdf_exporter(handle, &ExportHelper::pdfExportCallback);
     m_webServerRunning = true;
     m_webServerUrl     = primaryUrl();
     return m_webServerUrl;
@@ -153,8 +155,10 @@ QString ServerManager::primaryUrl() const
 
 void ServerManager::stop_web_server()
 {
-    if (m_server)
+    if (m_server) {
+        notes_core_server_set_pdf_exporter(m_server.get(), nullptr);
         m_server.reset();
+    }
     m_webServerRunning = false;
     m_webServerUrl.clear();
 }

@@ -194,14 +194,12 @@ pre {
 
 .toc li {
     margin: 0.3em 0;
+    list-style-type: none;
 }
 
 .toc li::before {
-    content: "•";
-    color: var(--link-color);
-    display: inline-block;
-    width: 1em;
-    margin-left: -1em;
+    content: "";
+    display: none;
 }
 
 .toc a {
@@ -486,4 +484,7 @@ img {
     .notes-container { max-width: 100%; padding: 0; }
     .page-break { page-break-after: always; }
     pre, blockquote { page-break-inside: avoid; }
+    .listingblock pre, .literalblock pre, pre { background-color: #f6f8fa; color: #1f2328; border: 1px solid #d0d7de; }
+    .toc ul, .toc li { list-style: none; list-style-type: none; }
+    .toc li::before { content: ""; display: none; }
 }

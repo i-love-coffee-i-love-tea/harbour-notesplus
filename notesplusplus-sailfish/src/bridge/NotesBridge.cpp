@@ -583,6 +583,36 @@ QString NotesBridge::export_all_html()
     return m_exportHelper->export_all_html();
 }
 
+QString NotesBridge::export_pdf(QString page_name)
+{
+    ensureInit();
+    return m_exportHelper->export_pdf(page_name, m_pageStore->isJournalPage());
+}
+
+QString NotesBridge::export_all_pdf()
+{
+    ensureInit();
+    return m_exportHelper->export_all_pdf();
+}
+
+QString NotesBridge::get_pdf_export_path(QString page_name)
+{
+    ensureInit();
+    return m_exportHelper ? m_exportHelper->get_pdf_export_path(page_name, m_pageStore->isJournalPage()) : QString();
+}
+
+bool NotesBridge::pdf_export_exists(QString page_name)
+{
+    ensureInit();
+    return m_exportHelper ? m_exportHelper->pdf_export_exists(page_name, m_pageStore->isJournalPage()) : false;
+}
+
+bool NotesBridge::any_pdf_export_exists()
+{
+    ensureInit();
+    return m_exportHelper ? m_exportHelper->any_pdf_export_exists() : false;
+}
+
 QString NotesBridge::open_in_browser(QString page_name)
 {
     return m_exportHelper->open_in_browser(page_name, m_pageStore->isJournalPage());
