@@ -1763,3 +1763,81 @@ fn test_rebuild_index_and_search_chronicles_wolpertinger() {
 
     server_handle.stop();
 }
+
+#[test]
+fn test_note_color_selection_and_persistence() {
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_note_colors.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19004, None, None).expect("Server should start");
+    let port = server_handle.port();
+
+    let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
+    let session_cookie = format!("{}={}", notesplusplus_core::constants::SESSION_COOKIE_NAME, sess.id);
+
+    // 1. Create a note with a chosen color
+    let create_payload = json!({
+        "title": "Design Specs",
+        "color": "#e74c3c"
+    });
+    let create_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes", port))
+        .set("Cookie", &session_cookie)
+        .set("Content-Type", "application/json")
+        .send_json(create_payload)
+        .unwrap();
+    assert_eq!(create_res.status(), 200);
+    let created_info: serde_json::Value = create_res.into_json().unwrap();
+    assert_eq!(created_info["color"], "#e74c3c");
+    assert_eq!(created_info["custom_color"], "#e74c3c");
+
+    // 2. Query GET /api/notes/Design_Specs.adoc/color
+    let get_color_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(get_color_res.status(), 200);
+    let color_info: serde_json::Value = get_color_res.into_json().unwrap();
+    assert_eq!(color_info["color"], "#e74c3c");
+    assert_eq!(color_info["custom_color"], "#e74c3c");
+
+    // 3. Update color via PUT /api/notes/Design_Specs.adoc/color to #00b894
+    let update_color_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+        .set("Cookie", &session_cookie)
+        .set("Content-Type", "application/json")
+        .send_json(json!({ "color": "#00b894" }))
+        .unwrap();
+    assert_eq!(update_color_res.status(), 200);
+    let updated_info: serde_json::Value = update_color_res.into_json().unwrap();
+    assert_eq!(updated_info["color"], "#00b894");
+    assert_eq!(updated_info["custom_color"], "#00b894");
+
+    // 4. Verify /api/tree reflects the updated color
+    let tree_res = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+        .set("Cookie", &session_cookie)
+        .call()
+        .unwrap();
+    assert_eq!(tree_res.status(), 200);
+    let tree_json: serde_json::Value = tree_res.into_json().unwrap();
+    let tree_arr = tree_json.as_array().expect("Expected tree array");
+    let root_group = &tree_arr[0];
+    let pages_arr = root_group["pages"].as_array().expect("Expected pages array");
+    let found_page = pages_arr.iter().find(|p| p["title"] == "Design Specs").expect("Page should exist in tree");
+    assert_eq!(found_page["color"], "#00b894");
+    assert_eq!(found_page["custom_color"], "#00b894");
+
+    // 5. Reset color to default (empty string)
+    let reset_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+        .set("Cookie", &session_cookie)
+        .set("Content-Type", "application/json")
+        .send_json(json!({ "color": "" }))
+        .unwrap();
+    assert_eq!(reset_res.status(), 200);
+    let reset_info: serde_json::Value = reset_res.into_json().unwrap();
+    assert_eq!(reset_info["custom_color"], "");
+    assert_eq!(reset_info["color"], notesplusplus_core::page::compute_note_color("Design Specs"));
+
+    server_handle.stop();
+}

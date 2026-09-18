@@ -313,10 +313,16 @@ void NotesBridge::save_page_source(QString name, QString content)
     m_pageStore->save_page_source(name, content, this);
 }
 
-void NotesBridge::create_page(QString name)
+void NotesBridge::create_page(QString name, QString color)
 {
     if (!ensureInitBlocking()) return;
-    m_pageStore->create_page(name, this);
+    m_pageStore->create_page(name, color, this);
+}
+
+bool NotesBridge::set_page_color(QString name, QString color)
+{
+    if (!ensureInitBlocking()) return false;
+    return m_pageStore->set_page_color(name, color);
 }
 
 void NotesBridge::delete_page(QString name)

@@ -102,6 +102,7 @@ const app = createApp({
       document.addEventListener('click', (e) => {
         if (!e.target.closest('.export-dropdown')) ui.showExportMenu = false;
         if (!e.target.closest('.account-dropdown-wrapper')) ui.showAccountMenu = false;
+        if (!e.target.closest('.note-color-badge-wrapper')) ui.showColorMenu = false;
       });
       window.addEventListener('hashchange', () => {
         const req = getRequestedNote();
@@ -136,7 +137,7 @@ const app = createApp({
 
       // App-level template helpers
       formatMessageContent: (content) => formatMarkdown(content),
-      createNote: () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate),
+      createNote: () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate, ui.newNoteColor),
     };
 
     // Expose reactive state/getters and bound actions for seamless template access

@@ -51,6 +51,7 @@ pub extern "C" fn notes_core_page_create(
     conn: *mut rusqlite::Connection,
     notes_dir: *const c_char,
     name: *const c_char,
+    color: *const c_char,
 ) -> i32 {
     let conn = match unsafe { conn.as_mut() } {
         Some(c) => c,
@@ -58,7 +59,13 @@ pub extern "C" fn notes_core_page_create(
     };
     let dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
-    match page::create_page(conn, &dir, &name, false) {
+    let color_str = if color.is_null() {
+        None
+    } else {
+        let s = unsafe { cstr_to_string(color) };
+        if s.is_empty() { None } else { Some(s) }
+    };
+    match page::create_page(conn, &dir, &name, false, color_str.as_deref()) {
         Ok(_) => 0,
         Err(_) => -1,
     }
@@ -120,6 +127,32 @@ pub extern "C" fn notes_core_page_move(
     let source = unsafe { cstr_to_string(source_name) };
     let target = unsafe { cstr_to_string(target_group) };
     match page::move_page(conn, &dir, &source, &target) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Set page color. Returns 0 on success.
+#[no_mangle]
+pub extern "C" fn notes_core_page_set_color(
+    conn: *mut rusqlite::Connection,
+    notes_dir: *const c_char,
+    name: *const c_char,
+    color: *const c_char,
+) -> i32 {
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
+    let dir = unsafe { cstr_to_path(notes_dir) };
+    let name = unsafe { cstr_to_string(name) };
+    let color_str = if color.is_null() {
+        None
+    } else {
+        let s = unsafe { cstr_to_string(color) };
+        if s.is_empty() { None } else { Some(s) }
+    };
+    match page::set_page_color(conn, &dir, &name, color_str.as_deref()) {
         Ok(_) => 0,
         Err(_) => -1,
     }

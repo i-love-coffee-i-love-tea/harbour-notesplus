@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
+import "../js/ThemeColors.js" as TC
 
 Dialog {
     id: newPageDialog
@@ -7,6 +8,7 @@ Dialog {
 
     property string targetGroup: ""
     property var parsedGroups: []
+    property string selectedColor: ""
 
     property string pageName: {
         var baseName = nameField ? nameField.text.trim() : ""
@@ -89,6 +91,48 @@ Dialog {
             width: parent.width
             placeholderText: qsTr("Or enter new group name...")
             label: qsTr("New group folder")
+        }
+
+        SectionHeader {
+            text: qsTr("Note Color")
+        }
+
+        Grid {
+            columns: 6
+            spacing: Theme.paddingMedium
+            anchors.horizontalCenter: parent.horizontalCenter
+
+            Repeater {
+                model: TC.kNoteCardPalette
+                Rectangle {
+                    width: Theme.itemSizeExtraSmall * 0.75
+                    height: width
+                    radius: width / 2
+                    color: modelData
+                    border.width: newPageDialog.selectedColor === modelData ? 3 : 1
+                    border.color: newPageDialog.selectedColor === modelData ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.25)
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width * 0.4
+                        height: width
+                        radius: width / 2
+                        color: Theme.highlightColor
+                        visible: newPageDialog.selectedColor === modelData
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            if (newPageDialog.selectedColor === modelData) {
+                                newPageDialog.selectedColor = ""
+                            } else {
+                                newPageDialog.selectedColor = modelData
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

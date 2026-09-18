@@ -30,7 +30,7 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
         fts_tokens.join(" ")
     };
 
-    let sql = "SELECT p.id, p.filename, p.group_path, p.title, p.is_journal, p.created_at, p.updated_at, p.block_count,
+    let sql = "SELECT p.id, p.filename, p.group_path, p.title, p.is_journal, p.created_at, p.updated_at, p.block_count, p.color,
                       snippet(pages_fts, 2, '<b>', '</b>', '...', 32) as snip,
                       pages_fts.content
                FROM pages_fts
@@ -47,8 +47,8 @@ pub fn search_pages(conn: &Connection, query: &str) -> Result<Vec<SearchResult>,
     };
 
     let results = stmt.query_map(rusqlite::params![fts_query], |row| {
-        let content: String = row.get(9).unwrap_or_default();
-        let mut snip: String = row.get(8).unwrap_or_default();
+        let content: String = row.get(10).unwrap_or_default();
+        let mut snip: String = row.get(9).unwrap_or_default();
         let title: String = row.get(3)?;
         if snip.trim().is_empty() || snip == "..." {
             let first_line = content.lines().find(|l| !l.trim().is_empty()).unwrap_or(&title);
@@ -87,7 +87,7 @@ fn search_pages_fallback(conn: &Connection, query: &str) -> Result<Vec<SearchRes
     let escaped = escape_like_pattern(query);
     let pattern = format!("%{}%", escaped);
     let mut stmt = conn.prepare(
-        "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count
+        "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color
          FROM pages
          WHERE title LIKE ?1 ESCAPE '\\' OR filename LIKE ?1 ESCAPE '\\' OR group_path LIKE ?1 ESCAPE '\\'
          ORDER BY updated_at DESC

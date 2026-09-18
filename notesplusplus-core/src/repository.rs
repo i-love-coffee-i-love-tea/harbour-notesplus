@@ -26,8 +26,11 @@ pub trait NoteRepository: Send + Sync {
     /// Save note content atomically and update database metadata and FTS index in O(1) time.
     fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError>;
 
-    /// Create a new note page and register it in the index.
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, NotesError>;
+    /// Create a new note page and register it in the index with an optional custom color.
+    fn create_page(&self, name: &str, is_journal: bool, color: Option<&str>) -> Result<PageInfo, NotesError>;
+
+    /// Update the note's color attribute, re-saving and updating the database.
+    fn set_page_color(&self, name_or_filename: &str, color: Option<&str>) -> Result<PageInfo, NotesError>;
 
     /// Delete a note page from disk and the SQLite index.
     fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError>;
@@ -123,9 +126,23 @@ impl NoteRepository for FsSqliteNoteRepository {
         page::save_and_index_page(&conn, &self.notes_dir, &target_filename, content)
     }
 
-    fn create_page(&self, name: &str, is_journal: bool) -> Result<PageInfo, NotesError> {
+    fn create_page(&self, name: &str, is_journal: bool, color: Option<&str>) -> Result<PageInfo, NotesError> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        page::create_page(&conn, &self.notes_dir, name, is_journal)
+        page::create_page(&conn, &self.notes_dir, name, is_journal, color)
+    }
+
+    fn set_page_color(&self, name_or_filename: &str, color: Option<&str>) -> Result<PageInfo, NotesError> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let target_filename = if !name_or_filename.contains('/') {
+            if let Ok(Some(page)) = page::get_page(&conn, name_or_filename) {
+                page.full_path()
+            } else {
+                name_or_filename.to_string()
+            }
+        } else {
+            name_or_filename.to_string()
+        };
+        page::set_page_color(&conn, &self.notes_dir, &target_filename, color)
     }
 
     fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError> {
@@ -207,8 +224,9 @@ mod tests {
         let (repo, _dir) = setup_repo();
 
         // Create
-        let page = repo.create_page("Meeting Notes", false).unwrap();
+        let page = repo.create_page("Meeting Notes", false, None).unwrap();
         assert_eq!(page.title, "Meeting Notes");
+        assert!(!page.color.is_empty(), "Note should always be created with a color");
 
         // Save note
         let content = "= Project Plan\n\nRust and Qt notes application.";
@@ -243,7 +261,7 @@ mod tests {
         assert_eq!(g.path, "Projects");
 
         // Create page
-        let page = repo.create_page("Projects/Task.adoc", false).unwrap();
+        let page = repo.create_page("Projects/Task.adoc", false, None).unwrap();
         assert_eq!(page.group_path, "Projects");
 
         // Move page to Archives
@@ -261,5 +279,22 @@ mod tests {
         let groups_after = repo.list_groups(None, None).unwrap();
         let archives = groups_after.iter().find(|g| g.path == "Archives").unwrap();
         assert_eq!(archives.note_sort, NoteSortOrder::ByName);
+    }
+
+    #[test]
+    fn test_repo_page_color() {
+        let (repo, _dir) = setup_repo();
+
+        let page = repo.create_page("Colored Note", false, Some("#3498db")).unwrap();
+        assert_eq!(page.color, "#3498db");
+
+        let fetched = repo.get_page("Colored Note").unwrap().unwrap();
+        assert_eq!(fetched.color, "#3498db");
+
+        let updated = repo.set_page_color("Colored Note", Some("#00b894")).unwrap();
+        assert_eq!(updated.color, "#00b894");
+
+        let fetched2 = repo.get_page("Colored Note").unwrap().unwrap();
+        assert_eq!(fetched2.color, "#00b894");
     }
 }

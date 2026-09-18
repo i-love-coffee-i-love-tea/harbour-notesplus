@@ -18,6 +18,17 @@ GridItem {
 
     menu: ContextMenu {
         MenuItem {
+            text: qsTr("Color")
+            onClicked: {
+                var dialog = pageStack.push(Qt.resolvedUrl("../pages/ColorPickerDialog.qml"), {
+                    selectedColor: (cardData && cardData.color) ? cardData.color : noteCardItem.getNoteColor(_title)
+                })
+                dialog.accepted.connect(function() {
+                    bridge.set_page_color(_fullPath, dialog.selectedColor)
+                })
+            }
+        }
+        MenuItem {
             text: qsTr("Move")
             onClicked: {
                 var dialog = pageStack.push(Qt.resolvedUrl("../pages/MovePageDialog.qml"), {

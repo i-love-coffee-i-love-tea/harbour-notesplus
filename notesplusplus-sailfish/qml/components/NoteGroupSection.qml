@@ -66,7 +66,7 @@ Column {
                     })
                     newPage.accepted.connect(function() {
                         if (newPage.pageName && newPage.pageName.length > 0) {
-                            bridge.create_page(newPage.pageName)
+                            bridge.create_page(newPage.pageName, newPage.selectedColor)
                         }
                     })
                 }
@@ -190,7 +190,7 @@ Column {
                         })
                         dialog.accepted.connect(function() {
                             if (dialog.pageName.length > 0) {
-                                bridge.create_page(dialog.pageName)
+                                bridge.create_page(dialog.pageName, dialog.selectedColor)
                             }
                         })
                     }

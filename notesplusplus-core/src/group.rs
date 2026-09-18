@@ -466,7 +466,7 @@ mod tests {
         create_group(&conn, &notes, "Work", "Projects").unwrap();
 
         // Create a note inside Work/Projects
-        page::create_page(&conn, &notes, "Work/Projects/Task.adoc", false).unwrap();
+        page::create_page(&conn, &notes, "Work/Projects/Task.adoc", false, None).unwrap();
 
         // Rename Work -> Employment
         let new_path = rename_group(&conn, &notes, "Work", "Employment").unwrap();
@@ -508,7 +508,7 @@ mod tests {
         let notes = dir.path().join("notes");
 
         create_group(&conn, &notes, "", "Work").unwrap();
-        page::create_page(&conn, &notes, "Work/Note.adoc", false).unwrap();
+        page::create_page(&conn, &notes, "Work/Note.adoc", false, None).unwrap();
 
         let res = delete_group(&conn, &notes, "Work", false);
         assert!(res.is_err());
@@ -522,7 +522,7 @@ mod tests {
 
         create_group(&conn, &notes, "", "Work").unwrap();
         create_group(&conn, &notes, "Work", "Projects").unwrap();
-        page::create_page(&conn, &notes, "Work/Projects/Secret.adoc", false).unwrap();
+        page::create_page(&conn, &notes, "Work/Projects/Secret.adoc", false, None).unwrap();
 
         delete_group(&conn, &notes, "Work", true).unwrap();
         assert!(!notes.join("Work").exists());

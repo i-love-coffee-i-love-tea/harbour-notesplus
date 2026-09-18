@@ -35,6 +35,7 @@ pub struct PageInfo {
     pub created_at: String,
     pub updated_at: String,
     pub block_count: i32,
+    pub color: String,
 }
 
 impl PageInfo {
@@ -43,6 +44,14 @@ impl PageInfo {
             self.filename.clone()
         } else {
             format!("{}/{}", self.group_path, self.filename)
+        }
+    }
+
+    pub fn effective_color(&self) -> &str {
+        if !self.color.is_empty() {
+            &self.color
+        } else {
+            compute_note_color(&self.title)
         }
     }
 
@@ -56,6 +65,7 @@ impl PageInfo {
             created_at: row.get(5)?,
             updated_at: row.get(6)?,
             block_count: row.get(7)?,
+            color: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
         })
     }
 
@@ -67,7 +77,8 @@ impl PageInfo {
             "full_path": self.full_path(),
             "title": self.title,
             "name": self.title,
-            "color": compute_note_color(&self.title),
+            "color": self.effective_color(),
+            "custom_color": self.color,
             "is_journal": self.is_journal,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -77,7 +88,14 @@ impl PageInfo {
 }
 
 /// Create a new page: write .adoc file + insert into SQLite.
-pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: bool) -> Result<PageInfo, NotesError> {
+/// Pages are always created with a color (either specified or computed from title).
+pub fn create_page(
+    conn: &Connection,
+    notes_dir: &Path,
+    name: &str,
+    is_journal: bool,
+    color: Option<&str>,
+) -> Result<PageInfo, NotesError> {
     let (group_path, filename) = if is_journal {
         ("".to_string(), JOURNAL_FILENAME.to_string())
     } else {
@@ -116,10 +134,16 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
         filename.trim_end_matches(".adoc").replace('_', " ")
     };
 
+    let chosen_color = if let Some(c) = color.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        c.to_string()
+    } else {
+        compute_note_color(&clean_title).to_string()
+    };
+
     // Write initial content
     if !is_journal {
-        let content = format!("= {}\n", clean_title);
-        atomic_write(&path, content)?;
+        let content = format!("= {}\n:page-color: {}\n", clean_title, chosen_color);
+        atomic_write(&path, &content)?;
     } else {
         // Journal starts empty; journal.rs handles content
         if !path.exists() {
@@ -129,9 +153,9 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
 
     let now = chrono::Utc::now().to_rfc3339();
     let rows_affected = conn.execute(
-        "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0)",
-        rusqlite::params![filename, group_path, clean_title, is_journal as i32, now],
+        "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, ?6)",
+        rusqlite::params![filename, group_path, clean_title, is_journal as i32, now, chosen_color],
     )?;
 
     let id = if rows_affected > 0 {
@@ -146,7 +170,8 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
 
     // Index initial content into FTS
     if !is_journal {
-        let _ = db::update_fts_content(conn, id, &format!("= {}\n", clean_title));
+        let init_fts = format!("= {}\n:page-color: {}\n", clean_title, chosen_color);
+        let _ = db::update_fts_content(conn, id, &init_fts);
     }
 
     Ok(PageInfo {
@@ -158,6 +183,7 @@ pub fn create_page(conn: &Connection, notes_dir: &Path, name: &str, is_journal: 
         created_at: now.clone(),
         updated_at: now,
         block_count: 0,
+        color: chosen_color,
     })
 }
 
@@ -180,6 +206,7 @@ pub fn save_and_index_page(
     } else {
         extract_doc_title(content, &filename)
     };
+    let color = extract_doc_color(content).unwrap_or_default();
     let now = chrono::Utc::now().to_rfc3339();
 
     // Check if page already exists in DB
@@ -193,16 +220,16 @@ pub fn save_and_index_page(
 
     let id = if let Some(id) = existing_id {
         conn.execute(
-            "UPDATE pages SET title = ?1, updated_at = ?2 WHERE id = ?3",
-            rusqlite::params![title, now, id],
+            "UPDATE pages SET title = ?1, updated_at = ?2, color = ?3 WHERE id = ?4",
+            rusqlite::params![title, now, color, id],
         )
         ?;
         id
     } else {
         conn.execute(
-            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0)",
-            rusqlite::params![filename, group_path, title, is_journal as i32, now],
+            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, ?6)",
+            rusqlite::params![filename, group_path, title, is_journal as i32, now, color],
         )
         ?;
         conn.last_insert_rowid()
@@ -227,6 +254,7 @@ pub fn save_and_index_page(
         created_at,
         updated_at: now,
         block_count: 0,
+        color,
     })
 }
 
@@ -426,7 +454,7 @@ pub fn delete_page(conn: &Connection, notes_dir: &Path, name_or_filename: &str) 
 /// List all pages sorted by group_path, then updated_at descending.
 pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, NotesError> {
     let mut stmt = conn
-        .prepare("SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count FROM pages ORDER BY group_path ASC, updated_at DESC")
+        .prepare("SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color FROM pages ORDER BY group_path ASC, updated_at DESC")
         ?;
 
     let pages = stmt
@@ -442,7 +470,7 @@ pub fn list_pages(conn: &Connection) -> Result<Vec<PageInfo>, NotesError> {
 pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, NotesError> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count
+            "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color
              FROM pages WHERE is_journal = 0 ORDER BY updated_at DESC LIMIT ?1",
         )
         ?;
@@ -469,7 +497,7 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count
+            "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color
              FROM pages
              WHERE (group_path = ?1 AND filename = ?2)
                 OR (group_path = ?1 AND title = ?3)
@@ -513,6 +541,25 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
         Some(Err(e)) => Err(e.into()),
         None => Ok(None),
     }
+}
+
+/// Sets or removes the custom note color for a page.
+pub fn set_page_color(
+    conn: &Connection,
+    notes_dir: &Path,
+    name_or_filename: &str,
+    color: Option<&str>,
+) -> Result<PageInfo, NotesError> {
+    let page_opt = get_page(conn, name_or_filename)?;
+    let page = match page_opt {
+        Some(p) => p,
+        None => return Err(NotesError::Msg(format!("Page '{}' not found", name_or_filename))),
+    };
+
+    let target_filename = page.full_path();
+    let old_content = read_page(notes_dir, &target_filename)?;
+    let new_content = update_content_color(&old_content, color);
+    save_and_index_page(conn, notes_dir, &target_filename, &new_content)
 }
 
 /// Copy example .adoc files to the notes directory on first run
@@ -730,6 +777,102 @@ pub fn extract_doc_title(content: &str, fallback_filename: &str) -> String {
     fallback_filename.trim_end_matches(".adoc").replace('_', " ")
 }
 
+/// Extracts document color from AsciiDoc content attribute (`:page-color: #rrggbb` or `:color: #rrggbb`).
+pub fn extract_doc_color(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(":page-color:") || trimmed.starts_with(":color:") {
+            let rest = if let Some(r) = trimmed.strip_prefix(":page-color:") {
+                r
+            } else if let Some(r) = trimmed.strip_prefix(":color:") {
+                r
+            } else {
+                continue;
+            };
+            let c = rest.trim();
+            if !c.is_empty() {
+                return Some(c.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Updates or removes document color in AsciiDoc content attribute `:page-color: <color>`.
+pub fn update_content_color(content: &str, color: Option<&str>) -> String {
+    let color_trimmed = color.map(|c| c.trim()).filter(|c| !c.is_empty());
+    let lines: Vec<&str> = content.lines().collect();
+    let had_trailing_newline = content.ends_with('\n');
+
+    let existing_idx = lines.iter().position(|l| {
+        let t = l.trim();
+        t.starts_with(":page-color:") || t.starts_with(":color:")
+    });
+
+    match (color_trimmed, existing_idx) {
+        (Some(c), Some(idx)) => {
+            let replaced_line = format!(":page-color: {}", c);
+            let mut result = Vec::with_capacity(lines.len());
+            for (i, line) in lines.iter().enumerate() {
+                if i == idx {
+                    result.push(replaced_line.clone());
+                } else {
+                    result.push(line.to_string());
+                }
+            }
+            let mut out = result.join("\n");
+            if had_trailing_newline {
+                out.push('\n');
+            }
+            out
+        }
+        (Some(c), None) => {
+            // Find insertion point: right after document title (= Title) if present
+            let mut insert_pos = 0;
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim_start().starts_with("= ") {
+                    insert_pos = i + 1;
+                    break;
+                }
+            }
+            let inserted_line = format!(":page-color: {}", c);
+            let mut result = Vec::with_capacity(lines.len() + 1);
+            if lines.is_empty() {
+                result.push(inserted_line);
+            } else {
+                for (i, line) in lines.iter().enumerate() {
+                    if i == insert_pos {
+                        result.push(inserted_line.clone());
+                    }
+                    result.push(line.to_string());
+                }
+                if insert_pos >= lines.len() {
+                    result.push(inserted_line);
+                }
+            }
+            let mut out = result.join("\n");
+            if had_trailing_newline || content.is_empty() {
+                out.push('\n');
+            }
+            out
+        }
+        (None, Some(idx)) => {
+            let mut result = Vec::with_capacity(lines.len().saturating_sub(1));
+            for (i, line) in lines.iter().enumerate() {
+                if i != idx {
+                    result.push(line.to_string());
+                }
+            }
+            let mut out = result.join("\n");
+            if had_trailing_newline && !out.is_empty() {
+                out.push('\n');
+            }
+            out
+        }
+        (None, None) => content.to_string(),
+    }
+}
+
 /// Returns a safe PathBuf within `notes_dir` for a note, guaranteed not to escape via path traversal.
 pub fn safe_note_path(notes_dir: &Path, name_or_path: &str) -> std::path::PathBuf {
     let (group_path, filename) = sanitize_note_path(name_or_path);
@@ -893,6 +1036,7 @@ pub fn move_page(
         created_at: source_page.created_at,
         updated_at: now,
         block_count: source_page.block_count,
+        color: source_page.color,
     })
 }
 
@@ -927,6 +1071,7 @@ pub fn rename_page(
             created_at: source_page.created_at,
             updated_at: now,
             block_count: source_page.block_count,
+            color: source_page.color,
         });
     }
 
@@ -994,6 +1139,7 @@ pub fn rename_page(
         created_at: source_page.created_at,
         updated_at: now,
         block_count: source_page.block_count,
+        color: source_page.color,
     })
 }
 
@@ -1018,7 +1164,7 @@ mod tests {
     fn create_page_writes_file() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "My Page", false).unwrap();
+        create_page(&conn, &notes, "My Page", false, None).unwrap();
         assert!(notes.join("My_Page.adoc").exists());
     }
 
@@ -1026,7 +1172,7 @@ mod tests {
     fn create_page_inserts_into_db() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
+        create_page(&conn, &notes, "Test", false, None).unwrap();
         let pages = list_pages(&conn).unwrap();
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].title, "Test");
@@ -1036,7 +1182,7 @@ mod tests {
     fn create_journal_page() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Journal", true).unwrap();
+        create_page(&conn, &notes, "Journal", true, None).unwrap();
         assert!(notes.join(JOURNAL_FILENAME).exists());
         let pages = list_pages(&conn).unwrap();
         assert!(pages[0].is_journal);
@@ -1046,8 +1192,8 @@ mod tests {
     fn create_duplicate_page_errors() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
-        let result = create_page(&conn, &notes, "Test", false);
+        create_page(&conn, &notes, "Test", false, None).unwrap();
+        let result = create_page(&conn, &notes, "Test", false, None);
         assert!(result.is_err());
     }
 
@@ -1055,7 +1201,7 @@ mod tests {
     fn read_page_returns_content() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
+        create_page(&conn, &notes, "Test", false, None).unwrap();
         let content = read_page(&notes, "Test.adoc").unwrap();
         assert!(content.contains("= Test"));
     }
@@ -1064,7 +1210,7 @@ mod tests {
     fn delete_page_removes_file() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
+        create_page(&conn, &notes, "Test", false, None).unwrap();
         delete_page(&conn, &notes, "Test.adoc").unwrap();
         assert!(!notes.join("Test.adoc").exists());
     }
@@ -1073,7 +1219,7 @@ mod tests {
     fn delete_page_removes_file_and_db_by_title() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "My Test Page", false).unwrap();
+        create_page(&conn, &notes, "My Test Page", false, None).unwrap();
         assert!(notes.join("My_Test_Page.adoc").exists());
         let search1 = crate::search::search_pages(&conn, "Test").unwrap();
         assert_eq!(search1.len(), 1);
@@ -1090,7 +1236,7 @@ mod tests {
     fn get_page_finds_by_title_or_filename() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Special Note", false).unwrap();
+        create_page(&conn, &notes, "Special Note", false, None).unwrap();
 
         assert!(get_page(&conn, "Special Note").unwrap().is_some());
         assert!(get_page(&conn, "Special_Note").unwrap().is_some());
@@ -1102,9 +1248,9 @@ mod tests {
     fn list_pages_sorted_by_updated() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "First", false).unwrap();
+        create_page(&conn, &notes, "First", false, None).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        create_page(&conn, &notes, "Second", false).unwrap();
+        create_page(&conn, &notes, "Second", false, None).unwrap();
         let pages = list_pages(&conn).unwrap();
         assert_eq!(pages[0].title, "Second");
     }
@@ -1113,7 +1259,7 @@ mod tests {
     fn get_page_preview_blocks_extracts_top_blocks() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Preview Note", false).unwrap();
+        create_page(&conn, &notes, "Preview Note", false, None).unwrap();
         let content = "= Preview Note\n\nFirst intro paragraph.\n\n* Item 1\n* Item 2\n\n[NOTE]\nImportant tip!\n";
         std::fs::write(notes.join("Preview_Note.adoc"), content).unwrap();
 
@@ -1128,7 +1274,7 @@ mod tests {
     fn get_page_preview_json_includes_toc_headings() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Toc Note", false).unwrap();
+        create_page(&conn, &notes, "Toc Note", false, None).unwrap();
         let content = "= Toc Note\n:toc:\n\n== Section One\nText 1\n\n== Section Two\nText 2\n";
         std::fs::write(notes.join("Toc_Note.adoc"), content).unwrap();
 
@@ -1145,8 +1291,8 @@ mod tests {
     fn recent_pages_excludes_journal() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Journal", true).unwrap();
-        create_page(&conn, &notes, "Note", false).unwrap();
+        create_page(&conn, &notes, "Journal", true, None).unwrap();
+        create_page(&conn, &notes, "Note", false, None).unwrap();
         let recent = recent_pages(&conn, 10).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].title, "Note");
@@ -1156,7 +1302,7 @@ mod tests {
     fn get_page_by_filename() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Test", false).unwrap();
+        create_page(&conn, &notes, "Test", false, None).unwrap();
         let page = get_page(&conn, "Test.adoc").unwrap();
         assert!(page.is_some());
         assert_eq!(page.unwrap().title, "Test");
@@ -1235,7 +1381,7 @@ mod tests {
     fn test_page_info_to_json_value() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        let page = create_page(&conn, &notes, "JSON Test Page", false).unwrap();
+        let page = create_page(&conn, &notes, "JSON Test Page", false, None).unwrap();
         let json_val = page.to_json_value();
         assert_eq!(json_val["title"], "JSON Test Page");
         assert_eq!(json_val["filename"], "JSON_Test_Page.adoc");
@@ -1407,7 +1553,7 @@ mod tests {
         let notes = dir.path().join("notes");
 
         // Create NoteB in Work
-        create_page(&conn, &notes, "Work/NoteB.adoc", false).unwrap();
+        create_page(&conn, &notes, "Work/NoteB.adoc", false, None).unwrap();
 
         // Create NoteA in Work linking to NoteB
         let note_a_content = "= Note A\nSee xref:NoteB.adoc[Sibling] and <<NoteB>>.\n";
@@ -1439,7 +1585,7 @@ mod tests {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
 
-        create_page(&conn, &notes, "Journal", true).unwrap();
+        create_page(&conn, &notes, "Journal", true, None).unwrap();
         let res = move_page(&conn, &notes, JOURNAL_FILENAME, "Personal");
         assert!(res.is_err());
     }
@@ -1449,7 +1595,7 @@ mod tests {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
 
-        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false).unwrap();
+        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false, None).unwrap();
 
         let page_by_full_path = get_page(&conn, "Subgroup/Hendrix.adoc").unwrap().expect("Subgroup note found by full path");
         assert_eq!(page_by_full_path.group_path, "Subgroup");
@@ -1469,8 +1615,8 @@ mod tests {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
 
-        create_page(&conn, &notes, "Hendrix.adoc", false).unwrap();
-        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false).unwrap();
+        create_page(&conn, &notes, "Hendrix.adoc", false, None).unwrap();
+        create_page(&conn, &notes, "Subgroup/Hendrix.adoc", false, None).unwrap();
 
         let root_note = get_page(&conn, "Hendrix.adoc").unwrap().expect("Root note found");
         assert_eq!(root_note.group_path, "");
@@ -1534,7 +1680,7 @@ mod tests {
     fn repository_note_exists_prevents_traversal() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
-        create_page(&conn, &notes, "Secret", false).unwrap();
+        create_page(&conn, &notes, "Secret", false, None).unwrap();
 
         let repo = crate::repository::FsSqliteNoteRepository::new(&notes, Arc::new(Mutex::new(conn)));
 
@@ -1592,6 +1738,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-02T00:00:00Z".to_string(),
             block_count: 5,
+            color: String::new(),
         };
 
         let json_val = page.to_json_value();
@@ -1600,5 +1747,57 @@ mod tests {
         assert_eq!(json_val["name"], "Demo Title");
         assert_eq!(json_val["color"], compute_note_color("Demo Title"));
         assert_eq!(json_val["full_path"], "Work/demo.adoc");
+
+        let custom_page = PageInfo {
+            color: "#e74c3c".to_string(),
+            ..page
+        };
+        let custom_json = custom_page.to_json_value();
+        assert_eq!(custom_json["color"], "#e74c3c");
+        assert_eq!(custom_json["custom_color"], "#e74c3c");
+    }
+
+    #[test]
+    fn test_extract_and_update_doc_color() {
+        let doc = "= My Title\n\nSome body text.\n";
+        assert_eq!(extract_doc_color(doc), None);
+
+        let updated = update_content_color(doc, Some("#3498db"));
+        assert_eq!(extract_doc_color(&updated), Some("#3498db".to_string()));
+        assert!(updated.contains(":page-color: #3498db"));
+
+        let changed = update_content_color(&updated, Some("#e67e22"));
+        assert_eq!(extract_doc_color(&changed), Some("#e67e22".to_string()));
+        assert!(changed.contains(":page-color: #e67e22"));
+        assert!(!changed.contains("#3498db"));
+
+        let cleared = update_content_color(&changed, None);
+        assert_eq!(extract_doc_color(&cleared), None);
+        assert!(!cleared.contains(":page-color:"));
+    }
+
+    #[test]
+    fn test_set_page_color_lifecycle() {
+        let (conn, dir) = setup();
+        let notes = dir.path().join("notes");
+
+        let page = create_page(&conn, &notes, "ColorNote", false, Some("#2ecc71")).unwrap();
+        assert_eq!(page.color, "#2ecc71");
+        assert_eq!(page.effective_color(), "#2ecc71");
+
+        // Verify stored in DB
+        let fetched = get_page(&conn, "ColorNote").unwrap().expect("Should find ColorNote");
+        assert_eq!(fetched.color, "#2ecc71");
+
+        // Change color
+        let updated = set_page_color(&conn, &notes, "ColorNote", Some("#9b59b6")).unwrap();
+        assert_eq!(updated.color, "#9b59b6");
+        let fetched2 = get_page(&conn, "ColorNote").unwrap().unwrap();
+        assert_eq!(fetched2.color, "#9b59b6");
+
+        // Clear color (reverts to computed hash color)
+        let cleared = set_page_color(&conn, &notes, "ColorNote", None).unwrap();
+        assert_eq!(cleared.color, "");
+        assert_eq!(cleared.effective_color(), compute_note_color("ColorNote"));
     }
 }

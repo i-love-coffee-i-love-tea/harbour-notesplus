@@ -103,11 +103,12 @@ pub fn migrate_schema(conn: &Connection) -> SqlResult<()> {
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
                         block_count INTEGER NOT NULL DEFAULT 0,
+                        color TEXT NOT NULL DEFAULT '',
                         UNIQUE(group_path, filename)
                     );
 
-                    INSERT INTO pages_new (id, filename, group_path, title, is_journal, created_at, updated_at, block_count)
-                        SELECT id, filename, '', title, is_journal, created_at, updated_at, block_count FROM pages;
+                    INSERT INTO pages_new (id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
+                        SELECT id, filename, '', title, is_journal, created_at, updated_at, block_count, '' FROM pages;
 
                     DROP TABLE pages;
                     ALTER TABLE pages_new RENAME TO pages;
@@ -126,6 +127,7 @@ pub fn migrate_schema(conn: &Connection) -> SqlResult<()> {
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     block_count INTEGER NOT NULL DEFAULT 0,
+                    color TEXT NOT NULL DEFAULT '',
                     UNIQUE(group_path, filename)
                 );
                 ",
@@ -186,6 +188,32 @@ pub fn migrate_schema(conn: &Connection) -> SqlResult<()> {
 
         conn.execute_batch(
             "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', 3);",
+        )?;
+    }
+
+    if current_version < 4 {
+        let pages_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pages'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if pages_exists {
+            let mut stmt = conn.prepare("PRAGMA table_info(pages)")?;
+            let has_color = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .any(|col| col.map(|c| c == "color").unwrap_or(false));
+
+            if !has_color {
+                conn.execute_batch("ALTER TABLE pages ADD COLUMN color TEXT NOT NULL DEFAULT '';")?;
+            }
+        }
+
+        conn.execute_batch(
+            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', 4);",
         )?;
     }
 
@@ -415,7 +443,7 @@ mod tests {
             [],
             |row| row.get(0),
         ).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         // Check note_sort column exists
         let mut stmt = conn.prepare("PRAGMA table_info(groups)").unwrap();
@@ -424,6 +452,14 @@ mod tests {
             .unwrap()
             .any(|col| col.map(|c| c == "note_sort").unwrap_or(false));
         assert!(has_note_sort);
+
+        // Check color column exists on pages
+        let mut pages_stmt = conn.prepare("PRAGMA table_info(pages)").unwrap();
+        let has_color = pages_stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .any(|col| col.map(|c| c == "color").unwrap_or(false));
+        assert!(has_color);
     }
 
     #[test]
@@ -473,7 +509,7 @@ mod tests {
             [],
             |row| row.get(0),
         ).unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         // Check note_sort column added with default value 'newest'
         let note_sort: String = conn.query_row(
@@ -482,6 +518,69 @@ mod tests {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(note_sort, "newest");
+
+        // Check color column added to pages
+        let mut pages_stmt = conn.prepare("PRAGMA table_info(pages)").unwrap();
+        let has_color = pages_stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .any(|col| col.map(|c| c == "color").unwrap_or(false));
+        assert!(has_color);
+    }
+
+    #[test]
+    fn test_schema_migration_v3_to_v4_adds_color() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("v3.db");
+        let conn = Connection::open(&db_path).unwrap();
+
+        conn.execute_batch(
+            "
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            );
+            INSERT INTO schema_meta (key, value) VALUES ('version', 3);
+            CREATE TABLE pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                group_path TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                is_journal INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                block_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(group_path, filename)
+            );
+            CREATE TABLE groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                collapsed INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                note_sort TEXT NOT NULL DEFAULT 'newest',
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count)
+            VALUES ('note.adoc', '', 'My Note', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1);
+            ",
+        ).unwrap();
+
+        init_schema(&conn).unwrap();
+
+        let version: i64 = conn.query_row(
+            "SELECT value FROM schema_meta WHERE key='version'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(version, 4);
+
+        let color: String = conn.query_row(
+            "SELECT color FROM pages WHERE filename = 'note.adoc'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(color, "");
     }
 
     #[test]

@@ -60,10 +60,11 @@ void  notes_core_db_close(void* conn);
 /* ------------------------------------------------------------------ */
 char* notes_core_page_get_source(const char* notes_dir, const char* name);
 int   notes_core_page_save_source(void* conn, const char* notes_dir, const char* name, const char* content);
-int   notes_core_page_create(void* conn, const char* notes_dir, const char* name);
+int   notes_core_page_create(void* conn, const char* notes_dir, const char* name, const char* color);
 int   notes_core_page_delete(void* conn, const char* notes_dir, const char* name);
 int   notes_core_page_rename(void* conn, const char* notes_dir, const char* name, const char* new_title);
 int   notes_core_page_move(void* conn, const char* notes_dir, const char* source_name, const char* target_group);
+int   notes_core_page_set_color(void* conn, const char* notes_dir, const char* name, const char* color);
 char* notes_core_page_extract_title(const char* content, const char* fallback);
 int   notes_core_rebuild_index(void* conn, const char* notes_dir);
 char* notes_core_recent_pages_json(void* conn, int limit);

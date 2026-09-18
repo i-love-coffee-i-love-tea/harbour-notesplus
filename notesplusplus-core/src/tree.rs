@@ -250,6 +250,10 @@ fn build_node(
             serde_json::Value::String(p.title.clone()),
         );
         p_map.insert(
+            "title".into(),
+            serde_json::Value::String(p.title.clone()),
+        );
+        p_map.insert(
             "filename".into(),
             serde_json::Value::String(p.filename.clone()),
         );
@@ -261,9 +265,18 @@ fn build_node(
             "full_path".into(),
             serde_json::Value::String(p.full_path()),
         );
+        let effective_color = if !p.color.is_empty() {
+            p.color.as_str()
+        } else {
+            page::compute_note_color(&p.title)
+        };
         p_map.insert(
             "color".into(),
-            serde_json::Value::String(page::compute_note_color(&p.title).to_string()),
+            serde_json::Value::String(effective_color.to_string()),
+        );
+        p_map.insert(
+            "custom_color".into(),
+            serde_json::Value::String(p.color.clone()),
         );
         p_map.insert(
             "created_at".into(),
@@ -429,6 +442,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
             block_count: 0,
+            color: String::new(),
         }
     }
 

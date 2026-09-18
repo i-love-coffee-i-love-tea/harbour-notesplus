@@ -360,7 +360,7 @@ Page {
                     var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
                     dialog.accepted.connect(function() {
                         if (dialog.pageName.length > 0) {
-                            bridge.create_page(dialog.pageName)
+                            bridge.create_page(dialog.pageName, dialog.selectedColor)
                         }
                     })
                 }

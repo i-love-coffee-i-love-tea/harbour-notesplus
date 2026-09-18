@@ -183,10 +183,12 @@ void PageStore::save_page_source(const QString &name, const QString &content,
     load_page(fullPath, signalTarget);
 }
 
-void PageStore::create_page(const QString &name, QObject *signalTarget)
+void PageStore::create_page(const QString &name, const QString &color, QObject *signalTarget)
 {
+    const QByteArray colorUtf8 = color.toUtf8();
+    const char *colorPtr = color.isEmpty() ? nullptr : colorUtf8.constData();
     int rc = notes_core_page_create(
-        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(name));
+        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(name), colorPtr);
     if (rc < 0) {
         m_ctx.reportError(QStringLiteral("Failed to create page: %1").arg(name));
         return;
@@ -199,6 +201,22 @@ void PageStore::create_page(const QString &name, QObject *signalTarget)
     if (!fullPath.endsWith(QLatin1String(".adoc")))
         fullPath += QLatin1String(".adoc");
     load_page(fullPath, signalTarget);
+}
+
+bool PageStore::set_page_color(const QString &name, const QString &color)
+{
+    const QByteArray colorUtf8 = color.toUtf8();
+    const char *colorPtr = color.isEmpty() ? nullptr : colorUtf8.constData();
+    int rc = notes_core_page_set_color(
+        m_ctx.rawConn(), qstrToFFI(m_ctx.notesPath), qstrToFFI(name), colorPtr);
+    if (rc < 0) {
+        m_ctx.reportError(QStringLiteral("Failed to set color for page: %1").arg(name));
+        return false;
+    }
+
+    if (m_rebuildTreeCallback)
+        m_rebuildTreeCallback();
+    return true;
 }
 
 void PageStore::delete_page(const QString &name, QObject * /*signalTarget*/)

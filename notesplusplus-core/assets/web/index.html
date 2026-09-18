@@ -96,6 +96,36 @@
             </svg>
             <span class="btn-label">Gallery</span>
           </button>
+          <div class="note-color-badge-wrapper" style="position: relative; display: inline-flex; align-items: center; margin-right: 8px;">
+            <button
+              type="button"
+              class="note-color-badge-btn"
+              :style="{ backgroundColor: currentNoteColor || '#e67e22' }"
+              @click.stop="showColorMenu = !showColorMenu"
+              title="Change note color"
+            ></button>
+            <div v-if="showColorMenu" class="dropdown-menu color-dropdown-menu" @click.stop>
+              <div class="color-picker-grid">
+                <button
+                  type="button"
+                  v-for="c in notePalette"
+                  :key="c"
+                  class="color-swatch-btn"
+                  :class="{ 'is-selected': currentNoteColor === c }"
+                  :style="{ backgroundColor: c }"
+                  @click="setNoteColor(currentFilename, c); showColorMenu = false;"
+                  :title="c"
+                ></button>
+              </div>
+              <div class="color-dropdown-footer">
+                <button
+                  type="button"
+                  class="btn-reset-color"
+                  @click="setNoteColor(currentFilename, ''); showColorMenu = false;"
+                >Reset to Default</button>
+              </div>
+            </div>
+          </div>
           <span class="current-note-title" :title="currentFilename">{{ currentNoteTitle || currentFilename }}</span>
         </div>
       </div>
@@ -924,6 +954,20 @@
             <option value="journal">Journal Entry</option>
             <option value="presentation">Slide Deck (Presentation)</option>
           </select>
+        </label>
+        <label>Note Color:
+          <div class="color-picker-grid" style="margin-top: 6px;">
+            <button
+              type="button"
+              v-for="c in notePalette"
+              :key="c"
+              class="color-swatch-btn"
+              :class="{ 'is-selected': newNoteColor === c }"
+              :style="{ backgroundColor: c }"
+              @click="newNoteColor = (newNoteColor === c ? '' : c)"
+              :title="c"
+            ></button>
+          </div>
         </label>
         <div class="modal-actions">
           <button @click="createNote" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>

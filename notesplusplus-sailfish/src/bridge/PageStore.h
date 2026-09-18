@@ -44,7 +44,9 @@ public:
     QString get_page_source(const QString &name);
     void    save_page_source(const QString &name, const QString &content,
                              QObject *signalTarget);
-    void    create_page(const QString &name, QObject *signalTarget);
+    void    create_page(const QString &name, const QString &color,
+                        QObject *signalTarget);
+    bool    set_page_color(const QString &name, const QString &color);
     void    delete_page(const QString &name, QObject *signalTarget);
     bool    rename_page(const QString &old_path, const QString &new_title,
                         QObject *signalTarget);

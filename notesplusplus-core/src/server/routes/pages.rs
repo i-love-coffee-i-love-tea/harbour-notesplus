@@ -120,13 +120,14 @@ pub fn handle_pages_api<W: Write>(
             let parsed = req.json_body();
             let name = parsed.get("name").or_else(|| parsed.get("title")).and_then(|v| v.as_str()).unwrap_or("").trim();
             let is_journal = parsed.get("is_journal").and_then(|v| v.as_bool()).unwrap_or(false);
+            let color = parsed.get("color").and_then(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty());
 
             if name.is_empty() {
                 send_json_error(stream, 400, "Bad Request", "Page name cannot be empty", cors_origin);
                 return;
             }
 
-            match ctx.repository.create_page(name, is_journal) {
+            match ctx.repository.create_page(name, is_journal, color) {
                 Ok(info) => {
                     send_response(stream, 201, "Created", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
                 }
@@ -146,6 +147,43 @@ pub fn handle_page_detail_api<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
+    if filename.ends_with("/color") {
+        let base_name = filename.strip_suffix("/color").unwrap();
+        match req.method.as_str() {
+            "GET" => {
+                if let Ok(Some(p)) = ctx.repository.get_page(base_name) {
+                    let resp = json!({
+                        "filename": p.filename,
+                        "title": p.title,
+                        "color": p.effective_color(),
+                        "custom_color": p.color
+                    });
+                    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                } else {
+                    send_json_error(stream, 404, "Not Found", &format!("Page '{}' not found", base_name), cors_origin);
+                }
+                return;
+            }
+            "PUT" | "POST" => {
+                let parsed = req.json_body();
+                let color = parsed.get("color").and_then(|v| v.as_str()).map(|s| s.trim());
+                match ctx.repository.set_page_color(base_name, color) {
+                    Ok(info) => {
+                        send_response(stream, 200, "OK", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
+                    }
+                    Err(e) => {
+                        send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                    }
+                }
+                return;
+            }
+            _ => {
+                send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin);
+                return;
+            }
+        }
+    }
+
     let (group_path, file_name) = page::sanitize_note_path(filename);
     let resolved_path = if group_path.is_empty() {
         file_name
@@ -366,7 +404,8 @@ pub fn handle_notes_api<W: Write>(
                                 "filename": r.page.filename,
                                 "group_path": r.page.group_path,
                                 "full_path": r.page.full_path(),
-                                "color": page::compute_note_color(&r.page.title),
+                                "color": r.page.effective_color(),
+                                "custom_color": r.page.color,
                                 "snippet": r.snippet
                             })
                         }).collect()
@@ -381,7 +420,8 @@ pub fn handle_notes_api<W: Write>(
                                 "filename": p.filename,
                                 "group_path": p.group_path,
                                 "full_path": p.full_path(),
-                                "color": page::compute_note_color(&p.title),
+                                "color": p.effective_color(),
+                                "custom_color": p.color,
                                 "snippet": ""
                             })
                         }).collect()
@@ -395,11 +435,18 @@ pub fn handle_notes_api<W: Write>(
                 let json_val = req.json_body();
                 let title = json_val.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Note");
                 let content = json_val.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let color = json_val.get("color").and_then(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty());
 
                 let filename = sanitize_note_filename(title);
 
                 let initial_content = if content.is_empty() {
-                    format!("= {}\n\n", title)
+                    if let Some(c) = color {
+                        format!("= {}\n:page-color: {}\n\n", title, c)
+                    } else {
+                        format!("= {}\n\n", title)
+                    }
+                } else if let Some(c) = color {
+                    page::update_content_color(content, Some(c))
                 } else {
                     content.to_string()
                 };
@@ -409,6 +456,8 @@ pub fn handle_notes_api<W: Write>(
                         let resp = json!({
                             "title": info.title,
                             "filename": info.filename,
+                            "color": info.effective_color(),
+                            "custom_color": info.color,
                             "content": initial_content
                         });
                         send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
@@ -421,6 +470,47 @@ pub fn handle_notes_api<W: Write>(
                 return;
             }
             _ => {}
+        }
+    }
+
+    if clean_path.starts_with(API_ROUTE_NOTES_PREFIX) && clean_path.ends_with("/color") {
+        let raw_name = clean_path
+            .strip_prefix(API_ROUTE_NOTES_PREFIX)
+            .unwrap()
+            .strip_suffix("/color")
+            .unwrap();
+        match req.method.as_str() {
+            "GET" => {
+                if let Ok(Some(p)) = ctx.repository.get_page(raw_name) {
+                    let resp = json!({
+                        "filename": p.filename,
+                        "title": p.title,
+                        "color": p.effective_color(),
+                        "custom_color": p.color
+                    });
+                    send_response(stream, 200, "OK", MIME_JSON, resp.to_string().as_bytes(), cors_origin);
+                } else {
+                    send_json_error(stream, 404, "Not Found", &format!("Note '{}' not found", raw_name), cors_origin);
+                }
+                return;
+            }
+            "PUT" | "POST" => {
+                let json_body = req.json_body();
+                let color = json_body.get("color").and_then(|v| v.as_str()).map(|s| s.trim());
+                match ctx.repository.set_page_color(raw_name, color) {
+                    Ok(info) => {
+                        send_response(stream, 200, "OK", MIME_JSON, info.to_json_value().to_string().as_bytes(), cors_origin);
+                    }
+                    Err(e) => {
+                        send_json_error(stream, 400, "Bad Request", &e.to_string(), cors_origin);
+                    }
+                }
+                return;
+            }
+            _ => {
+                send_json_error(stream, 405, "Method Not Allowed", "Method not allowed", cors_origin);
+                return;
+            }
         }
     }
 

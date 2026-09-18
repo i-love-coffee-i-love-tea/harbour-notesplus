@@ -126,6 +126,25 @@ export const useNotesStore = defineStore('notes', () => {
     return fn.split('/').pop().replace(/\.adoc$/, '').replace(/_/g, ' ');
   });
 
+  const currentNoteColor = computed(() => {
+    const fn = currentFilename.value;
+    if (!fn) return '';
+    const found = notesList.value.find(n => n.filename === fn || n.full_path === fn || fn.endsWith('/' + n.filename));
+    if (found && found.color) return found.color;
+    const allGroups = flattenTreeNodes(groupTree.value);
+    for (const g of allGroups) {
+      const p = (g.pages || []).find(page => page.filename === fn || page.full_path === fn || fn.endsWith('/' + page.filename));
+      if (p && p.color) return p.color;
+    }
+    return '';
+  });
+
+  const notePalette = [
+    "#e67e22", "#3498db", "#2ecc71", "#9b59b6",
+    "#f1c40f", "#e74c3c", "#1abc9c", "#e84393",
+    "#00cec9", "#6c5ce7", "#fdcb6e", "#00b894"
+  ];
+
   async function fetchNotesList() {
     try {
       const [list] = await Promise.all([
@@ -285,7 +304,7 @@ export const useNotesStore = defineStore('notes', () => {
     saveStatusClass.value = 'unsaved';
   }
 
-  async function createNote(title, template) {
+  async function createNote(title, template, color) {
     if (!title) return;
     let starterContent = `= ${title}\n\n`;
     if (template === 'technical') {
@@ -298,10 +317,14 @@ export const useNotesStore = defineStore('notes', () => {
       starterContent = `= ${title}\n:icons: font\n\nWelcome to ${title}.\n\n== Agenda\n* Introduction\n* Key Architecture\n* Demonstration\n* Summary\n\n== Key Architecture\n[source,rust]\n----\n// Clean & Modular\npub fn present_deck() {\n    println!("Presenting slides offline");\n}\n----\n\n== Summary\n* Responsive presentation view\n* AsciiDoc page break & heading support\n* Pure local execution\n`;
     }
     try {
+      const payload = { title, content: starterContent };
+      if (color) {
+        payload.color = color;
+      }
       const data = await apiJson('/api/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content: starterContent })
+        body: JSON.stringify(payload)
       });
       await fetchNotesList();
       loadNote(data.filename);
@@ -312,6 +335,26 @@ export const useNotesStore = defineStore('notes', () => {
       return true;
     } catch (err) {
       alert('Failed to create note: ' + err.message);
+      return false;
+    }
+  }
+
+  async function setNoteColor(filename, color) {
+    const target = filename || currentFilename.value;
+    if (!target) return;
+    try {
+      await apiJson(`/api/notes/${encodeURI(target)}/color`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color: color || '' })
+      });
+      await Promise.all([
+        fetchNotesList(),
+        loadNote(target, false)
+      ]);
+      return true;
+    } catch (err) {
+      console.error('Failed to set note color:', err);
       return false;
     }
   }
@@ -365,10 +408,10 @@ export const useNotesStore = defineStore('notes', () => {
     currentFilename, notesList, groupTree, gallerySearchQuery, collapsedGroups,
     searchResults, isSearching, activeSearchTerm, isSearchActive,
     rawContent, isSaving, saveStatusText, saveStatusClass,
-    renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle,
+    renderedHtml, editorTextarea, filteredGroupTree, currentNoteTitle, currentNoteColor, notePalette,
     updateRenderedHtml, fetchNotesList, fetchGroupTree, toggleGroupCollapse, isGroupCollapsed,
     performSearch, clearSearch, selectSearchResultNote, clearDocumentHighlight,
     loadNote, selectNote, onNoteSelect, saveCurrentNote, onContentChange,
-    createNote, toggleChecklistItem, setupInteractiveFeatures,
+    createNote, setNoteColor, toggleChecklistItem, setupInteractiveFeatures,
   };
 });

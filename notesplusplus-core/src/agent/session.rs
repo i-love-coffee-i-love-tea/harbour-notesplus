@@ -563,7 +563,7 @@ impl AgentSession {
                     format!("{}/{}", group.trim_matches('/'), title)
                 };
 
-                match self.repository.create_page(&note_path, false) {
+                match self.repository.create_page(&note_path, false, None) {
                     Ok(created) => {
                         if let Some(content) = initial_content {
                             if let Err(e) = self.repository.save_note(&created.full_path(), content) {

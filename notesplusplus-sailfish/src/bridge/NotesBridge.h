@@ -113,7 +113,8 @@ public:
     Q_INVOKABLE void    append_to_journal(QString text, bool is_task);
     Q_INVOKABLE QString get_page_source(QString name);
     Q_INVOKABLE void    save_page_source(QString name, QString content);
-    Q_INVOKABLE void    create_page(QString name);
+    Q_INVOKABLE void    create_page(QString name, QString color = QString());
+    Q_INVOKABLE bool    set_page_color(QString name, QString color);
     Q_INVOKABLE void    delete_page(QString name);
     Q_INVOKABLE bool    rename_page(QString old_path, QString new_title);
     Q_INVOKABLE void    navigate_to_page(QString name);
