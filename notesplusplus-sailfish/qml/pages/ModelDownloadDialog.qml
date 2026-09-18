@@ -50,18 +50,6 @@ Dialog {
         }
     }
 
-    Timer {
-        id: pollTimer
-        interval: 100
-        running: typeof speechBridge !== "undefined" && speechBridge && (speechBridge.is_downloading || speechBridge.is_transcribing)
-        repeat: true
-        onTriggered: {
-            if (typeof speechBridge !== "undefined" && speechBridge) {
-                speechBridge.poll_worker()
-            }
-        }
-    }
-
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: contentColumn.height + Theme.paddingLarge
