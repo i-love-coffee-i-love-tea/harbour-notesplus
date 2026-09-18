@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QNetworkConfigurationManager>
 #include <QtConcurrent/QtConcurrent>
 #include <mutex>
 #include <condition_variable>
@@ -257,6 +258,9 @@ private:
 
     /* ---- Lifetime guard for detached threads ---- */
     std::shared_ptr<std::atomic<bool>> m_alive;
+
+    /* ---- Network configuration monitor ---- */
+    QNetworkConfigurationManager *m_netConfigManager = nullptr;
 
     Q_DISABLE_COPY(NotesBridge)
 };

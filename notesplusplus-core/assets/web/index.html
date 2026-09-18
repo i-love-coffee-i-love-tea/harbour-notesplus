@@ -72,7 +72,7 @@
     <!-- Top Navigation Bar -->
     <header class="navbar">
       <div class="nav-left">
-        <a href="/" class="brand" @click.prevent="viewMode = 'gallery'" title="Notes Plus">
+        <a href="/" class="brand" @click.prevent="navigateToGallery" title="Notes Plus">
           <img src="/icon.png" class="brand-icon" alt="Notes Plus">
           <span class="brand-name">Notes Plus</span>
         </a>
@@ -90,7 +90,7 @@
         
         <!-- Document navigation & Title: only visible in Note modes -->
         <div class="current-doc-info" v-if="viewMode !== 'gallery'">
-          <button type="button" @click="viewMode = 'gallery'" class="btn-back-gallery" title="Back to Note Cards Gallery">
+          <button type="button" @click="navigateToGallery" class="btn-back-gallery" title="Back to Note Cards Gallery">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
@@ -960,7 +960,7 @@
           </div>
         </label>
         <div class="modal-actions">
-          <button @click="createNote" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>
+          <button @click="createNote()" class="btn-primary" :disabled="!newNoteTitle.trim()">Create Note</button>
           <button @click="openNewNoteModal = false" class="btn-cancel">Cancel</button>
         </div>
         <div class="modal-divider" style="margin: 14px 0 10px 0; border-top: 1px solid var(--border-color); text-align: center; position: relative;">

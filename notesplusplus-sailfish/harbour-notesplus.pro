@@ -31,6 +31,7 @@ SOURCES += \
     src/bridge/SearchPreviewGenerator.cpp \
     src/bridge/ServerManager.cpp \
     src/bridge/SettingsManager.cpp \
+    src/bridge/NetworkHelper.cpp \
     src/bridge/TlsManager.cpp
 
 HEADERS += \
@@ -55,6 +56,7 @@ HEADERS += \
     src/bridge/AiConfig.h \
     src/bridge/AuthManager.h \
     src/bridge/SettingsManager.h \
+    src/bridge/NetworkHelper.h \
     src/bridge/TlsManager.h
 
 # Include path for FFI headers

@@ -108,6 +108,17 @@ const app = createApp({
         const req = getRequestedNote();
         if (req && req !== notes.currentFilename) notes.loadNote(req, false);
       });
+      window.addEventListener('popstate', (e) => {
+        const state = e.state;
+        if (state) {
+          if (state.viewMode) ui.viewMode = state.viewMode;
+          if (state.filename && state.filename !== notes.currentFilename) {
+            notes.loadNote(state.filename, false);
+          }
+        } else {
+          ui.viewMode = 'gallery';
+        }
+      });
 
       const authed = await auth.fetchAuthConfig();
       if (authed) {
@@ -137,7 +148,6 @@ const app = createApp({
 
       // App-level template helpers
       formatMessageContent: (content) => formatMarkdown(content),
-      createNote: () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate, ui.newNoteColor),
     };
 
     // Expose reactive state/getters and bound actions for seamless template access
@@ -149,6 +159,9 @@ const app = createApp({
         }
       }
     }
+
+    // Override after auto-binding so the store's raw createNote doesn't clobber this wrapper
+    bindings.createNote = () => notes.createNote(ui.newNoteTitle, ui.newNoteTemplate, ui.newNoteColor);
 
     return bindings;
   }

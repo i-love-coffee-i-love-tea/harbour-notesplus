@@ -3,7 +3,6 @@ import Sailfish.Silica 1.0
 import "../components"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 import "../js/EditorHelpers.js" as EH
-import "../js/ThemeColors.js" as TC
 
 Page {
     id: mainPage
@@ -320,6 +319,15 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Share Server URL")
+                visible: bridge.web_server_running
+                onClicked: {
+                    Clipboard.text = bridge.web_server_url
+                    app.notification.text = qsTr("Server URL copied to clipboard")
+                    app.notification.show()
+                }
+            }
+            MenuItem {
                 text: qsTr("Settings")
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
@@ -384,49 +392,7 @@ Page {
 
             PageHeader {
                 title: "Notes Plus"
-            }
-
-            Item {
-                width: parent.width
-                height: bridge.web_server_running ? (webStatusRow.height + Theme.paddingSmall) : 0
-                visible: bridge.web_server_running
-                clip: true
-
-                Behavior on height { NumberAnimation { duration: 150 } }
-
-                BackgroundItem {
-                    id: webStatusRow
-                    anchors.centerIn: parent
-                    width: parent.width - Theme.horizontalPageMargin * 2
-                    height: Theme.itemSizeExtraSmall
-
-                    Row {
-                        anchors.centerIn: parent
-                        spacing: Theme.paddingSmall
-
-                        Rectangle {
-                            width: Theme.paddingSmall
-                            height: Theme.paddingSmall
-                            radius: width / 2
-                            color: TC.kStatusGreen
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Label {
-                            text: qsTr("Web Service: ") + bridge.web_server_url
-                            font.pixelSize: Theme.fontSizeExtraSmall
-                            color: Theme.secondaryHighlightColor
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-
-                    onClicked: {
-                        var url = bridge.web_server_url
-                        if (url) {
-                            Clipboard.text = url
-                        }
-                    }
-                }
+                description: bridge.web_server_running ? bridge.web_server_url : ""
             }
 
             SearchField {

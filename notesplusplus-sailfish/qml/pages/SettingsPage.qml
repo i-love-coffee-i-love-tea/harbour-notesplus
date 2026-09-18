@@ -105,7 +105,7 @@ Page {
             }
             refreshSttModels()
         }
-        if (currentTab === 3 && networkInterfaces.length === 0) {
+        if (currentTab === 3) {
             refreshNetworkInterfaces()
         }
     }

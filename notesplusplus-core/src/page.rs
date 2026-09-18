@@ -166,7 +166,7 @@ pub fn create_page(
 
     // Write initial content
     if !is_journal {
-        let content = format!("= {}\n:page-color: {}\n", clean_title, chosen_color);
+        let content = format!("= {}\n\n", clean_title);
         atomic_write(&path, &content)?;
     } else {
         // Journal starts empty; journal.rs handles content
@@ -194,7 +194,7 @@ pub fn create_page(
 
     // Index initial content into FTS
     if !is_journal {
-        let init_fts = format!("= {}\n:page-color: {}\n", clean_title, chosen_color);
+        let init_fts = format!("= {}\n\n", clean_title);
         let _ = db::update_fts_content(conn, id, &init_fts);
     }
 
@@ -239,19 +239,10 @@ pub fn save_and_index_page(
         )
         .ok();
 
-    let color = match extract_doc_color(content) {
-        Some(c) => c,
-        None => {
-            if let Some((_, ref prev_color)) = existing_page {
-                if !prev_color.is_empty() {
-                    prev_color.clone()
-                } else {
-                    random_note_color().to_string()
-                }
-            } else {
-                random_note_color().to_string()
-            }
-        }
+    let color = if let Some((_, ref prev_color)) = existing_page {
+        prev_color.clone()
+    } else {
+        String::new()
     };
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -589,7 +580,6 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
 /// Sets or removes the custom note color for a page.
 pub fn set_page_color(
     conn: &Connection,
-    notes_dir: &Path,
     name_or_filename: &str,
     color: Option<&str>,
 ) -> Result<PageInfo, NotesError> {
@@ -599,14 +589,21 @@ pub fn set_page_color(
         None => return Err(NotesError::Msg(format!("Page '{}' not found", name_or_filename))),
     };
 
-    let target_filename = page.full_path();
-    let old_content = read_page(notes_dir, &target_filename)?;
     let assigned_color = match color.map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        Some(c) => c,
-        None => random_note_color(),
+        Some(c) => c.to_string(),
+        None => random_note_color().to_string(),
     };
-    let new_content = update_content_color(&old_content, Some(assigned_color));
-    save_and_index_page(conn, notes_dir, &target_filename, &new_content)
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE pages SET color = ?1, updated_at = ?2 WHERE id = ?3",
+        rusqlite::params![assigned_color, now, page.id],
+    )?;
+
+    Ok(PageInfo {
+        color: assigned_color,
+        updated_at: now,
+        ..page
+    })
 }
 
 /// Copy example .adoc files to the notes directory on first run
@@ -692,12 +689,11 @@ fn copy_dir_recursive(
                         std::fs::copy(&path, &dest)?;
                         let content = std::fs::read_to_string(&dest).unwrap_or_default();
                         let title = extract_doc_title(&content, &filename);
-                        let color = extract_doc_color(&content).unwrap_or_else(|| random_note_color().to_string());
                         let now = chrono::Utc::now().to_rfc3339();
                         conn.execute(
                             "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
-                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0, ?5)",
-                            rusqlite::params![filename, current_group, title, now, color],
+                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0, '')",
+                            rusqlite::params![filename, current_group, title, now],
                         )?;
                         if let Ok(page_id) = conn.query_row(
                             "SELECT id FROM pages WHERE group_path = ?1 AND filename = ?2",
@@ -823,102 +819,6 @@ pub fn extract_doc_title(content: &str, fallback_filename: &str) -> String {
         }
     }
     fallback_filename.trim_end_matches(".adoc").replace('_', " ")
-}
-
-/// Extracts document color from AsciiDoc content attribute (`:page-color: #rrggbb` or `:color: #rrggbb`).
-pub fn extract_doc_color(content: &str) -> Option<String> {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(":page-color:") || trimmed.starts_with(":color:") {
-            let rest = if let Some(r) = trimmed.strip_prefix(":page-color:") {
-                r
-            } else if let Some(r) = trimmed.strip_prefix(":color:") {
-                r
-            } else {
-                continue;
-            };
-            let c = rest.trim();
-            if !c.is_empty() {
-                return Some(c.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Updates or removes document color in AsciiDoc content attribute `:page-color: <color>`.
-pub fn update_content_color(content: &str, color: Option<&str>) -> String {
-    let color_trimmed = color.map(|c| c.trim()).filter(|c| !c.is_empty());
-    let lines: Vec<&str> = content.lines().collect();
-    let had_trailing_newline = content.ends_with('\n');
-
-    let existing_idx = lines.iter().position(|l| {
-        let t = l.trim();
-        t.starts_with(":page-color:") || t.starts_with(":color:")
-    });
-
-    match (color_trimmed, existing_idx) {
-        (Some(c), Some(idx)) => {
-            let replaced_line = format!(":page-color: {}", c);
-            let mut result = Vec::with_capacity(lines.len());
-            for (i, line) in lines.iter().enumerate() {
-                if i == idx {
-                    result.push(replaced_line.clone());
-                } else {
-                    result.push(line.to_string());
-                }
-            }
-            let mut out = result.join("\n");
-            if had_trailing_newline {
-                out.push('\n');
-            }
-            out
-        }
-        (Some(c), None) => {
-            // Find insertion point: right after document title (= Title) if present
-            let mut insert_pos = 0;
-            for (i, line) in lines.iter().enumerate() {
-                if line.trim_start().starts_with("= ") {
-                    insert_pos = i + 1;
-                    break;
-                }
-            }
-            let inserted_line = format!(":page-color: {}", c);
-            let mut result = Vec::with_capacity(lines.len() + 1);
-            if lines.is_empty() {
-                result.push(inserted_line);
-            } else {
-                for (i, line) in lines.iter().enumerate() {
-                    if i == insert_pos {
-                        result.push(inserted_line.clone());
-                    }
-                    result.push(line.to_string());
-                }
-                if insert_pos >= lines.len() {
-                    result.push(inserted_line);
-                }
-            }
-            let mut out = result.join("\n");
-            if had_trailing_newline || content.is_empty() {
-                out.push('\n');
-            }
-            out
-        }
-        (None, Some(idx)) => {
-            let mut result = Vec::with_capacity(lines.len().saturating_sub(1));
-            for (i, line) in lines.iter().enumerate() {
-                if i != idx {
-                    result.push(line.to_string());
-                }
-            }
-            let mut out = result.join("\n");
-            if had_trailing_newline && !out.is_empty() {
-                out.push('\n');
-            }
-            out
-        }
-        (None, None) => content.to_string(),
-    }
 }
 
 /// Returns a safe PathBuf within `notes_dir` for a note, guaranteed not to escape via path traversal.
@@ -1806,25 +1706,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_and_update_doc_color() {
-        let doc = "= My Title\n\nSome body text.\n";
-        assert_eq!(extract_doc_color(doc), None);
-
-        let updated = update_content_color(doc, Some("#3498db"));
-        assert_eq!(extract_doc_color(&updated), Some("#3498db".to_string()));
-        assert!(updated.contains(":page-color: #3498db"));
-
-        let changed = update_content_color(&updated, Some("#e67e22"));
-        assert_eq!(extract_doc_color(&changed), Some("#e67e22".to_string()));
-        assert!(changed.contains(":page-color: #e67e22"));
-        assert!(!changed.contains("#3498db"));
-
-        let cleared = update_content_color(&changed, None);
-        assert_eq!(extract_doc_color(&cleared), None);
-        assert!(!cleared.contains(":page-color:"));
-    }
-
-    #[test]
     fn test_set_page_color_lifecycle() {
         let (conn, dir) = setup();
         let notes = dir.path().join("notes");
@@ -1838,13 +1719,13 @@ mod tests {
         assert_eq!(fetched.color, "#2ecc71");
 
         // Change color
-        let updated = set_page_color(&conn, &notes, "ColorNote", Some("#9b59b6")).unwrap();
+        let updated = set_page_color(&conn, "ColorNote", Some("#9b59b6")).unwrap();
         assert_eq!(updated.color, "#9b59b6");
         let fetched2 = get_page(&conn, "ColorNote").unwrap().unwrap();
         assert_eq!(fetched2.color, "#9b59b6");
 
         // Clear color (assigns a random palette color)
-        let cleared = set_page_color(&conn, &notes, "ColorNote", None).unwrap();
+        let cleared = set_page_color(&conn, "ColorNote", None).unwrap();
         assert!(NOTE_CARD_PALETTE.contains(&cleared.color.as_str()));
         assert_eq!(cleared.effective_color(), cleared.color);
     }

@@ -142,7 +142,7 @@ impl NoteRepository for FsSqliteNoteRepository {
         } else {
             name_or_filename.to_string()
         };
-        page::set_page_color(&conn, &self.notes_dir, &target_filename, color)
+        page::set_page_color(&conn, &target_filename, color)
     }
 
     fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError> {

@@ -108,6 +108,21 @@ NotesBridge::NotesBridge(QObject *parent)
         [this](const QString &name) -> QString { return resolvePagePath(name); }
     );
 
+    /* Monitor network configuration changes to update server URL dynamically */
+    m_netConfigManager = new QNetworkConfigurationManager(this);
+    connect(m_netConfigManager, &QNetworkConfigurationManager::configurationChanged,
+            this, [this](const QNetworkConfiguration &) {
+        if (m_serverManager && m_serverManager->isRunning()) {
+            emit web_server_status_changed();
+        }
+    });
+    connect(m_netConfigManager, &QNetworkConfigurationManager::onlineStateChanged,
+            this, [this](bool) {
+        if (m_serverManager && m_serverManager->isRunning()) {
+            emit web_server_status_changed();
+        }
+    });
+
     /* Kick off background DB init */
     ensureInit();
 }
@@ -661,12 +676,14 @@ void NotesBridge::set_reject_public_networks(bool reject)
 {
     m_serverManager->set_reject_public_networks(reject);
     emit reject_public_networks_changed();
+    emit web_server_status_changed();
 }
 
 void NotesBridge::set_bind_address(QString addr)
 {
     m_serverManager->set_bind_address(addr);
     emit bind_address_changed();
+    emit web_server_status_changed();
 }
 
 QString NotesBridge::get_network_interfaces_json()

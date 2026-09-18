@@ -31,6 +31,7 @@ ApplicationWindow {
     property alias sessionExpiryHours: appSettings.sessionExpiryHours
     property alias groupDisplayDepth: appSettings.groupDisplayDepth
     property alias journalEnabled: appSettings.journalEnabled
+    property alias notification: notification
 
     function formatSize(bytes) {
         if (!bytes || bytes <= 0) return ""
@@ -441,7 +442,7 @@ ApplicationWindow {
         }
 
         anchors.top: parent.top
-        anchors.topMargin: Theme.paddingLarge
+        anchors.topMargin: Theme.paddingLarge * 2
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - Theme.horizontalPageMargin * 2, notificationLabel.implicitWidth + Theme.paddingLarge * 2)
         height: Math.max(Theme.itemSizeExtraSmall, notificationLabel.implicitHeight + Theme.paddingSmall * 2)

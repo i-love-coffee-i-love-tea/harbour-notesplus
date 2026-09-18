@@ -185,9 +185,14 @@ export const useNotesStore = defineStore('notes', () => {
     currentFilename.value = filename;
     try { localStorage.setItem('notesplus_last_note', filename); } catch (_) {}
 
-    if (updateHistory && typeof history !== 'undefined' && history.replaceState) {
+    if (updateHistory && typeof history !== 'undefined' && history.pushState) {
       const desiredHash = '#' + encodeURIComponent(filename);
-      if (window.location.hash !== desiredHash) history.replaceState(null, '', desiredHash);
+      const ui = useUiStore();
+      const vm = ui.viewMode;
+      const prev = history.state;
+      if (!prev || prev.filename !== filename || prev.viewMode !== vm) {
+        history.pushState({ filename, viewMode: vm }, '', desiredHash);
+      }
     }
 
     try {
@@ -208,11 +213,11 @@ export const useNotesStore = defineStore('notes', () => {
     if (!isSearchActive.value) {
       activeSearchTerm.value = '';
     }
-    await loadNote(filename);
     const ui = useUiStore();
     if (ui.viewMode === 'gallery') {
       ui.viewMode = targetViewMode;
     }
+    await loadNote(filename);
   }
 
   async function selectSearchResultNote(page) {
@@ -328,11 +333,11 @@ export const useNotesStore = defineStore('notes', () => {
         body: JSON.stringify(payload)
       });
       await fetchNotesList();
-      loadNote(data.filename);
       const ui = useUiStore();
       if (ui.viewMode === 'gallery') {
         ui.viewMode = 'split';
       }
+      loadNote(data.filename);
       return true;
     } catch (err) {
       alert('Failed to create note: ' + err.message);
@@ -406,6 +411,17 @@ export const useNotesStore = defineStore('notes', () => {
     }
   }
 
+  function navigateToGallery() {
+    const ui = useUiStore();
+    if (ui.viewMode !== 'gallery') {
+      ui.viewMode = 'gallery';
+      if (typeof history !== 'undefined' && history.pushState) {
+        const hash = window.location.hash || '';
+        history.pushState({ viewMode: 'gallery', filename: currentFilename.value }, '', hash || window.location.pathname + window.location.search);
+      }
+    }
+  }
+
   return {
     currentFilename, notesList, groupTree, gallerySearchQuery, collapsedGroups,
     searchResults, isSearching, activeSearchTerm, isSearchActive,
@@ -415,5 +431,6 @@ export const useNotesStore = defineStore('notes', () => {
     performSearch, clearSearch, selectSearchResultNote, clearDocumentHighlight,
     loadNote, selectNote, onNoteSelect, saveCurrentNote, onContentChange,
     createNote, setNoteColor, toggleChecklistItem, setupInteractiveFeatures,
+    navigateToGallery,
   };
 });

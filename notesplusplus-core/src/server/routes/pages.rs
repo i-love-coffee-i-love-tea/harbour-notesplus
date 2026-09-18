@@ -442,19 +442,18 @@ pub fn handle_notes_api<W: Write>(
                 let filename = sanitize_note_filename(title);
 
                 let initial_content = if content.is_empty() {
-                    if let Some(c) = color {
-                        format!("= {}\n:page-color: {}\n\n", title, c)
-                    } else {
-                        format!("= {}\n\n", title)
-                    }
-                } else if let Some(c) = color {
-                    page::update_content_color(content, Some(c))
+                    format!("= {}\n\n", title)
                 } else {
                     content.to_string()
                 };
 
                 match ctx.repository.save_note(&filename, &initial_content) {
-                    Ok(info) => {
+                    Ok(mut info) => {
+                        if let Some(c) = color {
+                            if let Ok(updated) = ctx.repository.set_page_color(&filename, Some(c)) {
+                                info = updated;
+                            }
+                        }
                         let resp = json!({
                             "title": info.title,
                             "filename": info.filename,

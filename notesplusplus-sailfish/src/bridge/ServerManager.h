@@ -62,7 +62,7 @@ public:
     bool    rejectPublicNetworks() const { return m_settings.rejectPublicNetworks(); }
     QString bindAddress()          const { return m_settings.bindAddress(); }
     bool    isRunning()            const { return m_webServerRunning; }
-    QString primaryUrl()           const { return m_webServerUrl; }
+    QString primaryUrl()           const;
     bool    authChallengePending() const { return m_authManager.isPending(); }
     QString authChallengeId()      const { return m_authManager.challengeId(); }
     QString authVerificationCode() const { return m_authManager.verificationCode(); }

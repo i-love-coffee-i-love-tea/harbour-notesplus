@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use crate::constants::{JOURNAL_FILENAME, JOURNAL_TITLE};
 use crate::NotesError;
 use crate::db;
-use crate::page::{extract_doc_title, extract_doc_color, random_note_color, sanitize_filename, is_asset_dir};
+use crate::page::{extract_doc_title, sanitize_filename, is_asset_dir};
 
 /// Scan notes directory recursively for .adoc files, insert any missing into DB and index into FTS.
 /// Skips re-reading and re-indexing files that have not changed since last recorded update.
@@ -77,10 +77,9 @@ fn sync_dir_recursive(
                             } else {
                                 extract_doc_title(&content, &filename)
                             };
-                            let color = extract_doc_color(&content).unwrap_or_else(|| random_note_color().to_string());
                             let _ = conn.execute(
-                                "UPDATE pages SET title = ?1, updated_at = ?2, color = ?3 WHERE id = ?4",
-                                rusqlite::params![title, mtime.to_rfc3339(), color, page_id],
+                                "UPDATE pages SET title = ?1, updated_at = ?2 WHERE id = ?3",
+                                rusqlite::params![title, mtime.to_rfc3339(), page_id],
                             );
                             let _ = db::update_fts_content(conn, page_id, &content);
                         }
@@ -93,10 +92,9 @@ fn sync_dir_recursive(
                     } else {
                         extract_doc_title(&content, &filename)
                     };
-                    let color = extract_doc_color(&content).unwrap_or_else(|| random_note_color().to_string());
                     let _ = conn.execute(
-                        "UPDATE pages SET title = ?1, color = ?2 WHERE id = ?3",
-                        rusqlite::params![title, color, page_id],
+                        "UPDATE pages SET title = ?1 WHERE id = ?2",
+                        rusqlite::params![title, page_id],
                     );
                     let _ = db::update_fts_content(conn, page_id, &content);
                 }
@@ -107,13 +105,12 @@ fn sync_dir_recursive(
                     } else {
                         extract_doc_title(&content, &filename)
                     };
-                    let color = extract_doc_color(&content).unwrap_or_else(|| random_note_color().to_string());
                     let now = file_mtime.map(|m| m.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
                     conn.execute(
                         "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, ?6)",
-                        rusqlite::params![filename, current_group, title, is_journal as i32, now, color],
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?5, 0, '')",
+                        rusqlite::params![filename, current_group, title, is_journal as i32, now],
                     )?;
 
                     if let Ok(page_id) = conn.query_row(

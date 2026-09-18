@@ -1,6 +1,7 @@
 /* SettingsManager.cpp — Application settings. */
 
 #include "SettingsManager.h"
+#include "NetworkHelper.h"
 
 #include "../ffi/ffi_raii.h"
 
@@ -57,8 +58,7 @@ void SettingsManager::set_bind_address(const QString &addr)
 
 QString SettingsManager::get_network_interfaces_json() const
 {
-    char *json = notes_core_get_network_interfaces_json();
-    return ffiStringToQString(json);
+    return NetworkHelper::getNetworkInterfacesJson();
 }
 
 void SettingsManager::set_theme(const QString &colors_json)

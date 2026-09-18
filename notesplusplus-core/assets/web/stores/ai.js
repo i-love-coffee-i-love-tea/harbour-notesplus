@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia';
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { apiFetch, apiJson } from './api.js';
 import { consumeSseStream } from '/composables/utils.js';
 
 export const useAiStore = defineStore('ai', () => {
-  const openAiDrawer = ref(false);
+  const openAiDrawer = ref((() => { try { return localStorage.getItem('np_ai_drawer_open') === 'true'; } catch (_) { return false; } })());
   const showAiSettings = ref(false);
   const isAiBusy = ref(false);
   const isAiStreaming = ref(false);
@@ -22,7 +22,7 @@ export const useAiStore = defineStore('ai', () => {
   const chatMessagesContainer = ref(null);
 
   const aiConfig = ref({ provider: 'ollama', model: 'llama3.2', system_prompt: '' });
-  const aiTab = ref('chat');
+  const aiTab = ref((() => { try { return localStorage.getItem('np_ai_tab') || 'chat'; } catch (_) { return 'chat'; } })());
 
   const isCurrentModelInList = computed(() => {
     if (!aiConfig.value.model) return false;
@@ -249,6 +249,9 @@ export const useAiStore = defineStore('ai', () => {
       alert('Undo error: ' + err.message);
     }
   }
+
+  watch(openAiDrawer, (v) => { try { localStorage.setItem('np_ai_drawer_open', String(v)); } catch (_) {} });
+  watch(aiTab, (v) => { try { localStorage.setItem('np_ai_tab', v); } catch (_) {} });
 
   return {
     openAiDrawer, showAiSettings, isAiBusy, isAiStreaming,

@@ -271,8 +271,16 @@
         <translation>Resultados de búsqueda (%1)</translation>
     </message>
     <message>
+        <source>Server URL copied to clipboard</source>
+        <translation>URL del servidor copiada al portapapeles</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>Ajustes</translation>
+    </message>
+    <message>
+        <source>Share Server URL</source>
+        <translation>Compartir URL del servidor</translation>
     </message>
     <message>
         <source>Web Service: </source>

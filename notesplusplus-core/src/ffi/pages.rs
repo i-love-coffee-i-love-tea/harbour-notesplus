@@ -144,7 +144,7 @@ pub extern "C" fn notes_core_page_set_color(
         Some(c) => c,
         None => return -1,
     };
-    let dir = unsafe { cstr_to_path(notes_dir) };
+    let _dir = unsafe { cstr_to_path(notes_dir) };
     let name = unsafe { cstr_to_string(name) };
     let color_str = if color.is_null() {
         None
@@ -152,7 +152,7 @@ pub extern "C" fn notes_core_page_set_color(
         let s = unsafe { cstr_to_string(color) };
         if s.is_empty() { None } else { Some(s) }
     };
-    match page::set_page_color(conn, &dir, &name, color_str.as_deref()) {
+    match page::set_page_color(conn, &name, color_str.as_deref()) {
         Ok(_) => 0,
         Err(_) => -1,
     }

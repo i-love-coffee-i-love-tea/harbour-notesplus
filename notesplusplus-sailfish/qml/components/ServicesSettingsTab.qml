@@ -52,7 +52,8 @@ Column {
             var ifaces = page.networkInterfaces
             var current = (typeof app !== "undefined" && app.bindAddress) ? app.bindAddress : "0.0.0.0"
             for (var i = 0; i < ifaces.length; i++) {
-                if (ifaces[i].ip === current) return i
+                var itemIp = ifaces[i].ip || (Array.isArray(ifaces[i]) ? ifaces[i][0] : "")
+                if (itemIp === current) return i
             }
             return 0
         }
@@ -60,15 +61,15 @@ Column {
             Repeater {
                 model: page.networkInterfaces
                 MenuItem {
-                    text: modelData.name || modelData.ip
+                    text: modelData.name || modelData.ip || (Array.isArray(modelData) ? (modelData[1] || modelData[0]) : "")
                 }
             }
         }
         onCurrentIndexChanged: {
             var ifaces = page.networkInterfaces
             if (currentIndex >= 0 && currentIndex < ifaces.length) {
-                var selectedIp = ifaces[currentIndex].ip
-                if (typeof app !== "undefined" && app && app.setBindAddress && selectedIp !== app.bindAddress) {
+                var selectedIp = ifaces[currentIndex].ip || (Array.isArray(ifaces[currentIndex]) ? ifaces[currentIndex][0] : "")
+                if (typeof app !== "undefined" && app && app.setBindAddress && selectedIp && selectedIp !== app.bindAddress) {
                     app.setBindAddress(selectedIp)
                 }
             }

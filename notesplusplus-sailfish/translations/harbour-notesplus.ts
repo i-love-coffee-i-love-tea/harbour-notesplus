@@ -271,8 +271,16 @@
         <translation>Search Results (%1)</translation>
     </message>
     <message>
+        <source>Server URL copied to clipboard</source>
+        <translation>Server URL copied to clipboard</translation>
+    </message>
+    <message>
         <source>Settings</source>
         <translation>Settings</translation>
+    </message>
+    <message>
+        <source>Share Server URL</source>
+        <translation>Share Server URL</translation>
     </message>
     <message>
         <source>Web Service: </source>

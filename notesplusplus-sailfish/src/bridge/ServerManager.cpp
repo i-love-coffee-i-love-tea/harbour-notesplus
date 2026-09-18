@@ -1,10 +1,12 @@
 /* ServerManager.cpp — Web server lifecycle, TLS, AI config, settings, auth. */
 
 #include "ServerManager.h"
+#include "NetworkHelper.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSet>
 
 #include "../ffi/ffi_raii.h"
 
@@ -117,25 +119,36 @@ QString ServerManager::start_web_server()
     }
 
     m_server.reset(handle);
+    m_webServerRunning = true;
+    m_webServerUrl     = primaryUrl();
+    return m_webServerUrl;
+}
 
-    char *urlsJson = notes_core_server_urls_json(handle);
-    QJsonDocument urlDoc = QJsonDocument::fromJson(
-        ffiStringToQString(urlsJson).toUtf8());
-    QJsonArray urls = urlDoc.array();
+QString ServerManager::primaryUrl() const
+{
+    if (!m_webServerRunning || !m_server)
+        return QString();
 
-    QString primaryUrl;
-    if (!urls.isEmpty()) {
-        primaryUrl = urls[0].toString();
-        primaryUrl.replace(QLatin1String("0.0.0.0"),
-                           QLatin1String("localhost"));
-    } else {
-        uint16_t port = notes_core_server_port(handle);
-        primaryUrl = QStringLiteral("http://localhost:%1").arg(port);
+    QString scheme = QStringLiteral("https");
+    const uint16_t rawPort = notes_core_server_port(m_server.get());
+    const uint16_t port = rawPort > 0 ? rawPort : notes_core_const_default_server_port();
+
+    char *urlsJson = notes_core_server_urls_json(m_server.get());
+    const QString ffiJson = ffiStringToQString(urlsJson);
+    const QJsonDocument urlDoc = QJsonDocument::fromJson(ffiJson.toUtf8());
+    if (urlDoc.isArray() && !urlDoc.array().isEmpty()) {
+        const QString firstUrl = urlDoc.array()[0].toString();
+        if (firstUrl.startsWith(QLatin1String("http://"))) {
+            scheme = QStringLiteral("http");
+        }
     }
 
-    m_webServerUrl     = primaryUrl;
-    m_webServerRunning = true;
-    return primaryUrl;
+    QString host = m_settings.bindAddress();
+    if (host.isEmpty() || host == QLatin1String("0.0.0.0")) {
+        host = NetworkHelper::resolvePreferredHost(m_settings.rejectPublicNetworks());
+    }
+
+    return QStringLiteral("%1://%2:%3").arg(scheme, host).arg(port);
 }
 
 void ServerManager::stop_web_server()
@@ -158,8 +171,31 @@ bool ServerManager::toggle_web_server()
 QString ServerManager::get_server_urls_json()
 {
     if (!m_server) return QStringLiteral("[]");
+
+    const QString prefUrl = primaryUrl();
+    QJsonArray result;
+    QSet<QString> seen;
+
+    if (!prefUrl.isEmpty()) {
+        result.append(prefUrl);
+        seen.insert(prefUrl);
+    }
+
     char *json = notes_core_server_urls_json(m_server.get());
-    return ffiStringToQString(json);
+    const QString ffiJson = ffiStringToQString(json);
+    const QJsonDocument doc = QJsonDocument::fromJson(ffiJson.toUtf8());
+    if (doc.isArray()) {
+        for (const QJsonValue &val : doc.array()) {
+            QString u = val.toString();
+            u.replace(QLatin1String("0.0.0.0"), QLatin1String("localhost"));
+            if (!seen.contains(u)) {
+                seen.insert(u);
+                result.append(u);
+            }
+        }
+    }
+
+    return QString::fromUtf8(QJsonDocument(result).toJson(QJsonDocument::Compact));
 }
 
 void ServerManager::configure_ai(const QString &provider, const QString &url,
