@@ -583,17 +583,12 @@
 
                     <!-- Card Bottom Footer with Accent Color Bar and ID -->
                     <div class="card-footer">
-                      <div class="card-footer-left">
-                        <span 
-                          class="note-color-bar" 
-                          :style="{ backgroundColor: page.color || '#3498db' }"
-                          :title="'Color: ' + (page.color || '#3498db')"
-                        ></span>
-                        <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
-                      </div>
-                      <div class="card-footer-right">
-                        <span class="note-id-label">{{ page.id !== undefined && page.id !== null ? page.id : '' }}</span>
-                      </div>
+                      <span 
+                        class="note-color-bar" 
+                        :style="{ backgroundColor: page.color || '#3498db' }"
+                        :title="'Color: ' + (page.color || '#3498db')"
+                      ></span>
+                      <span v-if="page.id !== undefined && page.id !== null && page.id !== ''" class="note-id-label">{{ page.id }}</span>
                     </div>
                   </div>
                 </div>
@@ -631,17 +626,12 @@
                   </div>
                 </div>
                 <div class="card-footer">
-                  <div class="card-footer-left">
-                    <span 
-                      class="note-color-bar" 
-                      :style="{ backgroundColor: page.color || '#3498db' }"
-                      :title="'Color: ' + (page.color || '#3498db')"
-                    ></span>
-                    <span class="note-card-title">{{ page.name || page.title || page.filename }}</span>
-                  </div>
-                  <div class="card-footer-right">
-                    <span class="card-group-tag">{{ page.group_path || 'General' }}</span>
-                  </div>
+                  <span 
+                    class="note-color-bar" 
+                    :style="{ backgroundColor: page.color || '#3498db' }"
+                    :title="'Color: ' + (page.color || '#3498db')"
+                  ></span>
+                  <span v-if="page.id !== undefined && page.id !== null && page.id !== ''" class="note-id-label">{{ page.id }}</span>
                 </div>
               </div>
             </div>

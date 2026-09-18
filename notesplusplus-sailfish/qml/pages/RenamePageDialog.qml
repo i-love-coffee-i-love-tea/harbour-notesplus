@@ -6,26 +6,38 @@ Dialog {
     allowedOrientations: Orientation.All
 
     property string currentTitle: ""
-    property string newTitle: nameField.text.trim()
+    property string newTitle: ""
+
+    canAccept: newTitle.length > 0 && newTitle !== currentTitle
 
     Column {
         width: parent.width
+        spacing: Theme.paddingMedium
 
         DialogHeader {
+            title: qsTr("Rename Note")
             acceptText: qsTr("Rename")
+            cancelText: qsTr("Cancel")
         }
 
         TextField {
             id: nameField
             width: parent.width
-            label: qsTr("Note title")
+            placeholderText: qsTr("New note title")
+            label: qsTr("New note title")
             text: currentTitle
             focus: true
-            EnterKey.enabled: text.trim().length > 0
+            onTextChanged: {
+                newTitle = text.trim()
+            }
+            EnterKey.enabled: newTitle.length > 0 && newTitle !== currentTitle
             EnterKey.iconSource: "image://theme/icon-m-enter-accept"
-            onEnterKeyClicked: renamePageDialog.accept()
+            EnterKey.onClicked: renamePageDialog.accept()
         }
     }
 
-    onOpened: nameField.forceActiveFocus()
+    onOpened: {
+        nameField.forceActiveFocus()
+        nameField.selectAll()
+    }
 }

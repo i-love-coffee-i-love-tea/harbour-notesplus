@@ -41,7 +41,7 @@ Column {
 
     Slider {
         width: parent.width
-        minimumValue: 0.8
+        minimumValue: 0.5
         maximumValue: 1.5
         stepSize: 0.1
         value: app.fontScale
@@ -58,7 +58,7 @@ Column {
 
     Slider {
         width: parent.width
-        minimumValue: 0.8
+        minimumValue: 0.5
         maximumValue: 1.5
         stepSize: 0.1
         value: app.codeFontScale

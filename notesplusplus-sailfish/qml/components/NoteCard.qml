@@ -120,10 +120,12 @@ GridItem {
                 id: colorBar
                 anchors {
                     left: parent.left
-                    leftMargin: Theme.horizontalPageMargin * miniDocPreview.contentScale
+                    leftMargin: Math.round(Theme.horizontalPageMargin * miniDocPreview.contentScale)
+                    right: indexLabel.left
+                    rightMargin: indexLabel.text.length > 0 ? Theme.paddingSmall : Math.round(Theme.horizontalPageMargin * miniDocPreview.contentScale)
                     verticalCenter: parent.verticalCenter
                 }
-                width: Math.round(Theme.itemSizeExtraSmall * 1.2)
+                visible: width > 0
                 height: Theme.paddingSmall
                 radius: Math.round(Theme.paddingSmall / 2)
                 color: (noteCardItem.cardData && noteCardItem.cardData.color) ? noteCardItem.cardData.color : noteCardItem.getNoteColor(noteCardItem.cardData ? noteCardItem.cardData.name : "")

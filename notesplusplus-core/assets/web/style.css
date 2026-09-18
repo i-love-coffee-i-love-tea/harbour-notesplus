@@ -28,6 +28,9 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --silica-card-bg: rgba(0, 0, 0, 0.03);
+  --silica-card-border: rgba(0, 0, 0, 0.12);
+  --silica-card-hover: rgba(0, 0, 0, 0.07);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,6 +55,9 @@
     --tip-bg: #7d692d;
     --tip-border: #f0ad4e;
     --warning-border: #d9534f;
+    --silica-card-bg: rgba(255, 255, 255, 0.05);
+    --silica-card-border: rgba(255, 255, 255, 0.12);
+    --silica-card-hover: rgba(255, 255, 255, 0.16);
   }
 }
 
@@ -76,6 +82,9 @@
   --tip-bg: #7d692d;
   --tip-border: #f0ad4e;
   --warning-border: #d9534f;
+  --silica-card-bg: rgba(255, 255, 255, 0.05);
+  --silica-card-border: rgba(255, 255, 255, 0.12);
+  --silica-card-hover: rgba(255, 255, 255, 0.16);
 }
 
 * { box-sizing: border-box; }
@@ -702,6 +711,7 @@ button:disabled {
   padding: 28px 40px;
   background-color: var(--bg-card);
   -webkit-overflow-scrolling: touch;
+  transition: padding-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .editor-toolbar {
@@ -779,6 +789,31 @@ button:disabled {
 }
 
 .ai-drawer.is-open { transform: translateX(0); }
+
+/* Shrink content when AI drawer is open */
+.workspace.drawer-open .gallery-container {
+  padding-right: calc(32px + 440px);
+  transition: padding-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.workspace.drawer-open.split .preview-pane,
+.workspace.drawer-open .full-preview-pane {
+  padding-right: calc(32px + 440px);
+  transition: padding-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (max-width: 1200px) {
+  .workspace.drawer-open .gallery-container,
+  .workspace.drawer-open.split .preview-pane,
+  .workspace.drawer-open .full-preview-pane {
+    padding-right: calc(16px + min(440px, 90vw));
+  }
+}
+@media (max-width: 768px) {
+  .workspace.drawer-open .gallery-container,
+  .workspace.drawer-open.split .preview-pane,
+  .workspace.drawer-open .full-preview-pane {
+    padding-right: 0;
+  }
+}
 
 .ai-drawer-header {
   padding: 12px 16px;
@@ -2445,6 +2480,7 @@ li > p {
   overflow-y: auto;
   padding: 24px 32px 48px 32px;
   box-sizing: border-box;
+  transition: padding-right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
@@ -2640,46 +2676,53 @@ li > p {
 /* Note Cards Grid */
 .notes-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0;
   margin-top: 12px;
-  padding: 2px;
+  padding: 0;
 }
 
 .note-card {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  background-color: var(--silica-card-bg, var(--bg-card));
+  border: 1px solid var(--silica-card-border, var(--border-color));
+  border-radius: 0;
+  margin-left: -1px;
+  margin-top: -1px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  height: 250px;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  min-height: 0;
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
   position: relative;
 }
 
 .note-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
+  z-index: 2;
   border-color: var(--primary);
+  background-color: var(--silica-card-hover, rgba(255, 255, 255, 0.1));
+  transform: none;
+  box-shadow: none;
 }
 
 /* Card Preview Area */
 .card-preview-area {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
-  background-color: var(--bg-pane);
-  padding: 10px 12px;
+  background-color: transparent;
+  padding: 14px 14px 0 14px;
   user-select: none;
 }
 
 .mini-doc-preview {
-  width: 180%;
-  height: 180%;
-  transform: scale(0.55);
+  width: 192%;
+  height: 192%;
+  transform: scale(0.52);
   transform-origin: 0 0;
   pointer-events: none;
   overflow: hidden;
@@ -2740,14 +2783,14 @@ li > p {
 
 /* Card Footer */
 .card-footer {
-  height: 38px;
-  min-height: 38px;
-  background-color: var(--bg-card);
-  border-top: 1px solid var(--border-color);
+  height: 36px;
+  min-height: 36px;
+  background-color: transparent;
+  border-top: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 14px 10px 14px;
   gap: 8px;
 }
 
@@ -2760,10 +2803,10 @@ li > p {
 }
 
 .note-color-bar {
-  width: 7px;
-  height: 18px;
-  border-radius: 4px;
-  flex-shrink: 0;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  max-width: 100%;
 }
 
 .note-card-title {
@@ -2782,13 +2825,14 @@ li > p {
 }
 
 .note-id-label {
-  font-size: 0.72rem;
-  font-weight: 700;
+  font-size: 0.8rem;
+  font-weight: normal;
   color: var(--text-muted);
-  background-color: var(--border-color);
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-family: inherit;
+  flex-shrink: 0;
 }
 
 .preview-snippet-text {
@@ -2958,15 +3002,20 @@ li > p {
   }
   .notes-card-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    gap: 0;
   }
   .note-card {
-    height: 200px;
+    aspect-ratio: 1 / 1;
+    height: auto;
+    border-radius: 0;
+  }
+  .card-preview-area {
+    padding: 10px 10px 0 10px;
   }
   .card-footer {
     height: 34px;
     min-height: 34px;
-    padding: 0 8px;
+    padding: 0 10px 8px 10px;
   }
   .note-card-title {
     font-size: 0.78rem;

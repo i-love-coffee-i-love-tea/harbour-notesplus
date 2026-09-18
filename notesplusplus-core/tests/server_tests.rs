@@ -583,6 +583,11 @@ fn test_gallery_view_and_rendered_cards_web_assets() {
     assert!(STYLE_CSS.contains(".note-color-bar"));
     assert!(STYLE_CSS.contains(".note-id-label"));
 
+    // Verify touching grid and square corner-free card parity with QML
+    assert!(STYLE_CSS.contains("gap: 0;"));
+    assert!(STYLE_CSS.contains("border-radius: 0;"));
+    assert!(STYLE_CSS.contains("aspect-ratio: 1 / 1;"));
+
     // 4. Verify search UI enhancements
     assert!(INDEX_HTML.contains("placeholder=\"Search notes by title or content...\""));
     assert!(INDEX_HTML.contains("btn-clear-search"));

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy an RPM package to Sailfish OS device and trigger installation prompt/notification.
+# Deploy an RPM package to Sailfish OS device and trigger installation prompt.
 #
 # Usage:
 #   ./deploy-sailfish.sh [path-to-rpm] [target-host]
@@ -43,7 +43,6 @@ if [ -z "$RPM_PATH" ] || [ ! -f "$RPM_PATH" ]; then
 fi
 
 RPM_FILE="$(basename "$RPM_PATH")"
-APP_NAME="harbour-notesplus"
 
 # 2. Determine target host
 if [ -z "$TARGET_HOST" ]; then
@@ -96,8 +95,8 @@ echo "Copying $RPM_FILE to $TARGET_HOST:$REMOTE_DOWNLOADS/..."
 ssh "$TARGET_HOST" "mkdir -p '$REMOTE_DOWNLOADS'"
 scp -p "$RPM_PATH" "$TARGET_HOST:$REMOTE_DEST"
 
-# 5. Trigger installation dialog and notification on Sailfish OS via D-Bus
-echo "Triggering package install dialog and notification on device..."
+# 5. Trigger installation dialog on Sailfish OS via D-Bus
+echo "Triggering package install dialog on device..."
 ssh "$TARGET_HOST" bash -s <<EOF
 set -e
 BUS="unix:path=/run/user/$REMOTE_UID/dbus/user_bus_socket"
@@ -105,27 +104,12 @@ if [ ! -e "/run/user/$REMOTE_UID/dbus/user_bus_socket" ]; then
     BUS="\$DBUS_SESSION_BUS_ADDRESS"
 fi
 
-# 1. Open package install dialog via Sailfish OS file service
+# Open package install dialog via Sailfish OS file service
 DBUS_SESSION_BUS_ADDRESS="\$BUS" gdbus call --session \
     --dest org.sailfishos.fileservice \
     --object-path / \
     --method org.sailfishos.fileservice.openUrl \
     "file://$REMOTE_DEST" >/dev/null 2>&1 || true
-
-# 2. Show system notification with install action
-DBUS_SESSION_BUS_ADDRESS="\$BUS" dbus-send --session \
-    --dest=org.freedesktop.Notifications \
-    --type=method_call \
-    /org/freedesktop/Notifications \
-    org.freedesktop.Notifications.Notify \
-    string:"$APP_NAME" \
-    uint32:0 \
-    string:"icon-m-service-download" \
-    string:"$APP_NAME Update" \
-    string:"Tap to install $RPM_FILE" \
-    array:string:"default","Install" \
-    dict:string:variant:"x-nemo-remote-action-default",string:"org.sailfishos.fileservice / org.sailfishos.fileservice openUrl file://$REMOTE_DEST","x-nemo-preview-summary",string:"$APP_NAME Update Ready","x-nemo-preview-body",string:"Tap to install $RPM_FILE" \
-    int32:-1 >/dev/null 2>&1 || true
 EOF
 
 echo "=== Deployment complete! Check your phone to confirm installation. ==="
