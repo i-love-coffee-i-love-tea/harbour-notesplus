@@ -115,9 +115,18 @@ pub fn blocks_to_html5_with_search_dirs(
         .cloned()
         .collect();
 
-    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, &filtered_blocks);
+    // Collect TOC from all blocks (including title) but render body from filtered blocks
+    let mut ctx = HtmlRenderContext::with_search_dirs(notes_dir, search_dirs, blocks);
     let body_html = ctx.render_blocks(&filtered_blocks);
     let footnotes_html = ctx.render_footnotes();
+
+    // Generate an id for the document title so the TOC can link to it
+    let title_id: String = doc_title
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
 
     format!(
         r#"<!DOCTYPE html>
@@ -134,7 +143,7 @@ pub fn blocks_to_html5_with_search_dirs(
 <body class="notes-body">
     <div class="notes-container">
         <header class="document-header">
-            <h1 class="document-title">{title}</h1>
+            <h1 class="document-title" id="{title_id}">{title}</h1>
         </header>
         <main class="document-content">
 {body}

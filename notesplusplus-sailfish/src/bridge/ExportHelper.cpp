@@ -2,9 +2,11 @@
 
 #include "ExportHelper.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -13,6 +15,7 @@
 #include <QMutexLocker>
 #include <QPageLayout>
 #include <QPageSize>
+#include <QPair>
 #include <QPdfWriter>
 #include <QRegularExpression>
 #include <QSizeF>
@@ -23,6 +26,7 @@
 #include <QTextFragment>
 #include <QTextImageFormat>
 #include <QUrl>
+#include <QVector>
 #include <cstdlib>
 
 #include "../ffi/ffi_raii.h"
@@ -261,6 +265,101 @@ ExportHelper::ExportHelper(const BridgeContext &ctx,
     s_notesPath = ctx.notesPath;
 }
 
+static void patch_pdf_internal_links(const QString &output_path,
+                                    const QHash<QString, QPair<int, qreal>> &anchorPositions,
+                                    qreal leftMarginPt)
+{
+    if (anchorPositions.isEmpty())
+        return;
+
+    QFile file(output_path);
+    if (!file.open(QIODevice::ReadWrite))
+        return;
+
+    QByteArray data = file.readAll();
+    if (data.isEmpty())
+        return;
+
+    // 1. Find /Type /Pages ... /Kids [ ... ] to collect page object numbers in document order
+    static const QRegularExpression kidsRegex(
+        QStringLiteral("/Type\\s*/Pages[^>]*?/Kids\\s*\\[([^\\]]+)\\]"),
+        QRegularExpression::DotMatchesEverythingOption
+    );
+    QString latin1Text = QString::fromLatin1(data.constData(), data.size());
+    QRegularExpressionMatch kidsMatch = kidsRegex.match(latin1Text);
+    if (!kidsMatch.hasMatch())
+        return;
+
+    QVector<int> pageObjectNumbers;
+    static const QRegularExpression objRefRegex(QStringLiteral("(\\d+)\\s+0\\s+R"));
+    QRegularExpressionMatchIterator objIt = objRefRegex.globalMatch(kidsMatch.captured(1));
+    while (objIt.hasNext()) {
+        pageObjectNumbers.append(objIt.next().captured(1).toInt());
+    }
+
+    if (pageObjectNumbers.isEmpty())
+        return;
+
+    // 2. Find all Link annotations with URI actions:
+    // /Type /Annot /Subtype /Link /Rect [x1 y1 x2 y2] /Border [0 0 0] /A << /Type /Action /S /URI /URI (url) >>
+    static const QRegularExpression linkAnnotRegex(
+        QStringLiteral("(/Type\\s*/Annot\\s*/Subtype\\s*/Link\\s*/Rect\\s*\\[([^\\]]+)\\]\\s*/Border\\s*\\[[^\\]]+\\]\\s*)(/A\\s*<<\\s*/Type\\s*/Action\\s*/S\\s*/URI\\s*/URI\\s*\\(([^\\)]*)\\)\\s*>>)")
+    );
+
+    bool modified = false;
+    QRegularExpressionMatchIterator it = linkAnnotRegex.globalMatch(latin1Text);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        QString uri = match.captured(4);
+        int actionStart = match.capturedStart(3);
+        int actionLength = match.capturedLength(3);
+
+        if (uri.startsWith(QLatin1Char('#'))) {
+            QString targetName = uri.mid(1);
+            if (!anchorPositions.contains(targetName)) {
+                targetName = QUrl::fromPercentEncoding(targetName.toUtf8());
+            }
+
+            if (anchorPositions.contains(targetName)) {
+                QPair<int, qreal> destPos = anchorPositions.value(targetName);
+                int pageIdx = destPos.first;
+                qreal pdfY = destPos.second;
+
+                if (pageIdx >= 0 && pageIdx < pageObjectNumbers.size()) {
+                    int pageObj = pageObjectNumbers[pageIdx];
+                    QByteArray dest = QStringLiteral("/Dest [%1 0 R /XYZ %2 %3 0]")
+                                      .arg(pageObj)
+                                      .arg(leftMarginPt, 0, 'f', 2)
+                                      .arg(pdfY, 0, 'f', 1)
+                                      .toLatin1();
+
+                    if (dest.size() <= actionLength) {
+                        dest.append(QByteArray(actionLength - dest.size(), ' '));
+                        data.replace(actionStart, actionLength, dest);
+                        modified = true;
+                    }
+                }
+            }
+        } else if (uri.isEmpty()) {
+            // Disable phantom empty-link rectangle by zeroing /Rect [0 0 0 0]
+            int rectStart = match.capturedStart(2);
+            int rectLength = match.capturedLength(2);
+            QByteArray newRect("0 0 0 0");
+            if (newRect.size() <= rectLength) {
+                newRect.append(QByteArray(rectLength - newRect.size(), ' '));
+                data.replace(rectStart, rectLength, newRect);
+                modified = true;
+            }
+        }
+    }
+
+    if (modified) {
+        file.seek(0);
+        file.write(data);
+        file.flush();
+    }
+}
+
 bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QString &page_path, const QString &output_path)
 {
     if (notesPath.isEmpty() || page_path.isEmpty() || output_path.isEmpty())
@@ -311,52 +410,92 @@ bool ExportHelper::render_page_to_pdf_static(const QString &notesPath, const QSt
         match = svgRegex.match(html);
     }
 
-    QPdfWriter writer(output_path);
-    writer.setPageSize(QPageSize(QPageSize::A4));
-    writer.setResolution(300);
+    const qreal pdfPageHeightPt = 842.0; // Standard A4 height in points
+    const qreal topMarginPt = 15.0 * 72.0 / 25.4;
+    const qreal bottomMarginPt = 15.0 * 72.0 / 25.4;
+    const qreal leftMarginPt = 15.0 * 72.0 / 25.4;
+    const qreal printableHeightPt = pdfPageHeightPt - topMarginPt - bottomMarginPt;
 
-    QPageLayout layout = writer.pageLayout();
-    layout.setUnits(QPageLayout::Millimeter);
-    layout.setMargins(QMarginsF(15.0, 15.0, 15.0, 15.0));
-    layout.setPageSize(QPageSize(QPageSize::A4));
-    layout.setOrientation(QPageLayout::Portrait);
-    writer.setPageLayout(layout);
+    QHash<QString, QPair<int, qreal>> anchorPositions;
 
-    QTextDocument doc;
-    doc.setBaseUrl(QUrl::fromLocalFile(notesPath + QStringLiteral("/")));
-    doc.setDefaultStyleSheet(QString::fromLatin1(s_pdfPrintCss));
-    QSizeF paintSize = QSizeF(layout.paintRectPixels(writer.resolution()).size());
-    doc.setPageSize(paintSize);
-    doc.setHtml(html);
+    {
+        QPdfWriter writer(output_path);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setResolution(300);
 
-    // Scale down any images exceeding the printable page width
-    const qreal maxW = paintSize.width();
-    for (QTextBlock block = doc.begin(); block != doc.end(); block = block.next()) {
-        for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
-            QTextFragment frag = it.fragment();
-            if (frag.isValid()) {
-                QTextCharFormat fmt = frag.charFormat();
-                if (fmt.isImageFormat()) {
-                    QTextImageFormat imgFmt = fmt.toImageFormat();
-                    QVariant res = doc.resource(QTextDocument::ImageResource, QUrl(imgFmt.name()));
-                    QImage loadedImg = qvariant_cast<QImage>(res);
-                    qreal origW = imgFmt.width() > 0 ? imgFmt.width() : (loadedImg.isNull() ? 0 : loadedImg.width());
-                    qreal origH = imgFmt.height() > 0 ? imgFmt.height() : (loadedImg.isNull() ? 0 : loadedImg.height());
-                    if (origW > maxW && origW > 0) {
-                        qreal scale = maxW / origW;
-                        imgFmt.setWidth(maxW);
-                        if (origH > 0) imgFmt.setHeight(origH * scale);
-                        QTextCursor cursor(&doc);
-                        cursor.setPosition(frag.position());
-                        cursor.setPosition(frag.position() + frag.length(), QTextCursor::KeepAnchor);
-                        cursor.setCharFormat(imgFmt);
+        QPageLayout layout = writer.pageLayout();
+        layout.setUnits(QPageLayout::Millimeter);
+        layout.setMargins(QMarginsF(15.0, 15.0, 15.0, 15.0));
+        layout.setPageSize(QPageSize(QPageSize::A4));
+        layout.setOrientation(QPageLayout::Portrait);
+        writer.setPageLayout(layout);
+
+        QTextDocument doc;
+        doc.setBaseUrl(QUrl::fromLocalFile(notesPath + QStringLiteral("/")));
+        doc.setDefaultStyleSheet(QString::fromLatin1(s_pdfPrintCss));
+        QSizeF paintSize = QSizeF(layout.paintRectPixels(writer.resolution()).size());
+        doc.setPageSize(paintSize);
+        doc.setHtml(html);
+
+        // Scale down any images exceeding the printable page width
+        const qreal maxW = paintSize.width();
+        for (QTextBlock block = doc.begin(); block != doc.end(); block = block.next()) {
+            for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+                QTextFragment frag = it.fragment();
+                if (frag.isValid()) {
+                    QTextCharFormat fmt = frag.charFormat();
+                    if (fmt.isImageFormat()) {
+                        QTextImageFormat imgFmt = fmt.toImageFormat();
+                        QVariant res = doc.resource(QTextDocument::ImageResource, QUrl(imgFmt.name()));
+                        QImage loadedImg = qvariant_cast<QImage>(res);
+                        qreal origW = imgFmt.width() > 0 ? imgFmt.width() : (loadedImg.isNull() ? 0 : loadedImg.width());
+                        qreal origH = imgFmt.height() > 0 ? imgFmt.height() : (loadedImg.isNull() ? 0 : loadedImg.height());
+                        if (origW > maxW && origW > 0) {
+                            qreal scale = maxW / origW;
+                            imgFmt.setWidth(maxW);
+                            if (origH > 0) imgFmt.setHeight(origH * scale);
+                            QTextCursor cursor(&doc);
+                            cursor.setPosition(frag.position());
+                            cursor.setPosition(frag.position() + frag.length(), QTextCursor::KeepAnchor);
+                            cursor.setCharFormat(imgFmt);
+                        }
                     }
                 }
             }
         }
+
+        // Collect anchor positions (page index and PDF point Y coordinate)
+        QAbstractTextDocumentLayout *docLayout = doc.documentLayout();
+        const qreal pageHeightPx = paintSize.height();
+
+        for (QTextBlock b = doc.begin(); b.isValid(); b = b.next()) {
+            for (QTextBlock::iterator it = b.begin(); !it.atEnd(); ++it) {
+                QTextFragment frag = it.fragment();
+                if (frag.isValid()) {
+                    QTextCharFormat fmt = frag.charFormat();
+                    const QStringList names = fmt.anchorNames();
+                    if (!names.isEmpty()) {
+                        qreal blockTop = docLayout->blockBoundingRect(b).top();
+                        int pageIdx = static_cast<int>(blockTop / pageHeightPx);
+                        qreal yOnPage = blockTop - (pageIdx * pageHeightPx);
+                        qreal ratio = pageHeightPx > 0 ? (yOnPage / pageHeightPx) : 0;
+                        qreal pdfY = (pdfPageHeightPt - topMarginPt) - (ratio * printableHeightPt);
+                        for (const QString &name : names) {
+                            if (!anchorPositions.contains(name)) {
+                                anchorPositions.insert(name, qMakePair(pageIdx, pdfY));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        doc.print(&writer);
     }
 
-    doc.print(&writer);
+    // Convert external URI links pointing to document anchors (#id) into internal PDF destinations
+    patch_pdf_internal_links(output_path, anchorPositions, leftMarginPt);
+
     return true;
 }
 

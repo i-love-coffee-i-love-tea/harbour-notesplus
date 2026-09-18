@@ -20,6 +20,71 @@ def get_export_path(home_dir: str, title: str) -> str:
     return os.path.join(home_dir, "Documents", "Notes++ Exports", f"{title}.pdf")
 
 
+def patch_pdf_internal_links(pdf_path: str, anchor_positions: dict, left_margin_pt: float = 42.52):
+    """Convert web URI links pointing to document anchors (#id) into internal PDF destinations."""
+    if not anchor_positions or not os.path.exists(pdf_path):
+        return
+
+    with open(pdf_path, "rb") as f:
+        data = bytearray(f.read())
+
+    import re
+    from urllib.parse import unquote
+
+    # 1. Collect page object numbers
+    kids_match = re.search(
+        rb"/Type\s*/Pages[^>]*?/Kids\s*\[([^\]]+)\]",
+        data,
+        re.DOTALL
+    )
+    if not kids_match:
+        return
+
+    page_object_numbers = [
+        int(m.group(1))
+        for m in re.finditer(rb"(\d+)\s+0\s+R", kids_match.group(1))
+    ]
+    if not page_object_numbers:
+        return
+
+    # 2. Find and patch link annotations
+    pattern = re.compile(
+        rb"(/Type\s*/Annot\s*/Subtype\s*/Link\s*/Rect\s*\[([^\]]+)\]\s*/Border\s*\[[^\]]+\]\s*)(/A\s*<<\s*/Type\s*/Action\s*/S\s*/URI\s*/URI\s*\(([^)]*)\)\s*>>)",
+        re.DOTALL
+    )
+
+    offset = 0
+    for match in list(pattern.finditer(bytes(data))):
+        rect_start = match.start(2)
+        rect_len = len(match.group(2))
+        action_start = match.start(3)
+        action_len = len(match.group(3))
+        uri_bytes = match.group(4)
+        uri = uri_bytes.decode("latin1")
+
+        if uri.startswith("#"):
+            target_name = uri[1:]
+            if target_name not in anchor_positions:
+                target_name = unquote(target_name)
+
+            if target_name in anchor_positions:
+                page_idx, pdf_y = anchor_positions[target_name]
+                if 0 <= page_idx < len(page_object_numbers):
+                    page_obj = page_object_numbers[page_idx]
+                    dest = f"/Dest [{page_obj} 0 R /XYZ {left_margin_pt:.2f} {pdf_y:.1f} 0]".encode("latin1")
+                    if len(dest) <= action_len:
+                        dest = dest.ljust(action_len, b" ")
+                        data[action_start:action_start + action_len] = dest
+        elif uri == "":
+            new_rect = b"0 0 0 0"
+            if len(new_rect) <= rect_len:
+                new_rect = new_rect.ljust(rect_len, b" ")
+                data[rect_start:rect_start + rect_len] = new_rect
+
+    with open(pdf_path, "wb") as f:
+        f.write(data)
+
+
 def render_html_to_pdf(html: str, output_path: str) -> bool:
     """Render an HTML string to a vector PDF using QPdfWriter and QTextDocument."""
     writer = QPdfWriter(output_path)
@@ -51,7 +116,39 @@ def render_html_to_pdf(html: str, output_path: str) -> bool:
     doc.setPageSize(paint_size)
     doc.setHtml(html)
 
-    return writer and doc.print(writer) is None or True
+    # Collect anchor positions
+    anchor_positions = {}
+    doc_layout = doc.documentLayout()
+    page_height_px = paint_size.height()
+    pdf_page_height_pt = 842.0
+    top_margin_pt = 15.0 * 72.0 / 25.4
+    printable_height_pt = pdf_page_height_pt - (top_margin_pt * 2)
+    left_margin_pt = top_margin_pt
+
+    b = doc.begin()
+    while b.isValid():
+        it = b.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            if frag.isValid():
+                names = frag.charFormat().anchorNames()
+                if names:
+                    block_top = doc_layout.blockBoundingRect(b).top()
+                    page_idx = int(block_top // page_height_px)
+                    y_on_page = block_top - (page_idx * page_height_px)
+                    ratio = y_on_page / page_height_px if page_height_px > 0 else 0
+                    pdf_y = (pdf_page_height_pt - top_margin_pt) - (ratio * printable_height_pt)
+                    for name in names:
+                        if name not in anchor_positions:
+                            anchor_positions[name] = (page_idx, pdf_y)
+            it += 1
+        b = b.next()
+
+    doc.print(writer)
+    del writer
+
+    patch_pdf_internal_links(output_path, anchor_positions, left_margin_pt)
+    return True
 
 
 def test_extract_title():
@@ -376,3 +473,69 @@ def test_pdf_toc_named_destinations_structure(qapp):
     assert result.returncode == 0
     # Must contain named destination for headings
     assert "getting-started" in result.stdout
+
+
+def test_pdf_internal_link_destinations(qapp):
+    """Verify that TOC and anchor links are converted to internal destinations while external URIs remain intact."""
+    # 1. Test Qt5 PDF link structure patching
+    fake_qt5_pdf = (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Pages /Kids [ 10 0 R 20 0 R ] >>\nendobj\n"
+        b"2 0 obj\n<<\n/Type /Annot\n/Subtype /Link\n/Rect [10.0 20.0 30.0 40.0]\n/Border [0 0 0]\n"
+        b"/A <<\n/Type /Action\n/S /URI\n/URI (#section-1)\n>>\n>>\nendobj\n"
+        b"3 0 obj\n<<\n/Type /Annot\n/Subtype /Link\n/Rect [10.0 20.0 30.0 40.0]\n/Border [0 0 0]\n"
+        b"/A <<\n/Type /Action\n/S /URI\n/URI (https://example.org)\n>>\n>>\nendobj\n"
+        b"4 0 obj\n<<\n/Type /Annot\n/Subtype /Link\n/Rect [10.0 20.0 30.0 40.0]\n/Border [0 0 0]\n"
+        b"/A <<\n/Type /Action\n/S /URI\n/URI ()\n>>\n>>\nendobj\n"
+        b"xref\n0 5\n"
+        b"trailer << /Root 1 0 R >>\n%%EOF"
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mock_pdf_path = os.path.join(tmpdir, "mock_qt5.pdf")
+        with open(mock_pdf_path, "wb") as f:
+            f.write(fake_qt5_pdf)
+
+        anchors = {"section-1": (0, 750.5)}
+        patch_pdf_internal_links(mock_pdf_path, anchors, left_margin_pt=42.52)
+
+        with open(mock_pdf_path, "rb") as f:
+            patched_bytes = f.read()
+
+        # Length must be preserved exactly
+        assert len(patched_bytes) == len(fake_qt5_pdf)
+        # TOC anchor #section-1 converted to internal PDF /Dest array
+        assert b"/Dest [10 0 R /XYZ 42.52 750.5 0]" in patched_bytes
+        assert b"#section-1" not in patched_bytes
+        # External web URL preserved
+        assert b"/URI (https://example.org)" in patched_bytes
+        # Empty URI neutralized to zero rect
+        assert b"/Rect [0 0 0 0" in patched_bytes
+
+    # 2. Test live HTML to PDF rendering
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_out = os.path.join(tmpdir, "test_toc_links.pdf")
+        html = """<!DOCTYPE html>
+<html>
+<head><title>TOC Test</title></head>
+<body>
+    <div class="toc">
+        <ul>
+            <li><a href="#section-1">Section 1</a></li>
+            <li><a href="https://example.org">External Web Link</a></li>
+        </ul>
+    </div>
+    <div style="height: 1200px;"><p>Content spacing</p></div>
+    <h2 id="section-1">Section 1</h2>
+    <p>Details 1</p>
+</body>
+</html>"""
+        success = render_html_to_pdf(html, pdf_out)
+        assert success is True
+        assert os.path.exists(pdf_out)
+
+        with open(pdf_out, "rb") as f:
+            live_bytes = f.read()
+
+        assert b"/Dest" in live_bytes
+        assert b"/URI (https://example.org)" in live_bytes
