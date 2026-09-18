@@ -298,15 +298,6 @@ ApplicationWindow {
         app.activate()
     }
 
-    Connections {
-        target: bridge
-        onInitialized_changed: {
-            if (bridge.initialized) {
-                bridge.load_main_page_data()
-            }
-        }
-    }
-
     Component.onCompleted: {
         syncAiConfig()
         if (app.sttModel && app.sttModel.length > 0 && typeof speechBridge !== "undefined" && speechBridge) {
