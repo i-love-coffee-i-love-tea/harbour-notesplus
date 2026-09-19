@@ -1,7 +1,9 @@
 //! Static Web Assets for Notes++ Web Editor & AI Assistant (Vue 3 ESM, Minimal CSS).
 
 pub const APP_JS: &str = include_str!("../../assets/web/app.js");
-pub const VUE_JS: &str = include_str!("../../assets/web/vue.esm-browser.prod.js");
+pub const TEMPLATE_JS: &str = include_str!("../../assets/web/template.js");
+pub const VUE_RUNTIME_JS: &str = include_str!("../../assets/web/vue.runtime.esm-browser.prod.js");
+pub const VUE_JS: &str = VUE_RUNTIME_JS;
 pub const VUE_DEMI_JS: &str = include_str!("../../assets/web/vue-demi.esm-browser.js");
 pub const PINIA_JS: &str = include_str!("../../assets/web/pinia.esm-browser.prod.js");
 pub const STYLE_CSS: &str = include_str!("../../assets/web/style.css");

@@ -67,6 +67,7 @@ int   notes_core_page_move(void* conn, const char* notes_dir, const char* source
 int   notes_core_page_set_color(void* conn, const char* notes_dir, const char* name, const char* color);
 char* notes_core_page_extract_title(const char* content, const char* fallback);
 int   notes_core_rebuild_index(void* conn, const char* notes_dir);
+int   notes_core_copy_examples(void* conn, const char* notes_dir, const char* examples_dir);
 char* notes_core_recent_pages_json(void* conn, int limit);
 
 /* ------------------------------------------------------------------ */

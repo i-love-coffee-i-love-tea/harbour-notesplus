@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- Automatic provisioning and synchronization of bundled documentation on app launch
+- Package architecture decision records (ADRs) and user documentation directly in application RPM
+- Precompiled Vue templates eliminating runtime eval and enabling strict CSP headers
+
+### Changed
+
+- Restructure Sailfish QML directory layout into dedicated subdirectories
+- Validate AsciiDoc format for Architecture Decision Records in release tooling
+
+### Fixed
+
+- Restore original AsciiDoc ADR numbering (001–013)
+- Update test suite paths for restructured QML components
+
 ## 0.2.0 (2026-09-19)
 
 ### Added

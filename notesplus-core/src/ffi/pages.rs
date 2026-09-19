@@ -186,6 +186,25 @@ pub extern "C" fn notes_core_rebuild_index(
     }
 }
 
+/// Copy example and documentation notes to user notes directory. Returns 0 on success.
+#[no_mangle]
+pub extern "C" fn notes_core_copy_examples(
+    conn: *mut rusqlite::Connection,
+    notes_dir: *const c_char,
+    examples_dir: *const c_char,
+) -> i32 {
+    let conn = match unsafe { conn.as_mut() } {
+        Some(c) => c,
+        None => return -1,
+    };
+    let notes = unsafe { cstr_to_path(notes_dir) };
+    let examples = unsafe { cstr_to_path(examples_dir) };
+    match page::copy_examples(conn, &notes, &examples, "") {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
 /// Get list of recent pages as JSON array. Returns allocated string.
 #[no_mangle]
 pub extern "C" fn notes_core_recent_pages_json(

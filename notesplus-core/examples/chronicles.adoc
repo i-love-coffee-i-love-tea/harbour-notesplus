@@ -18,7 +18,7 @@ Open Source.
 :xrefstyle: short
 ifdef::backend-pdf[]
 :pdf-theme: chronicles
-:pdf-themesdir: {docdir}
+:pdf-themesdir: {docdir}/chronicles
 :title-logo-image: image:sample-banner.svg[pdfwidth=4.25in,align=center]
 :source-highlighter: rouge
 //:rouge-style: github

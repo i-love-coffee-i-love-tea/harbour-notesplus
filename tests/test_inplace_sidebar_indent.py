@@ -22,7 +22,7 @@ def qjs_engine():
     return engine
 
 def test_inplace_sidebar_file_contracts():
-    path = "notesplus-sailfish/qml/components/InPlaceEditSidebar.qml"
+    path = "notesplus-sailfish/qml/components/editor/InPlaceEditSidebar.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

@@ -62,6 +62,9 @@ fn test_server_lifecycle_and_endpoints() {
     // Test GET /
     let res_root = tls_agent().get(&format!("https://127.0.0.1:{}/", port)).call().unwrap();
     assert_eq!(res_root.status(), 200);
+    let csp = res_root.header("Content-Security-Policy").expect("CSP header should exist");
+    assert!(!csp.contains("unsafe-eval"), "CSP should not contain 'unsafe-eval'");
+    assert!(csp.contains("script-src 'self' 'unsafe-inline'"));
     let root_body = res_root.into_string().unwrap();
     assert!(root_body.contains("Notes Plus"));
 
@@ -76,7 +79,23 @@ fn test_server_lifecycle_and_endpoints() {
     let js_body = res_js.into_string().unwrap();
     assert!(js_body.contains("createApp"));
 
-    // Test GET /vue.esm-browser.prod.js (vendored Vue)
+    // Test GET /template.js (precompiled template)
+    let res_tpl = tls_agent().get(&format!("https://127.0.0.1:{}/template.js", port)).call().unwrap();
+    assert_eq!(res_tpl.status(), 200);
+    assert_eq!(res_tpl.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
+    let tpl_body = res_tpl.into_string().unwrap();
+    assert!(tpl_body.contains("export function render"));
+    assert!(tpl_body.contains("link-modal-overlay"));
+
+    // Test GET /vue.runtime.esm-browser.prod.js (vendored runtime-only Vue)
+    let res_vue_rt = tls_agent().get(&format!("https://127.0.0.1:{}/vue.runtime.esm-browser.prod.js", port)).call().unwrap();
+    assert_eq!(res_vue_rt.status(), 200);
+    assert_eq!(res_vue_rt.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
+    let vue_rt_body = res_vue_rt.into_string().unwrap();
+    assert!(vue_rt_body.contains("vue"));
+    assert!(!vue_rt_body.contains("compileToFunction"));
+
+    // Test GET /vue.esm-browser.prod.js (backward-compatible alias)
     let res_vue = tls_agent().get(&format!("https://127.0.0.1:{}/vue.esm-browser.prod.js", port)).call().unwrap();
     assert_eq!(res_vue.status(), 200);
     let vue_body = res_vue.into_string().unwrap();
@@ -2024,6 +2043,71 @@ fn test_server_pdf_export_with_exporter() {
         Err(ureq::Error::Status(code, _)) => assert_eq!(code, 500),
         Err(e) => panic!("Unexpected error: {}", e),
     }
+
+    server_handle.stop();
+}
+
+#[test]
+fn test_vue_runtime_and_template_precompiled_security() {
+    use notesplus_core::server::web_assets::{TEMPLATE_JS, VUE_RUNTIME_JS, VUE_JS};
+
+    // Verify template.js exports a render function and compiles without runtime evals
+    assert!(TEMPLATE_JS.contains("export function render"));
+    assert!(TEMPLATE_JS.contains("_createElementVNode"));
+    assert!(TEMPLATE_JS.contains("link-modal-overlay"));
+    assert!(TEMPLATE_JS.contains("phone-auth-section"));
+
+    // Verify VUE_RUNTIME_JS is the compiler-free runtime build
+    assert!(!VUE_RUNTIME_JS.contains("compileToFunction"), "Runtime build must not contain compileToFunction");
+    assert!(!VUE_RUNTIME_JS.contains("compile("), "Runtime build must not contain compile(");
+    assert_eq!(VUE_JS, VUE_RUNTIME_JS, "VUE_JS alias must match VUE_RUNTIME_JS");
+
+    // Spin up server to verify CSP and asset delivery
+    let tmp = tempdir().unwrap();
+    let notes_dir = tmp.path().join("notes");
+    let db_path = tmp.path().join("test_security.db");
+    let backup_dir = tmp.path().join("backups");
+    fs::create_dir_all(&notes_dir).unwrap();
+
+    let server_handle = start_server_full(
+        notes_dir,
+        db_path,
+        backup_dir,
+        19007,
+        None,
+        None,
+        None,
+        None,
+    ).expect("Server should start");
+    let port = server_handle.port();
+
+    // Verify / responses have strict CSP without unsafe-eval
+    let res_root = tls_agent().get(&format!("https://127.0.0.1:{}/", port)).call().unwrap();
+    assert_eq!(res_root.status(), 200);
+    let csp = res_root.header("Content-Security-Policy").expect("Content-Security-Policy header required");
+    assert!(!csp.contains("unsafe-eval"), "CSP header must NOT contain unsafe-eval");
+    assert!(csp.contains("script-src 'self' 'unsafe-inline'"));
+
+    // Verify GET /template.js
+    let res_tpl = tls_agent().get(&format!("https://127.0.0.1:{}/template.js", port)).call().unwrap();
+    assert_eq!(res_tpl.status(), 200);
+    assert_eq!(res_tpl.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
+    let tpl = res_tpl.into_string().unwrap();
+    assert!(tpl.contains("export function render"));
+
+    // Verify GET /vue.runtime.esm-browser.prod.js
+    let res_rt = tls_agent().get(&format!("https://127.0.0.1:{}/vue.runtime.esm-browser.prod.js", port)).call().unwrap();
+    assert_eq!(res_rt.status(), 200);
+    assert_eq!(res_rt.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
+
+    // Verify backward compatibility aliases
+    let res_alias1 = tls_agent().get(&format!("https://127.0.0.1:{}/vue.esm-browser.prod.js", port)).call().unwrap();
+    assert_eq!(res_alias1.status(), 200);
+    assert_eq!(res_alias1.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
+
+    let res_alias2 = tls_agent().get(&format!("https://127.0.0.1:{}/vue.js", port)).call().unwrap();
+    assert_eq!(res_alias2.status(), 200);
+    assert_eq!(res_alias2.header("Content-Type").unwrap(), "application/javascript; charset=utf-8");
 
     server_handle.stop();
 }

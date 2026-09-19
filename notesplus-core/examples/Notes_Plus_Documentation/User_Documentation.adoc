@@ -1108,10 +1108,10 @@ By default, *Require Confirmation for Edits* is enabled. This means the AI shows
 
 All four settings are found in *Settings > AI Assistant*:
 
-* *Auto-Allow Note Reading* -- the AI can read any note's content and search your notes without prompting you. Disable this to be asked each time.
-* *Auto-Allow Note Creation* -- the AI can create new notes without asking. When disabled, each creation requires your approval.
-* *Require Confirmation for Edits* -- when the AI wants to modify an existing note, it shows a line-by-line diff (additions in green, deletions in red with strikethrough). You choose *Approve & Apply* or *Reject*. *Keep this enabled.*
-* *Allow Web Requests* -- the AI can fetch external URLs. This is needed for the import assistant's "Fetch URL" feature. When disabled, the AI cannot access the internet.
+* *Auto-Allow Note Reading* -- the AI can read any note's content and search your notes without prompting you. Controls: `read_note`, `list_notes`, `search_notes`, `retrieve_context`, `list_groups`. Disable this to be asked each time.
+* *Auto-Allow Note Creation* -- the AI can create new notes without asking. Controls: `create_note`. When disabled, each creation requires your approval.
+* *Require Confirmation for Edits* -- when the AI wants to modify an existing note, it shows a line-by-line diff (additions in green, deletions in red with strikethrough). You choose *Approve & Apply* or *Reject*. Controls: `edit_note`, `edit_section`, `append_to_note`, `insert_section`, `move_note`. *Keep this enabled.*
+* *Allow Web Requests* -- the AI can fetch external URLs. Controls: `fetch_url`. When disabled, the AI cannot access the internet.
 
 [TIP]
 A safe starting configuration: enable reading, enable creation, require confirmation for edits, disable web requests. This lets the AI help freely but keeps destructive changes under your control.
@@ -1159,12 +1159,18 @@ Type your prompt in the text field and send. The AI responds with streaming text
 
 The AI has access to these tools during conversation:
 
-* Read notes (search and read content)
-* List notes (enumerate your notes)
-* Create notes (write new `.adoc` files)
-* Edit notes (modify existing notes with diff preview)
-* Fetch external URLs (with SSRF protection)
-* Read local files (within the notes directory)
+* Read note content (`read_note`)
+* List all notes (`list_notes`)
+* Search notes by keyword (`search_notes`)
+* Retrieve relevant context snippets (`retrieve_context`)
+* List groups and folders (`list_groups`)
+* Move notes between groups (`move_note`)
+* Create new notes (`create_note`)
+* Edit full notes (`edit_note`)
+* Edit specific sections (`edit_section`)
+* Append to notes or sections (`append_to_note`)
+* Insert new sections (`insert_section`)
+* Fetch external URLs (`fetch_url`)
 
 ==== Quick-Action Templates
 
@@ -1469,20 +1475,20 @@ A live preview at the bottom of the display settings shows how changes affect re
 |Setting |Description |Default
 
 |Auto-Allow Note Reading
-|AI can read and search notes without prompting
+|AI can read and search notes without prompting (read_note, list_notes, search_notes, retrieve_context, list_groups)
 |On
 
 |Auto-Allow Note Creation
-|AI can create new notes without prompting
-|Off
+|AI can create new notes without prompting (create_note)
+|On
 
 |Require Confirmation for Edits
-|Show diff preview before applying AI-suggested changes
+|Show diff preview before applying AI-suggested changes (edit_note, edit_section, append_to_note, insert_section, move_note)
 |On
 
 |Allow Web Requests
-|AI can fetch external URLs
-|Off
+|AI can fetch external URLs (fetch_url)
+|On
 |===
 
 [TIP]

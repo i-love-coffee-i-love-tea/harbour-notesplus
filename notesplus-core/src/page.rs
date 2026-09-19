@@ -619,6 +619,11 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, t
     if !examples_dir.exists() {
         return Ok(());
     }
+    // Clean up any legacy unsanitized "Notes Plus Documentation" folder if present
+    let legacy_doc_dir = notes_dir.join("Notes Plus Documentation");
+    if legacy_doc_dir.exists() {
+        let _ = std::fs::remove_dir_all(&legacy_doc_dir);
+    }
     let dest_dir = if target_group.is_empty() {
         notes_dir.to_path_buf()
     } else {
@@ -691,14 +696,27 @@ fn copy_dir_recursive(
             } else {
                 let dest = current_dest_dir.join(&filename);
                 if ext == "adoc" {
-                    if !dest.exists() {
+                    let should_copy = if !dest.exists() {
+                        true
+                    } else if current_group.starts_with("Notes_Plus_Documentation") {
+                        let src_content = std::fs::read_to_string(&path).unwrap_or_default();
+                        let dest_content = std::fs::read_to_string(&dest).unwrap_or_default();
+                        src_content != dest_content
+                    } else {
+                        false
+                    };
+
+                    if should_copy {
                         std::fs::copy(&path, &dest)?;
                         let content = std::fs::read_to_string(&dest).unwrap_or_default();
                         let title = extract_doc_title(&content, &filename);
                         let now = chrono::Utc::now().to_rfc3339();
                         conn.execute(
-                            "INSERT OR IGNORE INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
-                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0, '')",
+                            "INSERT INTO pages (filename, group_path, title, is_journal, created_at, updated_at, block_count, color)
+                             VALUES (?1, ?2, ?3, 0, ?4, ?4, 0, '')
+                             ON CONFLICT(group_path, filename) DO UPDATE SET
+                                title = excluded.title,
+                                updated_at = excluded.updated_at",
                             rusqlite::params![filename, current_group, title, now],
                         )?;
                         if let Ok(page_id) = conn.query_row(
@@ -710,7 +728,16 @@ fn copy_dir_recursive(
                         }
                     }
                 } else if ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "svg" || ext == "yml" {
-                    if !dest.exists() {
+                    let should_copy = if !dest.exists() {
+                        true
+                    } else if current_group.starts_with("Notes_Plus_Documentation") {
+                        let src_bytes = std::fs::read(&path).unwrap_or_default();
+                        let dest_bytes = std::fs::read(&dest).unwrap_or_default();
+                        src_bytes != dest_bytes
+                    } else {
+                        false
+                    };
+                    if should_copy {
                         let _ = std::fs::copy(&path, &dest);
                     }
                     if current_dest_dir != notes_root {

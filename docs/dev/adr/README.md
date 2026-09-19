@@ -1,41 +1,45 @@
 # Architecture Decision Records
 
-ADRs in this project follow the [MADR](https://adr.github.io/madr/) format.
+ADRs in this project are authored in AsciiDoc (`.adoc`) format following the template and structure defined in `000-index.adoc`.
 
 ## Naming Convention
 
 ```
-NNN-descriptive-slug.md
+NNN-descriptive-slug.adoc
 ```
 
-- `NNN`: zero-padded 3-digit number (001, 002, ...)
+- `NNN`: zero-padded 3-digit number (`001`, `002`, ...)
 - `descriptive-slug`: lowercase, hyphens, no special characters
 
-## MADR Template (required for ADRs 011+)
+## AsciiDoc ADR Template
 
-```markdown
----
-status: proposed | accepted | deprecated | superseded by NNN
-date: YYYY-MM-DD
----
+```asciidoc
+= ADR-NNN: [Title]
+:status: Proposed
+:date: YYYY-MM-DD
+:toc:
+:icons: font
 
-# Short title
+[NOTE]
+.Status: [Proposed | Accepted | Deprecated | Superseded]
+Summary of the proposal and current approval state.
 
-## Context and Problem Statement
+== Context
+Describe the architectural problem, requirements, operational constraints, and considerations.
 
-Why is this decision needed?
+== Decision
+Specify the technical design, abstractions, and trade-offs chosen.
 
-## Decision Outcome
+== Consequences
 
-Chosen option: ..., because ...
+=== Positive / Utility Delivered
+* icon:check[] Key benefit or capability unlocked.
 
-### Consequences
-
-- Good, because ...
-- Bad, because ...
+=== Trade-offs & Mitigations
+* icon:warning[] Constraint accepted or managed operational risk.
 ```
 
 ## Linting
 
-The release pipeline validates ADRs 011+ against the MADR spec.
-Run `./scripts/release.sh --dry-run X.Y.Z` to check.
+The release pipeline validates all ADRs (`001-*.adoc` through `NNN-*.adoc`) against the AsciiDoc specification.
+Run `./scripts/release.d/12-validate-adr-format.sh` or `./scripts/release.sh --dry-run X.Y.Z` to check.

@@ -19,6 +19,7 @@ pub fn preprocess_asciidoc(text: &str, drop_comments: bool) -> Vec<String> {
     attributes.insert("two-semicolons".into(), ";;".into());
     attributes.insert("cpp".into(), "C++".into());
     attributes.insert("backend".into(), "notesplus".into());
+    attributes.insert("backend-pdf".into(), "notesplus".into());
 
     let raw_lines: Vec<&str> = text.lines().collect();
     let mut in_comment_block = false;

@@ -1,0 +1,61 @@
+# Store descriptions for Notes Plus
+# Update these when changing features, screenshots, or copy.
+
+openrepos:
+  summary: "Offline AsciiDoc notes with AI assistant, speech-to-text, and web editor"
+  description: |
+    Notes Plus is a fast, offline-first AsciiDoc notes app for Sailfish OS.
+
+    Your notes are plain .adoc files on disk — no database, no proprietary format, no cloud lock-in. Sync them with Syncthing, Nextcloud, Git, or just copy them over USB. Every text editor can open them.
+
+    ## Features
+
+    **AsciiDoc Notes** — Full parser with headings, lists, tables, code blocks, admonitions, cross-references, and image support. AsciiDoc has a spec — no plugins, no flavor debates.
+
+    **AI Assistant** — Chat with a local LLM (Ollama or any OpenAI-compatible endpoint) to edit, organize, summarize, format, and create notes. Tool-calling with diff previews so you see exactly what changes before applying.
+
+    **Web Editor** — Embedded HTTPS server with a Vue 3 split-pane editor, live preview, and full AI assistant access from any browser on your local network.
+
+    **Speech-to-Text** — Offline Whisper-based voice input for dictating prompts and notes directly on device.
+
+    **Full-Text Search** — Instant SQLite FTS5 search across all notes.
+
+    **Journal** — Daily notes with checkbox task lists.
+
+    **Import** — Convert external text, URLs, clipboard content, or files into structured AsciiDoc notes via AI.
+
+    **Secure Remote Access** — Verification code challenge with approve/deny on the phone. No passwords stored.
+
+    The web editor, AI assistant, and speech-to-text can each be disabled independently. Works completely offline. No data leaves the device unless you explicitly connect it to an AI provider.
+
+  screenshots:
+    - docs/screenshots/Screenshot_20260919_123628_001.png
+    - docs/screenshots/Screenshot_20260919_123723_001.png
+    - docs/screenshots/Screenshot_20260919_123802_001.png
+    - docs/screenshots/Screenshot_20260919_123844_001.png
+    - docs/screenshots/Screenshot_20260919_123932_001.png
+    - docs/screenshots/Screenshot_20260919_124013_001.png
+
+github:
+  description: "Offline AsciiDoc notes app for Sailfish OS with AI assistant, speech-to-text, and web editor"
+  about: |
+    Notes Plus is a fast, offline-first AsciiDoc notes app for Sailfish OS. Notes are plain .adoc files on disk — no database, no cloud lock-in. Features include an AI assistant (Ollama/OpenAI) that can edit, organize, and create notes, offline Whisper speech-to-text, a built-in HTTPS web editor, full-text search, and a daily journal. Works completely offline. Web editor, AI, and STT are each independently optional.
+
+harbour:
+  summary: "AsciiDoc notes with AI, search, and web editor"
+  description: |
+    Notes Plus is a fast, offline-first AsciiDoc notes app with an AI assistant, speech-to-text, and a built-in web editor accessible from any browser on your network.
+
+    Your notes are plain .adoc files on disk — no database, no proprietary format. Sync them with Syncthing, Nextcloud, Git, or copy over USB.
+
+    Features:
+    - AsciiDoc notes with headings, lists, tables, code blocks, and cross-references
+    - AI assistant for editing, organizing, summarizing, and creating notes (requires Ollama or OpenAI-compatible endpoint)
+    - Offline Whisper speech-to-text for voice input
+    - Built-in HTTPS web editor with live preview
+    - Full-text search across all notes
+    - Daily journal with task checklists
+    - Import from clipboard, URLs, and files via AI
+    - Secure remote access with phone verification codes
+
+    The web editor, AI assistant, and speech-to-text can each be disabled. Works completely offline — no data leaves the device unless you connect an AI provider.

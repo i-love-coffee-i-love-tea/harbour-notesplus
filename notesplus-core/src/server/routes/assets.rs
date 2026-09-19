@@ -4,7 +4,7 @@ use std::io::Write;
 use crate::constants::MIME_HTML;
 use crate::server::http::{send_response, ParsedHttpRequest};
 use crate::server::web_assets::{
-    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, VUE_JS, VUE_DEMI_JS, VUE_DEVTOOLS_API_JS, PINIA_JS,
+    APP_JS, ICON_PNG, INDEX_HTML, STYLE_CSS, TEMPLATE_JS, VUE_JS, VUE_RUNTIME_JS, VUE_DEMI_JS, VUE_DEVTOOLS_API_JS, PINIA_JS,
     STORES_INDEX_JS, STORES_API_JS, STORES_NOTES_JS, STORES_AUTH_JS,
     STORES_THEME_JS, STORES_HEALTH_JS, STORES_AI_JS, STORES_UI_JS,
     STORES_PRESENTATION_STORE_JS, STORES_IMPORT_STORE_JS,
@@ -37,6 +37,16 @@ pub fn handle_static_asset<W: Write>(
 
     if clean_path == "app.js" {
         send_response(stream, 200, "OK", "application/javascript; charset=utf-8", APP_JS.as_bytes(), cors_origin);
+        return;
+    }
+
+    if clean_path == "template.js" {
+        send_response(stream, 200, "OK", "application/javascript; charset=utf-8", TEMPLATE_JS.as_bytes(), cors_origin);
+        return;
+    }
+
+    if clean_path == "vue.runtime.esm-browser.prod.js" {
+        send_response(stream, 200, "OK", "application/javascript; charset=utf-8", VUE_RUNTIME_JS.as_bytes(), cors_origin);
         return;
     }
 

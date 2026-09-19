@@ -52,6 +52,18 @@ This document indexes the foundational Architecture Decision Records (ADRs) gove
 | xref:010-note-storage-directory-convention.adoc[ADR-010]
 | Note Storage Directory Convention and Asset Directories
 | `icon:check[] Accepted`
+
+| xref:011-defense-in-depth-path-traversal.adoc[ADR-011]
+| Defense-in-Depth Path Traversal Protection
+| `icon:check[] Accepted`
+
+| xref:012-ssrf-mitigation-with-dns-pinning.adoc[ADR-012]
+| SSRF Mitigation with DNS Pinning
+| `icon:check[] Accepted`
+
+| xref:013-repository-abstraction.adoc[ADR-013]
+| Repository Abstraction for Note Storage
+| `icon:check[] Accepted`
 |===
 
 == System Architecture Overview

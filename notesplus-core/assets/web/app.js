@@ -1,6 +1,7 @@
 import { createApp, onMounted, watch, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { pinia } from '/stores/index.js';
+import { render } from '/template.js';
 import { setHealthCallbacks } from '/stores/api.js';
 import { formatMarkdown, getRequestedNote } from '/composables/utils.js';
 import { useNotesStore } from '/stores/notes.js';
@@ -15,6 +16,7 @@ import { useLinkStore } from '/stores/linkStore.js';
 import { useEditorStore } from '/stores/editorStore.js';
 
 const app = createApp({
+  render,
   setup() {
     const notes = useNotesStore();
     const auth = useAuthStore();

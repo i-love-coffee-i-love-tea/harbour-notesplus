@@ -425,7 +425,7 @@ def test_embedded_images_in_rendered_html5():
 
 def test_confirm_dialog_qml_exists_and_properties():
     """Verify ConfirmDialog.qml exists and contains standard Silica Dialog properties."""
-    path = "notesplus-sailfish/qml/pages/ConfirmDialog.qml"
+    path = "notesplus-sailfish/qml/dialogs/ConfirmDialog.qml"
     assert os.path.exists(path)
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -446,19 +446,19 @@ def test_pageview_prompts_on_existing_pdf():
 
     # Must check pdf_export_exists before exporting
     assert "bridge.pdf_export_exists(fullPath)" in content
-    assert 'pageStack.push(Qt.resolvedUrl("ConfirmDialog.qml")' in content
+    assert 'pageStack.push(Qt.resolvedUrl("../dialogs/ConfirmDialog.qml")' in content
     assert 'title: qsTr("Overwrite PDF?")' in content
     assert 'acceptText: qsTr("Overwrite")' in content
 
 
 def test_services_settings_tab_prompts_on_existing_pdf():
     """Verify ServicesSettingsTab.qml prompts before batch exporting if PDFs already exist."""
-    path = "notesplus-sailfish/qml/components/ServicesSettingsTab.qml"
+    path = "notesplus-sailfish/qml/components/settings/ServicesSettingsTab.qml"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
     assert "bridge.any_pdf_export_exists()" in content
-    assert 'pageStack.push(Qt.resolvedUrl("../pages/ConfirmDialog.qml")' in content
+    assert 'pageStack.push(Qt.resolvedUrl("../../dialogs/ConfirmDialog.qml")' in content
     assert 'title: qsTr("Overwrite Existing PDFs?")' in content
     assert 'acceptText: qsTr("Overwrite")' in content
 

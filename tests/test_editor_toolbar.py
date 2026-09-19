@@ -22,13 +22,13 @@ def qjs_engine():
     return engine
 
 def test_editor_toolbar_file_contracts():
-    path = "notesplus-sailfish/qml/components/EditorToolbar.qml"
+    path = "notesplus-sailfish/qml/components/editor/EditorToolbar.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
     # Verify import of BlockHtmlUtils
-    assert 'import "../js/BlockHtmlUtils.js" as BlockHtmlUtils' in content
+    assert 'import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils' in content
 
     # Verify model elements for outdent, indent, move_up, move_down
     assert 'itemId: "outdent"' in content

@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# release.d hook: validate that ADRs > 0 follow MADR format.
+# release.d hook: validate that ADRs follow the AsciiDoc ADR template.
 #
-# ADRs must follow the MADR spec (https://adr.github.io/madr/):
-#   - YAML front matter with at least `status` and `date`
-#   - Title: # Short title (no ADR-NNN prefix)
-#   - Required sections: Context and Problem Statement, Decision Outcome
-#   - Required subsection: Consequences (under Decision Outcome)
+# ADRs must follow the AsciiDoc specification defined in 000-index.adoc:
+#   - Filename: NNN-descriptive-slug.adoc
+#   - Document title: = ADR-NNN: Title (matching the filename number)
+#   - Attributes: :status: and :date:
+#   - Required sections:
+#       == Context
+#       == Decision
+#       == Consequences
+#   - Required subsections under Consequences:
+#       === Positive / Utility Delivered
+#       === Trade-offs & Mitigations
 #
 # Exit 0 if valid, exit 1 if errors found.
 set -euo pipefail
@@ -21,6 +27,8 @@ report() {
 validate_adr() {
     local file="$1"
     local ferrors=0
+    local filename
+    filename=$(basename "$file")
     local content
     content=$(<"$file")
 
@@ -29,52 +37,49 @@ validate_adr() {
         ferrors=$((ferrors + 1))
     }
 
-    # YAML front matter: must start with ---
-    if ! echo "$content" | head -1 | grep -q '^---$'; then
-        freport "missing YAML front matter (must start with ---)"
-    fi
+    local nr
+    nr=$(echo "$filename" | grep -oE '^[0-9]+' || true)
 
-    # YAML front matter: must contain status field
-    if ! echo "$content" | head -20 | grep -qE '^status:'; then
-        freport "missing 'status:' in YAML front matter"
-    fi
-
-    # YAML front matter: must contain date field
-    if ! echo "$content" | head -20 | grep -qE '^date:'; then
-        freport "missing 'date:' in YAML front matter"
-    fi
-
-    # Title: must be # Short title (no ADR-NNN prefix)
+    # Document title: must be '= ADR-NNN: Title' matching the number
     local title_line
-    title_line=$(echo "$content" | grep '^# ' | head -1 || true)
-    if [ -z "$title_line" ]; then
-        freport "missing title (expected: # Short title)"
-    elif echo "$title_line" | grep -qE '^# ADR-[0-9]'; then
-        freport "title uses old format '# ADR-NNN: Title' — MADR requires '# Short title' without prefix"
+    title_line=$(head -n 1 "$file")
+    if ! echo "$title_line" | grep -qE '^= ADR-[0-9]{3}: '; then
+        freport "first line must be '= ADR-NNN: Title' (got '$title_line')"
+    elif [ -n "$nr" ] && ! echo "$title_line" | grep -qE "^= ADR-$nr: "; then
+        freport "title prefix does not match filename number $nr (got '$title_line')"
     fi
 
-    # Required section: ## Context and Problem Statement
-    if ! echo "$content" | grep -q '^## Context and Problem Statement'; then
-        freport "missing '## Context and Problem Statement' section"
+    # Document attributes: :status: and :date:
+    if ! echo "$content" | head -20 | grep -qE '^:status:'; then
+        freport "missing ':status:' document attribute"
     fi
 
-    # Required section: ## Decision Outcome
-    if ! echo "$content" | grep -q '^## Decision Outcome'; then
-        freport "missing '## Decision Outcome' section"
+    if ! echo "$content" | head -20 | grep -qE '^:date:'; then
+        freport "missing ':date:' document attribute"
     fi
 
-    # Required subsection: ### Consequences (under Decision Outcome)
-    if ! echo "$content" | grep -q '^### Consequences'; then
-        freport "missing '### Consequences' subsection"
+    # Required section: == Context
+    if ! echo "$content" | grep -q '^== Context'; then
+        freport "missing '== Context' section"
     fi
 
-    # Consequences must use "Good, because" / "Bad, because" format
-    local consequences_section
-    consequences_section=$(echo "$content" | sed -n '/^### Consequences/,/^##\|^### /p')
-    if [ -n "$consequences_section" ]; then
-        if ! echo "$consequences_section" | grep -qE '(Good|Bad|Neutral), because'; then
-            freport "Consequences must use 'Good, because' / 'Bad, because' / 'Neutral, because' format"
-        fi
+    # Required section: == Decision
+    if ! echo "$content" | grep -q '^== Decision'; then
+        freport "missing '== Decision' section"
+    fi
+
+    # Required section: == Consequences
+    if ! echo "$content" | grep -q '^== Consequences'; then
+        freport "missing '== Consequences' section"
+    fi
+
+    # Required consequences subsections
+    if ! echo "$content" | grep -q '^=== Positive / Utility Delivered'; then
+        freport "missing '=== Positive / Utility Delivered' subsection"
+    fi
+
+    if ! echo "$content" | grep -q '^=== Trade-offs & Mitigations'; then
+        freport "missing '=== Trade-offs & Mitigations' subsection"
     fi
 
     errors=$((errors + ferrors))
@@ -87,9 +92,9 @@ if [ ! -d "$adr_dir" ]; then
     exit 0
 fi
 
-for file in "$adr_dir"/*.md; do
+for file in "$adr_dir"/[0-9][0-9][0-9]-*.adoc; do
     [ -f "$file" ] || continue
-    [[ "$(basename "$file")" == "README.md" ]] && continue
+    [[ "$(basename "$file")" == "000-index.adoc" ]] && continue
     adr_files+=("$file")
 done
 
@@ -120,4 +125,4 @@ if [ "$errors" -gt 0 ]; then
     exit 1
 fi
 
-echo "All ADRs pass MADR validation (${#adr_files[@]} checked)."
+echo "All ADRs pass AsciiDoc validation (${#adr_files[@]} checked)."

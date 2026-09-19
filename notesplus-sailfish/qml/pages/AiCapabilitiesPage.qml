@@ -53,7 +53,7 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: qsTr("Tools used: read_note, list_notes, search_notes, retrieve_context.")
+                    text: qsTr("Tools used: read_note, list_notes, search_notes, retrieve_context, list_groups.")
                     color: Theme.highlightColor
                     font.pixelSize: Theme.fontSizeExtraSmall - 2
                     wrapMode: Text.Wrap
@@ -186,6 +186,14 @@ Page {
 
                 Label {
                     width: parent.width
+                    text: qsTr("Tool used: fetch_url.")
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeExtraSmall - 2
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
                     text: qsTr("You can turn off web requests entirely in the tool permissions above.")
                     color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
@@ -210,6 +218,29 @@ Page {
                 Label {
                     width: parent.width
                     text: qsTr("When you use a cloud provider (MiMoCode or other OpenAI-compatible APIs), the content of your messages and any notes the AI reads are sent to that provider's servers for processing. Only the notes the AI actually reads are sent — not your entire library.")
+                    color: Theme.secondaryColor
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            // ---- PERMISSION MAPPING ----
+            SectionHeader {
+                text: qsTr("Permission Controls")
+            }
+
+            InfoCard {
+                Label {
+                    width: parent.width
+                    text: qsTr("Each setting in Settings > AI Assistant > Tool Permissions controls a group of tools. Here is the full mapping:")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    wrapMode: Text.Wrap
+                }
+
+                Label {
+                    width: parent.width
+                    text: qsTr("Auto-Allow Reading → read_note, list_notes, search_notes, retrieve_context, list_groups\n\nAuto-Allow Creation → create_note\n\nRequire Confirmation for Edits → edit_note, edit_section, append_to_note, insert_section, move_note\n\nAllow Web Requests → fetch_url")
                     color: Theme.secondaryColor
                     font.pixelSize: Theme.fontSizeExtraSmall
                     wrapMode: Text.Wrap

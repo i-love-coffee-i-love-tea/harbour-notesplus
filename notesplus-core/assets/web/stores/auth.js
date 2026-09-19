@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { apiFetch, apiJson } from './api.js';
+import { apiFetch, apiJson, setAuthReady } from './api.js';
 import { formatSessionRemaining, formatSessionRemainingFull } from '/composables/utils.js';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -59,6 +59,7 @@ export const useAuthStore = defineStore('auth', () => {
         isAuthenticated.value = !!data.authenticated;
         authUser.value = data.user || '';
         if (isAuthenticated.value && data.expires_at) {
+          setAuthReady(true);
           startSessionCountdown(data.expires_at);
         } else {
           stopSessionCountdown();
@@ -77,6 +78,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout() {
     try { await apiFetch('/api/auth/logout', { method: 'POST' }); } catch (_) {}
     isAuthenticated.value = false;
+    setAuthReady(false);
     authUser.value = '';
     stopAuthPolling();
     stopSessionCountdown();
@@ -123,6 +125,7 @@ export const useAuthStore = defineStore('auth', () => {
         if (data.status === 'approved') {
           stopAuthPolling();
           isAuthenticated.value = true;
+          setAuthReady(true);
           authUser.value = data.user || 'phone-user';
           authChallengeId.value = '';
           authVerificationCode.value = '';

@@ -15,4 +15,4 @@ if git diff --cached --quiet; then
     exit 0
 fi
 
-git commit -m "chore(release): bump version to $version"
+git commit -m "chore(release): bump version to $version" --trailer "Co-authored-by: Junie <junie@jetbrains.com>"

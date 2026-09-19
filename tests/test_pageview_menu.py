@@ -29,7 +29,7 @@ def test_pageview_pulldown_menu_items():
 
 
 def test_notecard_preview_tile_menu_retains_move_and_delete():
-    path = "notesplus-sailfish/qml/components/NoteCard.qml"
+    path = "notesplus-sailfish/qml/components/common/NoteCard.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

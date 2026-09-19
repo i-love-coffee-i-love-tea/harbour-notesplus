@@ -114,6 +114,8 @@ cp -r notesplus-sailfish/qml/* %{buildroot}%{_datadir}/%{name}/qml/
 
 mkdir -p %{buildroot}%{_datadir}/%{name}/examples
 cp -r notesplus-core/examples/* %{buildroot}%{_datadir}/%{name}/examples/
+mkdir -p %{buildroot}%{_datadir}/%{name}/examples/Notes_Plus_Documentation/ADRs
+cp docs/dev/adr/*.adoc %{buildroot}%{_datadir}/%{name}/examples/Notes_Plus_Documentation/ADRs/
 cp rpm/%{name}.png %{buildroot}%{_datadir}/%{name}/examples/icon.png 2>/dev/null || true
 
 mkdir -p %{buildroot}%{_datadir}/applications

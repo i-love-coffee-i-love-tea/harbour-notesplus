@@ -132,6 +132,8 @@ fn is_public_path(p: &str) -> bool {
     p.is_empty()
         || p == "index.html"
         || p == "app.js"
+        || p == "template.js"
+        || p == "vue.runtime.esm-browser.prod.js"
         || p == "vue.esm-browser.prod.js"
         || p == "vue.js"
         || p == "pinia.esm-browser.prod.js"

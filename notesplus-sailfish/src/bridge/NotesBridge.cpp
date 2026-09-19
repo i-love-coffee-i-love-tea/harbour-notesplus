@@ -179,6 +179,11 @@ void NotesBridge::ensureInit()
         /* Open database */
         void *raw = notes_core_db_open(dbPath.c_str());
         if (raw) {
+            /* Copy bundled documentation and examples to user notes directory */
+            const QString installedExamples = QStringLiteral("/usr/share/harbour-notesplus/examples");
+            if (QDir(installedExamples).exists()) {
+                notes_core_copy_examples(raw, notesDir.c_str(), installedExamples.toUtf8().constData());
+            }
             /* Rebuild index so the DB knows about all .adoc files */
             notes_core_rebuild_index(raw, notesDir.c_str());
         }

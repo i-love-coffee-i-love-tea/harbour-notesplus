@@ -90,7 +90,7 @@ def test_wrapAroundNavigation(qjs_engine):
 
 def test_findInPageBar_qml_exists_and_contains_contracts():
     import os
-    path = "notesplus-sailfish/qml/components/FindInPageBar.qml"
+    path = "notesplus-sailfish/qml/components/editor/FindInPageBar.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

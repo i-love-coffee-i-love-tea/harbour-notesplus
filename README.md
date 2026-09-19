@@ -8,6 +8,21 @@ I've been a Sailfish OS user for over a decade — starting with the first Jolla
 
 Notes Plus is that "tad more." Underneath, the data model is as simple as it gets: plain text files on disk. Everything on top — web editor, groups, AI assistant, text-to-speech — is optional and can be turned off. If all you want to do is write formatted notes without any of that, no problem. Disable the features and they won't distract you. It works completely offline and does not send your data anywhere unless you explicitly connect it to an AI provider by entering its address in the settings.
 
+## Data Privacy
+
+Notes Plus is designed for data sovereignty. Your notes never leave your device unless you choose to sync them yourself.
+
+- **No cloud services, no telemetry, no phone-home.** The app has no integrations with any external cloud system or analytics service.
+- **Local AI support.** You can point it at any OpenAI-compatible API, but nothing is configured by default.
+- **Web server is off by default.** The embedded HTTPS server must be explicitly enabled in Settings.
+- **HTTPS-only.** The server only accepts TLS connections (auto-generated self-signed certificates or your own). No cleartext HTTP.
+- **Configurable network binding.** Choose which interface to bind to — localhost only, a specific LAN or Bluetooth interface, or all interfaces.
+- **Public IP rejection.** Enabled by default — connections from routable Internet addresses are refused at the socket level, regardless of firewall rules.
+- **Phone-gated authentication.** Every web UI session requires a verification code challenge (cryptographically random, generated via `ring`) that must be approved or denied on the phone itself. Only the phone's UI can grant access — approval is not possible over the network. Sessions are `HttpOnly`, `Secure`, `SameSite=Lax` cookies with configurable expiry.
+- **AI permission system.** The AI assistant's tool access is granular (read, create, edit, fetch_url). Edit operations show a diff preview and require confirmation. Automatic backup snapshots before any AI modification enable one-tap rollback.
+- **Offline speech-to-text.** The Whisper-based STT engine runs entirely on-device with checksum-verified model downloads — no audio data is sent anywhere.
+- **Plain text on disk.** Notes are `.adoc` files in a folder. No database lock-in, no proprietary format. Sync with Syncthing, Nextcloud, Git, or USB — your choice.
+
 ## Why AsciiDoc?
 
 AsciiDoc is not harder to write than Markdown, and it's far superior — because it has a specification. It has native tables with column widths and cell spans, admonitions (`NOTE:`, `TIP:`, `WARNING:`), typed delimited blocks for code, quotes, and sidebars, cross-references between documents, and document attributes for metadata. No plugins, no non-standard extensions, no "which flavor of Markdown are we talking about?" — just a spec that means the same thing everywhere.
