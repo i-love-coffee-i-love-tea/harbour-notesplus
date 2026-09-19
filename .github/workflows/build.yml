@@ -59,7 +59,7 @@ jobs:
         uses: R1tschY/sailfish-build-rpm@v1
         with:
           arch: aarch64
-          release: '4.5.0.18'
+          release: '5.1.0.11'
           output-dir: ./rpms
 
       - name: Upload RPM Artifact

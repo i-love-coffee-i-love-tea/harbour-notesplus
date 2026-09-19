@@ -1,7 +1,14 @@
 # harbour-notesplus changelog
 
-* Sa Sep 19 2026 gobuki <github.com@gobuki.org> 0.2.0-1
-- (describe changes here)
+* Sat Sep 19 2026 gobuki <github.com@gobuki.org> 0.2.0-1
+- Rename project from notesplusplus to notesplus
+- AI assistant with tool execution for note management
+- Speech-to-text input via Whisper (on-device STT)
+- External source import from clipboard, URLs, or files
+- Block-level editing: move, delete, re-render individual blocks
+- TLS support with self-signed certificate generation
+- Web access authentication with device-approve/deny challenge
+- German and Spanish translations
 
 * Wed Jul 15 2026 gobuki <github.com@gobuki.org> 0.1.0-1
 - Initial release of Notes Plus for Sailfish OS
