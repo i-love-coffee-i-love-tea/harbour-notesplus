@@ -1,0 +1,68 @@
+= ADR-013: Repository Abstraction for Note Storage
+:status: Accepted
+:date: 2026-09-19
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+All note storage operations (CRUD, search, group management, move) are accessed through a `NoteRepository` trait, with a `FsSqliteNoteRepository` implementation backed by filesystem + SQLite. This decouples the agent, server, and FFI layers from storage internals.
+
+== Context
+
+Notes are stored as `.adoc` files on disk with metadata in SQLite. Multiple consumers need access to notes:
+
+* The AI agent (read, write, search, move notes)
+* The HTTP server (list, render, export notes)
+* The FFI bridge (QML UI reads/writes notes)
+* Background sync (reconcile filesystem with database)
+
+Without an abstraction, each consumer would directly call `page::*` and `db::*` functions with raw `Connection` references, creating tight coupling and making testing difficult.
+
+== Decision
+
+Define a `NoteRepository` trait in `repository.rs` with 15 methods covering the full note lifecycle:
+
+[source,rust]
+----
+pub trait NoteRepository: Send + Sync {
+    fn list_pages(&self) -> Result<Vec<PageInfo>, NotesError>;
+    fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, NotesError>;
+    fn get_page(&self, name: &str) -> Result<Option<PageInfo>, NotesError>;
+    fn read_note_content(&self, filename: &str) -> Result<String, NotesError>;
+    fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError>;
+    fn create_page(&self, name: &str, is_journal: bool, color: Option<&str>) -> Result<PageInfo, NotesError>;
+    fn delete_page(&self, name: &str) -> Result<(), NotesError>;
+    fn move_page(&self, source: &str, target_group: &str) -> Result<PageInfo, NotesError>;
+    fn sync_all(&self) -> Result<(), NotesError>;
+    // ... group management, color, sort order
+}
+----
+
+The concrete `FsSqliteNoteRepository` holds `PathBuf` (notes dir) + `Arc<Mutex<Connection>>` and delegates to the existing `page::*` and `group::*` functions.
+
+=== Key Design Choices
+
+* `Send + Sync` bound enables sharing across HTTP worker threads and the agent session.
+* `Arc<Mutex<Connection>>` serializes SQLite access — WAL mode + busy timeout handle contention.
+* `safe_note_path` is enforced inside the repository, making path traversal structurally impossible for all consumers.
+* The agent's `AgentSession` holds `Arc<dyn NoteRepository>`, enabling mock injection for testing.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:shield[] *Path Safety by Construction* — All file access goes through `safe_note_path` inside the repository. No consumer can bypass it.
+* icon:test-tube[] *Testable Agent* — Agent tests use a real `FsSqliteNoteRepository` with `TempDir`, not mocks. The trait exists for future mock injection if needed.
+* icon:arrows-alt[] *Uniform Access* — Server, agent, and FFI all use the same API surface. Adding a new storage backend (e.g., cloud sync) requires implementing one trait.
+
+=== Trade-offs & Mitigations
+
+* icon:warning[] *Single mutex for all DB access* — All repository methods acquire the same `Connection` mutex. Acceptable for the single-user embedded use case. Would need read-write separation for multi-user scenarios.
+
+== Related Decisions
+
+* xref:001-hybrid-core-and-gui-architecture.adoc[ADR-001: Hybrid Core and GUI Architecture]
+* xref:004-sqlite-fts5-as-derived-search-cache.adoc[ADR-004: SQLite FTS5 Search Cache]
+* xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002: AsciiDoc Storage Format]

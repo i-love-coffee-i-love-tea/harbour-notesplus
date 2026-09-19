@@ -1,0 +1,77 @@
+= ADR-012: SSRF Mitigation with DNS Pinning
+:status: Accepted
+:date: 2026-09-19
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+The agent's URL fetching capability (`fetch_url`) prevents Server-Side Request Forgery (SSRF) by resolving DNS once, verifying all resolved IPs against a comprehensive blocklist, and pinning the result to the HTTP connection via a custom ureq resolver — eliminating DNS rebinding (TOCTOU) attacks.
+
+== Context
+
+The AI assistant can fetch external URLs on behalf of the user (e.g., summarizing a webpage). This capability creates an SSRF risk: an attacker could supply a URL that resolves to a private/loopback IP address, causing the server to make requests to internal services (database admin panels, cloud metadata endpoints, other LAN devices).
+
+Standard SSRF defenses check the resolved IP before making the request. However, if DNS resolution happens twice — once for the check and once for the actual HTTP connection — an attacker controlling DNS can return a public IP for the check and a private IP for the request (DNS rebinding / TOCTOU).
+
+== Decision
+
+=== 1. Comprehensive IP Blocklist
+
+`net::is_blocked_ip()` classifies and blocks:
+
+* Loopback (`127.0.0.0/8`, `::1`)
+* RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`)
+* Link-local (`169.254/16`, `fe80::/10`)
+* Carrier-grade NAT (`100.64/10`)
+* IPv4-mapped IPv6 (`::ffff:0:0/96`) — recursively checked
+* IPv6 ULA (`fc00::/7`)
+* NAT64 well-known prefix (`64:ff9b::/96`)
+* Multicast, broadcast, documentation, benchmarking, and reserved ranges
+
+=== 2. Alternative IP Format Blocking
+
+`net::parse_direct_ip()` detects decimal (`2130706433`), hex (`0x7f000001`), octal (`0o177000001`), and dotted-mixed (`0x7f.0x0.0x0.0x1`) encodings of blocked IPs.
+
+=== 3. Hostname Blocklist
+
+Known DNS services that resolve to localhost/private IPs are blocked at the hostname level: `localhost`, `*.localhost`, `localtest.me`, `*.local`, `*.internal`, `*.lan`.
+
+=== 4. DNS Pinning via Custom Resolver
+
+`fetch_url` resolves DNS once via `resolve_and_verify()`, checks all IPs against the blocklist, then passes the resolved addresses to a custom ureq `Resolver` implementation. This ensures the HTTP connection uses the same IPs that passed the security check — no second DNS resolution occurs.
+
+[source,rust]
+----
+let pinned_addrs = resolve_and_verify(&host, port)?;
+let agent = ureq::AgentBuilder::new()
+    .resolver(move |_netloc: &str| Ok(pinned_addrs.clone()))
+    .build();
+----
+
+=== 5. Redirect Re-Checking
+
+HTTP redirects (301–308) are followed manually (max 3) with the SSRF check re-applied to each redirect destination. The DNS pinning is re-established for each redirect hop.
+
+=== 6. Content Limits
+
+Fetched content is capped at 2 MB raw / 250,000 characters processed to prevent memory exhaustion.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:shield[] *TOCTOU-Resistant* — DNS pinning eliminates the rebinding window between check and connection.
+* icon:globe[] *Comprehensive Coverage* — Blocks IPv4, IPv6, alternative encodings, and known DNS bypass services.
+* icon:lock[] *Redirect-Safe* — Each redirect hop is independently verified.
+
+=== Trade-offs & Mitigations
+
+* icon:warning[] *Per-request agent allocation* — A new ureq agent is built per request to pin DNS. Acceptable for the low-frequency URL fetch use case (user-initiated, rate-limited by LLM turn time).
+* icon:warning[] *No certificate pinning* — TLS certificate validation is standard (not pinned). Mitigated by the LAN-only deployment context.
+
+== Related Decisions
+
+* xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006: Public Network Rejection]
+* xref:008-provider-agnostic-llm-adapter-architecture.adoc[ADR-008: LLM Adapter Architecture]

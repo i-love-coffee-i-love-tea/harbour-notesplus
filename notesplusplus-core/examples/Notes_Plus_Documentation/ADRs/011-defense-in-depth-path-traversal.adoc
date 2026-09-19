@@ -1,0 +1,73 @@
+= ADR-011: Defense-in-Depth Path Traversal Protection
+:status: Accepted
+:date: 2026-09-19
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+Notes Plus enforces path traversal protection at three independent layers — URL routing, JSON body fields, and note path resolution — ensuring that no single bypass can expose files outside the notes directory.
+
+== Context
+
+The embedded HTTP server exposes file-backed note content through multiple entry points:
+
+* URL paths for static asset serving (`/assets/...`)
+* URL paths for note rendering (`/api/notes/...`)
+* JSON body fields in agent chat requests (`context_filename`)
+* Image resolution in the AsciiDoc-to-HTML renderer
+
+Each entry point is a potential path traversal vector. A `..` component in any path could escape the intended directory and read arbitrary filesystem files (e.g., `/etc/passwd`, SQLite databases, TLS private keys).
+
+== Decision
+
+Implement three independent defense layers, each sufficient on its own:
+
+=== Layer 1: URL-Path Gatekeeper
+
+The top-level request dispatcher (`routes/mod.rs`) rejects any URL path containing `..` before routing to any handler:
+
+[source,rust]
+----
+if clean_path.contains("..") {
+    send_response(&mut writer, 403, "Forbidden", ...);
+    return;
+}
+----
+
+=== Layer 2: Safe Path Resolution
+
+All note file access goes through `page::safe_note_path()`, which sanitizes input by:
+
+1. Splitting on `/` and filtering empty segments, `.`, and `..`
+2. Sanitizing each segment (replacing non-alphanumeric/`-`/`_` with `_`)
+3. Rejoining into a clean `(group_path, filename)` tuple
+4. Joining against the notes directory
+
+This function is the canonical path resolver used by the repository layer, agent tools, and route handlers.
+
+=== Layer 3: Canonical Path Containment
+
+For static asset serving, the resolved path is canonicalized via `fs::canonicalize()` and compared against the canonical assets directory. Files outside the directory are rejected regardless of how the path was constructed.
+
+=== Layer 4: Image Resolution Restriction
+
+The AsciiDoc HTML renderer (`html/render.rs`) blocks absolute paths, `file://` URIs, and `..` components in image references, restricting image resolution to relative paths within the notes directory.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:shield[] *No Single Point of Failure* — Each layer independently prevents traversal. Bypassing one layer (e.g., a JSON body field not covered by the URL gatekeeper) is caught by the next.
+* icon:lock[] *Structural Safety* — `safe_note_path` is used by the repository trait, making path traversal structurally impossible for any code that goes through the repository.
+* icon:check[] *Tested* — Dedicated tests verify that `../secret.txt` and `../../etc/passwd` are rejected at each layer.
+
+=== Trade-offs & Mitigations
+
+* icon:warning[] *Defense-in-depth has maintenance cost* — Each layer must be kept in sync. Mitigated by using `safe_note_path` as the single canonical resolver.
+
+== Related Decisions
+
+* xref:005-embedded-zero-dependency-web-server.adoc[ADR-005: Embedded HTTP Server]
+* xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006: Public Network Rejection]
