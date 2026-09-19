@@ -10,7 +10,7 @@ I've been a Sailfish OS user for over a decade — starting with the first Jolla
 
 AsciiDoc is not harder to write than Markdown, and it's far superior — because it has a specification. It has native tables with column widths and cell spans, admonitions (`NOTE:`, `TIP:`, `WARNING:`), typed delimited blocks for code, quotes, and sidebars, cross-references between documents, and document attributes for metadata. No plugins, no non-standard extensions, no "which flavor of Markdown are we talking about?" — just a spec that means the same thing everywhere.
 
-Your notes are stored as plain `.adoc` files on the filesystem. No database, no proprietary format, no cloud lock-in. Sync them with Syncthing, Nextcloud, Git, or just copy them over USB — every text editor can open them.
+Your notes are stored as plain `.adoc` files on the filesystem. No database, no proprietary format, no cloud lock-in. Sync them with Syncthing, Nextcloud, Git, or just copy them over USB. Every text editor can open them, and because AsciiDoc has a spec, the goal is that any other AsciiDoc renderer can pick them up and render them as-is.
 
 ## Features
 
