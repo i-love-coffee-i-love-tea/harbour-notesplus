@@ -29,20 +29,9 @@ jobs:
         run: cargo test -p notesplusplus-core
 
   build-rpm:
-    name: Build RPM (${{ matrix.arch }})
+    name: Build RPM (aarch64)
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [aarch64, armv7hl, i486]
-        include:
-          - arch: aarch64
-            release: '4.5.0.18'
-          - arch: armv7hl
-            release: '4.5.0.18'
-          - arch: i486
-            release: '4.5.0.18'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,14 +41,14 @@ jobs:
       - name: Build RPM package
         uses: R1tschY/sailfish-build-rpm@v1
         with:
-          arch: ${{ matrix.arch }}
-          release: ${{ matrix.release }}
+          arch: aarch64
+          release: '4.5.0.18'
           output-dir: ./rpms
 
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harbour-notesplus-${{ matrix.arch }}-rpm
+          name: harbour-notesplus-aarch64-rpm
           path: ./rpms/*.rpm
           if-no-files-found: error
 
@@ -71,7 +60,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all built RPMs
+      - name: Download built RPM
         uses: actions/download-artifact@v4
         with:
           path: ./dist
@@ -97,9 +86,8 @@ jobs:
     name: Publish to OpenRepos.net
     needs: [build-rpm, github-release]
     runs-on: ubuntu-latest
-    if: always()
     steps:
-      - name: Download all built RPMs
+      - name: Download built RPM
         uses: actions/download-artifact@v4
         with:
           path: ./dist
@@ -110,10 +98,15 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
       - name: Install OpenRepos WebClient
         run: |
           python -m pip install --upgrade pip
-          pip install openrepos-webclient selenium || true
+          pip install openrepos-webclient
 
       - name: Upload RPMs to OpenRepos.net
         env:
@@ -121,13 +114,17 @@ jobs:
           OPENREPOS_PASSWORD: ${{ secrets.OPENREPOS_PASSWORD }}
         run: |
           if [ -z "$OPENREPOS_USERNAME" ] || [ -z "$OPENREPOS_PASSWORD" ]; then
-            echo "::warning ::OPENREPOS_USERNAME or OPENREPOS_PASSWORD secret is not configured in GitHub repository secrets. Skipping OpenRepos automatic upload."
-            echo "To enable automated OpenRepos publishing, configure OPENREPOS_USERNAME and OPENREPOS_PASSWORD in Repository Settings -> Secrets and variables -> Actions."
+            echo "::warning ::OPENREPOS_USERNAME or OPENREPOS_PASSWORD secret is not configured. Skipping OpenRepos upload."
             exit 0
           fi
 
-          echo "Publishing RPMs to OpenRepos for application harbour-notesplus..."
-          python -m openrepos upload ./dist/*.rpm --username "$OPENREPOS_USERNAME" --password "$OPENREPOS_PASSWORD" || {
-            echo "::error ::Failed to publish RPMs via openrepos CLI."
-            exit 1
-          }
+          openrepos \
+            --username "$OPENREPOS_USERNAME" \
+            --password "$OPENREPOS_PASSWORD" \
+            --xvfb \
+            --webdriver chrome \
+            upload-rpm \
+              --appname harbour-notesplus \
+              --platform SailfishOS \
+              --category Applications \
+              ./dist/*.rpm

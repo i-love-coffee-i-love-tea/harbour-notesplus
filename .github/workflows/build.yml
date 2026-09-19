@@ -46,20 +46,9 @@ jobs:
         run: cargo test -p notesplusplus-core
 
   build-rpm:
-    name: Build RPM (${{ matrix.arch }})
+    name: Build RPM (aarch64)
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [aarch64, armv7hl, i486]
-        include:
-          - arch: aarch64
-            release: '4.5.0.18'
-          - arch: armv7hl
-            release: '4.5.0.18'
-          - arch: i486
-            release: '4.5.0.18'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -69,13 +58,13 @@ jobs:
       - name: Build RPM package
         uses: R1tschY/sailfish-build-rpm@v1
         with:
-          arch: ${{ matrix.arch }}
-          release: ${{ matrix.release }}
+          arch: aarch64
+          release: '4.5.0.18'
           output-dir: ./rpms
 
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: harbour-notesplus-${{ matrix.arch }}-rpm
+          name: harbour-notesplus-aarch64-rpm
           path: ./rpms/*.rpm
           if-no-files-found: error
