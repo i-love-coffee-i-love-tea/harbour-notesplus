@@ -13,6 +13,7 @@ use crate::agent::tools::{
     TOOL_FETCH_URL, TOOL_INSERT_SECTION, TOOL_LIST_GROUPS, TOOL_LIST_NOTES, TOOL_MOVE_NOTE,
     TOOL_READ_NOTE, TOOL_RETRIEVE_CONTEXT, TOOL_SEARCH_NOTES,
 };
+use crate::MutexResultExt;
 use crate::error::NotesError;
 use crate::page;
 use crate::repository::NoteRepository;
@@ -106,7 +107,12 @@ impl AgentSession {
 
     /// Returns a snapshot of the current session state in a single lock acquisition.
     pub fn session_state_snapshot(&self) -> SessionState {
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.state.lock().recover().clone()
+    }
+
+    /// Runs `f` with exclusive access to the session state.
+    fn with_state<R>(&self, f: impl FnOnce(&mut SessionState) -> R) -> R {
+        f(&mut self.state.lock().recover())
     }
 
     pub fn messages(&self) -> Vec<ChatMessage> {
@@ -131,8 +137,8 @@ impl AgentSession {
 
     /// Dynamically updates LLM client and permission manager without resetting active chat state.
     pub fn update_config(&mut self, permission_mgr: PermissionManager, client: LlmClient) {
-        *self.permission_mgr.lock().unwrap_or_else(|e| e.into_inner()) = permission_mgr;
-        *self.client.lock().unwrap_or_else(|e| e.into_inner()) = client;
+        *self.permission_mgr.lock().recover() = permission_mgr;
+        *self.client.lock().recover() = client;
     }
 
     /// Resets conversation with fresh system prompt including optional active note content.
@@ -141,7 +147,7 @@ impl AgentSession {
         active_note: Option<(&str, &str)>,
         extra_context: Option<&str>,
     ) {
-        let custom_sys = self.client.lock().unwrap_or_else(|e| e.into_inner()).config().system_prompt.clone();
+        let custom_sys = self.client.lock().recover().config().system_prompt.clone();
         let total_notes = self.repository.list_pages().ok().map(|l| l.len());
         let groups_list = self.repository.list_groups(None, None).ok().map(|groups| {
             groups.into_iter().map(|g| g.path).collect::<Vec<_>>()
@@ -168,7 +174,7 @@ impl AgentSession {
             &env,
         );
 
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock().recover();
         state.messages.clear();
         state.pending_action = None;
         state.remaining_tool_calls.clear();
@@ -178,11 +184,11 @@ impl AgentSession {
 
     /// Appends a user prompt to the conversation history.
     pub fn push_user_message(&mut self, user_prompt: &str) {
-        let needs_reset = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.is_empty();
+        let needs_reset = self.with_state(|s| s.messages.is_empty());
         if needs_reset {
             self.reset_session(None, None);
         }
-        self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.push(ChatMessage::user(user_prompt));
+        self.with_state(|s| s.messages.push(ChatMessage::user(user_prompt)));
     }
 
     /// Appends a user prompt and drives the conversation loop with streaming token and status callbacks.
@@ -192,18 +198,17 @@ impl AgentSession {
         on_token: F,
         on_status: S,
     ) -> AgentStepResult {
-        let needs_reset = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.is_empty();
+        let needs_reset = self.with_state(|s| s.messages.is_empty());
         if needs_reset {
             self.reset_session(None, None);
         }
 
-        {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            let already_pushed = state.messages.last().map(|m| m.role.as_str() == "user" && m.content.as_deref() == Some(user_prompt)).unwrap_or(false);
+        self.with_state(|s| {
+            let already_pushed = s.messages.last().map(|m| m.role.as_str() == "user" && m.content.as_deref() == Some(user_prompt)).unwrap_or(false);
             if !already_pushed {
-                state.messages.push(ChatMessage::user(user_prompt));
+                s.messages.push(ChatMessage::user(user_prompt));
             }
-        }
+        });
         self.run_loop_streaming_with_status(on_token, on_status)
     }
 
@@ -220,7 +225,7 @@ impl AgentSession {
         on_status: S,
     ) -> AgentStepResult {
         let (pending, remaining) = {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state.lock().recover();
             let p = match state.pending_action.take() {
                 Some(p) => p,
                 None => return AgentStepResult::Error("No pending action to confirm".to_string()),
@@ -239,14 +244,14 @@ impl AgentSession {
                 self.apply_note_edit(&pending.filename, &pending.new_content, &pending.reason)
             };
             let result_str = truncate_tool_output(result_str);
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state.lock().recover();
             state.messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
                 result_str,
             ));
         } else {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state.lock().recover();
             state.messages.push(ChatMessage::tool_result(
                 pending.tool_call_id,
                 pending.tool_name,
@@ -256,7 +261,7 @@ impl AgentSession {
 
         // Add tool results for remaining tool calls in the same turn
         if !remaining.is_empty() {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.state.lock().recover();
             for tc in remaining {
                 state.messages.push(ChatMessage::tool_result(
                     tc.id,
@@ -295,12 +300,12 @@ impl AgentSession {
             on_status("thinking", "Thinking...");
 
             {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                let mut state = self.state.lock().recover();
                 prune_history_if_needed(&mut state.messages);
             }
 
-            let messages = self.state.lock().unwrap_or_else(|e| e.into_inner()).messages.clone();
-            let client = self.client.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let messages = self.with_state(|s| s.messages.clone());
+            let client = self.client.lock().recover().clone();
 
             let response = match client.send_chat_streaming(&messages, &mut *on_token) {
                 Ok(resp) => resp,
@@ -310,7 +315,7 @@ impl AgentSession {
             // If assistant responded with tool calls
             if !response.tool_calls.is_empty() {
                 {
-                    let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut state = self.state.lock().recover();
                     let mut asst_msg = ChatMessage::assistant_tool_calls(response.tool_calls.clone());
                     asst_msg.content = response.content.clone();
                     state.messages.push(asst_msg);
@@ -388,7 +393,7 @@ impl AgentSession {
                     };
 
                     let decision = {
-                        let perm = self.permission_mgr.lock().unwrap_or_else(|e| e.into_inner());
+                        let perm = self.permission_mgr.lock().recover();
                         perm.evaluate(tool_call, file_content.as_deref())
                     };
 
@@ -396,7 +401,7 @@ impl AgentSession {
                         PermissionDecision::Allowed => {
                             let output = self.execute_tool(tool_call);
                             let output = truncate_tool_output(output);
-                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut state = self.state.lock().recover();
                             state.messages.push(ChatMessage::tool_result(
                                 tool_call.id.clone(),
                                 tool_call.function.name.clone(),
@@ -404,7 +409,7 @@ impl AgentSession {
                             ));
                         }
                         PermissionDecision::RequiresConfirmation(pending) => {
-                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut state = self.state.lock().recover();
                             let remaining: Vec<ToolCall> = response.tool_calls.iter()
                                 .skip_while(|tc| tc.id != tool_call.id)
                                 .skip(1)
@@ -415,7 +420,7 @@ impl AgentSession {
                             return AgentStepResult::RequiresConfirmation(pending);
                         }
                         PermissionDecision::Denied(reason) => {
-                            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut state = self.state.lock().recover();
                             state.messages.push(ChatMessage::tool_result(
                                 tool_call.id.clone(),
                                 tool_call.function.name.clone(),
@@ -428,7 +433,7 @@ impl AgentSession {
                 // Final textual answer
                 on_status("drafting", "Synthesizing response...");
                 let final_content = response.content.unwrap_or_default();
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                let mut state = self.state.lock().recover();
                 state.messages.push(ChatMessage::assistant(final_content.clone()));
                 return AgentStepResult::Finished {
                     content: final_content,
@@ -444,17 +449,18 @@ impl AgentSession {
     fn execute_tool(&self, tool_call: &ToolCall) -> String {
         let name = tool_call.function.name.as_str();
         let args = &tool_call.function.arguments;
+        let get_str = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or("");
 
         match name {
             TOOL_READ_NOTE => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
                 match self.repository.read_note_content(filename) {
                     Ok(content) => content,
                     Err(e) => format!("Error reading note '{}': {}", filename, e),
                 }
             }
             TOOL_SEARCH_NOTES => {
-                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let query = get_str("query");
                 match self.repository.search_pages(query) {
                     Ok(results) => {
                         if results.is_empty() {
@@ -476,7 +482,7 @@ impl AgentSession {
                 }
             }
             TOOL_RETRIEVE_CONTEXT => {
-                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let query = get_str("query");
                 let max_results = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
                 match self.repository.search_pages(query) {
                     Ok(results) => {
@@ -545,8 +551,8 @@ impl AgentSession {
                 }
             }
             TOOL_MOVE_NOTE => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let target_group = args.get("target_group").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
+                let target_group = get_str("target_group");
                 match self.repository.move_page(filename, target_group) {
                     Ok(p) => format!("Successfully moved note '{}' to group '{}' (full path: '{}')", filename, p.group_path, p.full_path()),
                     Err(e) => format!("Error moving note '{}': {}", filename, e),
@@ -554,7 +560,7 @@ impl AgentSession {
             }
             TOOL_CREATE_NOTE => {
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled");
-                let group = args.get("group").and_then(|v| v.as_str()).unwrap_or("");
+                let group = get_str("group");
                 let initial_content = args.get("content").or_else(|| args.get("initial_content")).and_then(|v| v.as_str());
 
                 let note_path = if group.is_empty() {
@@ -570,22 +576,22 @@ impl AgentSession {
                                 return format!("Created note '{}' but failed to write content: {}", created.title, e);
                             }
                         }
-                        self.state.lock().unwrap_or_else(|e| e.into_inner()).last_created_note = Some(created.title.clone());
+                        self.with_state(|s| s.last_created_note = Some(created.title.clone()));
                         format!("Successfully created note '{}' ({})", created.title, created.full_path())
                     }
                     Err(e) => format!("Error creating note: {}", e),
                 }
             }
             TOOL_EDIT_NOTE => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
+                let content = get_str("content");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note");
                 self.apply_note_edit(filename, content, reason)
             }
             TOOL_EDIT_SECTION => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let heading = args.get("heading").and_then(|v| v.as_str()).unwrap_or("");
-                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
+                let heading = get_str("heading");
+                let content = get_str("content");
                 let new_heading = args.get("new_heading").and_then(|v| v.as_str());
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Updated note section");
 
@@ -600,8 +606,8 @@ impl AgentSession {
                 }
             }
             TOOL_APPEND_TO_NOTE => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
-                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
+                let content = get_str("content");
                 let heading = args.get("heading").and_then(|v| v.as_str());
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Appended content to note");
 
@@ -616,12 +622,12 @@ impl AgentSession {
                 }
             }
             TOOL_INSERT_SECTION => {
-                let filename = args.get("filename").and_then(|v| v.as_str()).unwrap_or("");
+                let filename = get_str("filename");
                 let title = args.get("title").and_then(|v| v.as_str()).unwrap_or("New Section");
                 let level = args.get("level").and_then(|v| v.as_u64()).map(|l| l as usize).unwrap_or(2);
-                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = get_str("content");
                 let pos_str = args.get("position").and_then(|v| v.as_str()).unwrap_or("after_heading");
-                let target_heading = args.get("target_heading").and_then(|v| v.as_str()).unwrap_or("");
+                let target_heading = get_str("target_heading");
                 let reason = args.get("reason").and_then(|v| v.as_str()).unwrap_or("Inserted section into note");
 
                 let pos = match pos_str {
@@ -648,7 +654,7 @@ impl AgentSession {
                 }
             }
             TOOL_FETCH_URL => {
-                let url = args.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                let url = get_str("url");
                 match crate::agent::tools::fetch_url(url) {
                     Ok(text) => text,
                     Err(e) => format!("Error fetching URL: {}", e),
@@ -672,10 +678,11 @@ impl AgentSession {
 
         // 1. Create pre-edit snapshot
         let snapshot = {
-            let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
+            let backup = self.backup_mgr.lock().recover();
             match backup.create_snapshot(&full_path, &current_content, reason) {
                 Ok(s) => {
-                    self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id = Some(s.id.clone());
+                    let sid = s.id.clone();
+                    self.with_state(|st| st.last_snapshot_id = Some(sid));
                     Some(s)
                 }
                 Err(e) => {
@@ -699,7 +706,7 @@ impl AgentSession {
 
     /// Undoes the last recorded edit action by rolling back to its pre-edit snapshot.
     pub fn undo_last_action(&mut self) -> Result<String, NotesError> {
-        let snapshot_id = self.state.lock().unwrap_or_else(|e| e.into_inner()).last_snapshot_id.clone()
+        let snapshot_id = self.with_state(|s| s.last_snapshot_id.clone())
             .ok_or_else(|| NotesError::Msg("No previous action available to undo".to_string()))?;
         self.rollback_snapshot(&snapshot_id)
     }
@@ -707,7 +714,7 @@ impl AgentSession {
     /// Rolls back a note to an arbitrary snapshot by ID.
     pub fn rollback_snapshot(&mut self, snapshot_id: &str) -> Result<String, NotesError> {
         let snapshot = {
-            let backup = self.backup_mgr.lock().unwrap_or_else(|e| e.into_inner());
+            let backup = self.backup_mgr.lock().recover();
             let snap = backup.get_snapshot(snapshot_id)
                 .map_err(|e| NotesError::Msg(format!("Failed to read snapshot: {}", e)))?
                 .ok_or_else(|| NotesError::Msg(format!("Snapshot '{}' not found", snapshot_id)))?;
@@ -718,7 +725,7 @@ impl AgentSession {
         self.repository.save_note(&snapshot.filename, &snapshot.content)
             .map_err(|e| NotesError::Msg(format!("Failed to restore note: {}", e)))?;
 
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock().recover();
         if state.last_snapshot_id.as_deref() == Some(snapshot_id) {
             state.last_snapshot_id = None;
         }

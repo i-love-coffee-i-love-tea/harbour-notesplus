@@ -27,3 +27,16 @@ pub use constants::*;
 pub use error::NotesError;
 pub use paths::AppPaths;
 pub use stt::*;
+
+/// Extension trait to recover from poisoned mutexes without repeating the
+/// `unwrap_or_else(|e| e.into_inner())` pattern everywhere.
+pub trait MutexResultExt<T> {
+    /// Acquire the inner value, recovering from poison if necessary.
+    fn recover(self) -> T;
+}
+
+impl<T> MutexResultExt<T> for Result<T, std::sync::PoisonError<T>> {
+    fn recover(self) -> T {
+        self.unwrap_or_else(|e| e.into_inner())
+    }
+}

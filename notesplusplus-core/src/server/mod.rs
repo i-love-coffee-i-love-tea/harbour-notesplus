@@ -26,6 +26,7 @@ pub use routes::pages::{
 
 use std::collections::HashMap;
 
+use crate::MutexResultExt;
 use crate::agent::{
     AgentSession, LlmClient, LlmConfig, PermissionConfig, PermissionManager,
 };
@@ -94,9 +95,9 @@ impl ConcurrencyLimiter {
 
     pub fn acquire(&self) -> PermitGuard {
         let (lock, cvar) = &*self.state;
-        let mut count = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut count = lock.lock().recover();
         while *count >= self.max_permits {
-            count = cvar.wait(count).unwrap_or_else(|e| e.into_inner());
+            count = cvar.wait(count).recover();
         }
         *count += 1;
         PermitGuard {
@@ -112,7 +113,7 @@ pub struct PermitGuard {
 impl Drop for PermitGuard {
     fn drop(&mut self) {
         let (lock, cvar) = &*self.state;
-        let mut count = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut count = lock.lock().recover();
         if *count > 0 {
             *count -= 1;
         }
@@ -162,7 +163,7 @@ impl ServerContext {
             }
         };
         let conn_arc = Arc::new(Mutex::new(conn));
-        if let Err(e) = crate::page::sync_and_index_pages(&conn_arc.lock().unwrap_or_else(|e| e.into_inner()), &config.notes_dir) {
+        if let Err(e) = crate::page::sync_and_index_pages(&conn_arc.lock().recover(), &config.notes_dir) {
             log::warn!("[SERVER] Initial index sync failed: {}", e);
         }
         let repository = Arc::new(crate::repository::FsSqliteNoteRepository::new(&config.notes_dir, Arc::clone(&conn_arc)));
@@ -218,58 +219,58 @@ impl ServerContext {
 
     /// Updates the active LLM client and permission configurations.
     pub fn update_llm_config(&self, config: LlmConfig, perm_config: Option<PermissionConfig>) {
-        let mut cfg_guard = self.llm_config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cfg_guard = self.llm_config.lock().recover();
         *cfg_guard = config.clone();
         if let Some(p) = perm_config {
-            let mut perm_guard = self.perm_config.lock().unwrap_or_else(|e| e.into_inner());
+            let mut perm_guard = self.perm_config.lock().recover();
             *perm_guard = p;
         }
         let new_client = LlmClient::new(config);
-        let perm_mgr = PermissionManager::new(self.perm_config.lock().unwrap_or_else(|e| e.into_inner()).clone());
-        self.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
+        let perm_mgr = PermissionManager::new(self.perm_config.lock().recover().clone());
+        self.session.lock().recover().update_config(perm_mgr, new_client);
     }
 
     /// Returns the currently configured session expiration in seconds.
     pub fn session_expiry_secs(&self) -> u64 {
         self.auth_config
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .recover()
             .session_expiry_secs
     }
 
     /// Updates the configured session expiration duration in seconds.
     pub fn set_session_expiry_secs(&self, secs: u64) {
-        let mut guard = self.auth_config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.auth_config.lock().recover();
         guard.session_expiry_secs = secs;
     }
 
     /// Updates TLS status information.
     pub fn update_tls_status(&self, status: Option<tls::TlsStatusInfo>) {
-        let mut s_guard = self.tls_status.lock().unwrap_or_else(|e| e.into_inner());
+        let mut s_guard = self.tls_status.lock().recover();
         *s_guard = status;
     }
 
     /// Updates the Sailfish ambience theme colors for the web UI.
     pub fn set_theme_colors(&self, colors: HashMap<String, String>) {
-        let mut guard = self.theme_colors.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.theme_colors.lock().recover();
         *guard = colors;
     }
 
     /// Signals that an authorization challenge is pending, notifying the QML app.
     pub fn signal_auth_challenge(&self, challenge_id: String) {
-        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pending_auth_challenge.lock().recover();
         *guard = Some(challenge_id);
     }
 
     /// Clears the pending authorization challenge signal.
     pub fn clear_auth_challenge(&self) {
-        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pending_auth_challenge.lock().recover();
         *guard = None;
     }
 
     /// Takes the pending authorization challenge ID (returns and clears it).
     pub fn take_auth_challenge(&self) -> Option<String> {
-        let mut guard = self.pending_auth_challenge.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pending_auth_challenge.lock().recover();
         guard.take()
     }
 
@@ -278,7 +279,7 @@ impl ServerContext {
     where
         F: Fn(&str, &Path) -> Result<(), String> + Send + Sync + 'static,
     {
-        let mut guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pdf_exporter.lock().recover();
         *guard = Some(Arc::new(exporter));
     }
 
@@ -299,19 +300,19 @@ impl ServerContext {
 
     /// Clear the registered PDF exporter.
     pub fn clear_pdf_exporter(&self) {
-        let mut guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pdf_exporter.lock().recover();
         *guard = None;
     }
 
     /// Returns whether a PDF exporter is currently registered.
     pub fn has_pdf_exporter(&self) -> bool {
-        self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        self.pdf_exporter.lock().recover().is_some()
     }
 
     /// Export a note to PDF at the specified output path using the registered exporter.
     pub fn export_pdf(&self, note_rel: &str, out_path: &Path) -> Result<(), String> {
         let exporter = {
-            let guard = self.pdf_exporter.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self.pdf_exporter.lock().recover();
             guard.clone()
         };
         if let Some(exp) = exporter {

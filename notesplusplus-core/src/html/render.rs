@@ -821,24 +821,10 @@ impl<'a> HtmlRenderContext<'a> {
             return target.to_string();
         }
 
-        // Try direct file:// URI
-        if let Some(stripped) = target.strip_prefix("file://") {
-            let path = Path::new(stripped);
-            if path.is_file() {
-                if let Some(data_uri) = Self::read_image_file_to_data_uri(path) {
-                    return data_uri;
-                }
-            }
-        }
-
-        // Try absolute filesystem path
-        if target.starts_with('/') {
-            let path = Path::new(target);
-            if path.is_file() {
-                if let Some(data_uri) = Self::read_image_file_to_data_uri(path) {
-                    return data_uri;
-                }
-            }
+        // Reject absolute paths and file:// URIs to prevent arbitrary filesystem reads.
+        // Only relative paths within the notes directory are allowed.
+        if target.starts_with("file://") || target.starts_with('/') {
+            return String::new();
         }
 
         // Collect candidate search directories
@@ -853,6 +839,11 @@ impl<'a> HtmlRenderContext<'a> {
         }
 
         let clean_target = target.trim_start_matches("./");
+        // Reject path traversal attempts outright
+        if clean_target.contains("..") {
+            return String::new();
+        }
+
         for dir in dirs {
             let candidates = [
                 dir.join(clean_target),
@@ -868,16 +859,6 @@ impl<'a> HtmlRenderContext<'a> {
                 if candidate.is_file() {
                     if let Some(data_uri) = Self::read_image_file_to_data_uri(candidate) {
                         return data_uri;
-                    }
-                }
-            }
-
-            if clean_target.contains("..") {
-                if let Ok(canon) = dir.join(clean_target).canonicalize() {
-                    if canon.is_file() {
-                        if let Some(data_uri) = Self::read_image_file_to_data_uri(&canon) {
-                            return data_uri;
-                        }
                     }
                 }
             }

@@ -208,21 +208,19 @@ pub fn build_cors_headers(origin: &str) -> String {
     if origin.is_empty() {
         return String::new();
     }
+    let safe_origin = sanitize_header_value(origin);
     format!(
         "Access-Control-Allow-Origin: {}\r\n\
          Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n\
-         Access-Control-Allow-Headers: Content-Type, Authorization, Cookie\r\n",
-        origin
+         Access-Control-Allow-Headers: Content-Type, Authorization\r\n",
+        safe_origin
     )
 }
 
-pub fn make_session_cookie(session_id: &str, is_tls: bool, max_age: Option<u64>) -> String {
-    let mut cookie = format!("{}={}; Path=/; HttpOnly; SameSite=Lax", SESSION_COOKIE_NAME, session_id);
+pub fn make_session_cookie(session_id: &str, _is_tls: bool, max_age: Option<u64>) -> String {
+    let mut cookie = format!("{}={}; Path=/; HttpOnly; Secure; SameSite=Lax", SESSION_COOKIE_NAME, session_id);
     if let Some(age) = max_age {
         cookie.push_str(&format!("; Max-Age={}", age));
-    }
-    if is_tls {
-        cookie.push_str("; Secure");
     }
     cookie
 }
@@ -335,7 +333,7 @@ pub fn send_response_full<W: Write>(
         let _ = write!(extra, "{}: {}\r\n", k, sanitized);
     }
     let header = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n{}{}\r\n",
         status_code,
         status_text,
         content_type,

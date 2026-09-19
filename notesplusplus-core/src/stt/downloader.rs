@@ -80,7 +80,7 @@ impl ModelDownloader {
 
         let mut reader = response.into_reader();
         let mut file = File::create(&part_path)?;
-        let algorithm = if model.sha256.len() == 40 {
+        let algorithm = if model.checksum.len() == 40 {
             &ring::digest::SHA1_FOR_LEGACY_USE_ONLY
         } else {
             &ring::digest::SHA256
@@ -150,10 +150,10 @@ impl ModelDownloader {
         let calculated_digest = digest_ctx.finish();
         let calculated_hex = hex_encode(calculated_digest.as_ref());
 
-        if !calculated_hex.eq_ignore_ascii_case(&model.sha256) {
+        if !calculated_hex.eq_ignore_ascii_case(&model.checksum) {
             let _ = fs::remove_file(&part_path);
             return Err(NotesError::SttChecksum {
-                expected: model.sha256.clone(),
+                expected: model.checksum.clone(),
                 actual: calculated_hex,
             });
         }
@@ -195,7 +195,7 @@ impl ModelDownloader {
         }
 
         let mut file = File::open(&path)?;
-        let algorithm = if model.sha256.len() == 40 {
+        let algorithm = if model.checksum.len() == 40 {
             &ring::digest::SHA1_FOR_LEGACY_USE_ONLY
         } else {
             &ring::digest::SHA256
@@ -214,7 +214,7 @@ impl ModelDownloader {
         let calculated_digest = digest_ctx.finish();
         let calculated_hex = hex_encode(calculated_digest.as_ref());
 
-        Ok(calculated_hex.eq_ignore_ascii_case(&model.sha256))
+        Ok(calculated_hex.eq_ignore_ascii_case(&model.checksum))
     }
 }
 
@@ -228,7 +228,7 @@ mod tests {
     use std::thread;
     use tempfile::tempdir;
 
-    fn calculate_sha256(data: &[u8]) -> String {
+    fn calculate_checksum(data: &[u8]) -> String {
         let digest = ring::digest::digest(&ring::digest::SHA256, data);
         hex_encode(digest.as_ref())
     }
@@ -239,11 +239,11 @@ mod tests {
     }
 
     #[test]
-    fn test_hex_encode_and_sha256() {
+    fn test_hex_encode_and_checksum() {
         let sample = b"hello whisper stt";
-        let hash256 = calculate_sha256(sample);
+        let hash256 = calculate_checksum(sample);
         assert_eq!(hash256.len(), 64);
-        assert_eq!(calculate_sha256(sample), hash256);
+        assert_eq!(calculate_checksum(sample), hash256);
 
         let hash1 = calculate_sha1(sample);
         assert_eq!(hash1.len(), 40);
@@ -280,7 +280,7 @@ mod tests {
         let downloader = ModelDownloader::new(temp_dir.path());
 
         let data = b"whisper test weights binary content";
-        let sha256 = calculate_sha256(data);
+        let checksum = calculate_checksum(data);
 
         let model = SttModelInfo {
             id: "verify-model".to_string(),
@@ -289,7 +289,7 @@ mod tests {
             size_bytes: data.len() as u64,
             is_multilingual: false,
             url: "https://example.com/model.bin".to_string(),
-            sha256: sha256.clone(),
+            checksum: checksum.clone(),
             is_installed: false,
             is_active: false,
         };
@@ -310,7 +310,7 @@ mod tests {
     #[test]
     fn test_download_success_with_local_server() {
         let content = b"fake whisper ggml model weights for test";
-        let sha256 = calculate_sha256(content);
+        let checksum = calculate_checksum(content);
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -339,7 +339,7 @@ mod tests {
             size_bytes: content.len() as u64,
             is_multilingual: false,
             url: format!("http://{}/model.bin", addr),
-            sha256,
+            checksum,
             is_installed: false,
             is_active: false,
         };
@@ -395,7 +395,7 @@ mod tests {
             size_bytes: content.len() as u64,
             is_multilingual: false,
             url: format!("http://{}/model.bin", addr),
-            sha256: sha1,
+            checksum: sha1,
             is_installed: false,
             is_active: false,
         };
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn test_download_checksum_mismatch_fails_and_cleans_up() {
         let content = b"some data from server";
-        let wrong_sha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+        let wrong_checksum = "0000000000000000000000000000000000000000000000000000000000000000";
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -442,7 +442,7 @@ mod tests {
             size_bytes: content.len() as u64,
             is_multilingual: false,
             url: format!("http://{}/model.bin", addr),
-            sha256: wrong_sha256.to_string(),
+            checksum: wrong_checksum.to_string(),
             is_installed: false,
             is_active: false,
         };
@@ -453,8 +453,8 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             NotesError::SttChecksum { expected, actual } => {
-                assert_eq!(expected, wrong_sha256);
-                assert_eq!(actual, calculate_sha256(content));
+                assert_eq!(expected, wrong_checksum);
+                assert_eq!(actual, calculate_checksum(content));
             }
             other => panic!("Unexpected error: {:?}", other),
         }
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn test_download_cancellation() {
         let content = vec![0u8; 500_000];
-        let sha256 = calculate_sha256(&content);
+        let checksum = calculate_checksum(&content);
         let content_len = content.len() as u64;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -497,7 +497,7 @@ mod tests {
             size_bytes: content_len,
             is_multilingual: false,
             url: format!("http://{}/model.bin", addr),
-            sha256,
+            checksum,
             is_installed: false,
             is_active: false,
         };

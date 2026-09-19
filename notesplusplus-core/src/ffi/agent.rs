@@ -2,6 +2,7 @@ use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::MutexResultExt;
 use crate::agent::{
     AgentSession, AgentStepResult, LlmClient, LlmConfig, PendingConfirmation, PermissionConfig,
     PermissionManager,
@@ -122,7 +123,7 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming(
         let udata = user_data_addr as *mut std::os::raw::c_void;
 
         {
-            let mut sess = session.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sess = session.lock().recover();
             let result = sess.send_prompt_streaming(&prompt, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
@@ -171,7 +172,7 @@ pub extern "C" fn notes_core_agent_poll_streaming(
 ) -> *mut c_char {
     if ffi.is_null() { return std::ptr::null_mut(); }
     let ffi = unsafe { &*ffi };
-    let mut buf = ffi.streaming_buffer.lock().unwrap_or_else(|e| e.into_inner());
+    let mut buf = ffi.streaming_buffer.lock().recover();
     string_to_c(std::mem::take(&mut *buf))
 }
 
@@ -272,7 +273,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming(
         let udata = user_data_addr as *mut std::os::raw::c_void;
 
         {
-            let mut sess = session.lock().unwrap_or_else(|e| e.into_inner());
+            let mut sess = session.lock().recover();
             let result = sess.confirm_pending_action_streaming(approved != 0, |tok| {
                 if let Ok(mut b) = buffer.lock() {
                     b.push_str(tok);
@@ -342,7 +343,7 @@ pub unsafe extern "C" fn notes_core_agent_send_streaming_direct(
     let udata_addr = user_data as usize;
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sess = ffi.session.lock().recover();
         let step_result = sess.send_prompt_streaming_with_status(
             &prompt_str,
             |tok| {
@@ -436,7 +437,7 @@ pub unsafe extern "C" fn notes_core_agent_confirm_streaming_direct(
     let udata_addr = user_data as usize;
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sess = ffi.session.lock().recover();
         let step_result = sess.confirm_pending_action_streaming_with_status(
             approved != 0,
             |tok| {
@@ -519,7 +520,7 @@ pub extern "C" fn notes_core_agent_undo(
 ) -> *mut c_char {
     if ffi.is_null() { return std::ptr::null_mut(); }
     let ffi = unsafe { &mut *ffi };
-    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sess = ffi.session.lock().recover();
     match sess.undo_last_action() {
         Ok(msg) => string_to_c(msg),
         Err(e) => ffi_err!(e),
@@ -538,7 +539,7 @@ pub unsafe extern "C" fn notes_core_agent_undo_direct(
     let ffi = &mut *ffi;
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+        let mut sess = ffi.session.lock().recover();
         let step_result = sess.undo_last_action();
         let messages_json = serde_json::to_string(&sess.messages()).unwrap_or_else(|_| "[]".to_string());
         let pending_action = sess.pending_action();
@@ -607,7 +608,7 @@ pub extern "C" fn notes_core_agent_configure(
 
     let client = LlmClient::new(llm_config);
     let perm_mgr = PermissionManager::new(perm_config);
-    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sess = ffi.session.lock().recover();
     sess.update_config(perm_mgr, client);
 }
 
@@ -625,7 +626,7 @@ pub extern "C" fn notes_core_agent_reset_session(
     let fcontent = unsafe { cstr_to_string(context_content) };
     let extra = unsafe { cstr_to_string(extra_context) };
 
-    let mut sess = ffi.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut sess = ffi.session.lock().recover();
     let active = if fname.is_empty() {
         None
     } else {

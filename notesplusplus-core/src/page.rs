@@ -518,7 +518,24 @@ pub fn recent_pages(conn: &Connection, limit: usize) -> Result<Vec<PageInfo>, No
     Ok(pages)
 }
 
+/// Prepared statement for a single-match lookup by one WHERE clause.
+const SELECT_COLS: &str = "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color FROM pages";
+
+fn query_one(conn: &Connection, where_clause: &str, params: &[&dyn rusqlite::types::ToSql]) -> Result<Option<PageInfo>, NotesError> {
+    let sql = format!("{} WHERE {} LIMIT 1", SELECT_COLS, where_clause);
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query_map(params, |row| PageInfo::from_row(row))?;
+    match rows.next() {
+        Some(Ok(page)) => Ok(Some(page)),
+        Some(Err(e)) => Err(e.into()),
+        None => Ok(None),
+    }
+}
+
 /// Get a page by filename, full relative path, or title.
+///
+/// Tries matches in descending specificity: exact (group, filename) first,
+/// then (group, title), then ungrouped variants, then global filename/title.
 pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<PageInfo>, NotesError> {
     let (group_path, filename) = sanitize_note_path(name_or_filename);
     let title_without_adoc = name_or_filename
@@ -529,52 +546,41 @@ pub fn get_page(conn: &Connection, name_or_filename: &str) -> Result<Option<Page
         .trim_end_matches(".ADOC")
         .replace('_', " ");
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, filename, group_path, title, is_journal, created_at, updated_at, block_count, color
-             FROM pages
-             WHERE (group_path = ?1 AND filename = ?2)
-                OR (group_path = ?1 AND title = ?3)
-                OR (?1 = '' AND group_path = '' AND filename = ?2)
-                OR (?1 = '' AND group_path = '' AND title = ?3)
-                OR (filename = ?2)
-                OR (title = ?3)
-                OR (filename = ?4)
-                OR (title = ?4)
-             ORDER BY
-                CASE
-                    WHEN group_path = ?1 AND filename = ?2 THEN 1
-                    WHEN group_path = ?1 AND title = ?3 THEN 2
-                    WHEN ?1 = '' AND group_path = '' AND filename = ?2 THEN 3
-                    WHEN ?1 = '' AND group_path = '' AND title = ?3 THEN 4
-                    WHEN filename = ?2 THEN 5
-                    WHEN title = ?3 THEN 6
-                    WHEN filename = ?4 THEN 7
-                    WHEN title = ?4 THEN 8
-                    ELSE 9
-                END ASC,
-                id ASC
-             LIMIT 1",
-        )
-        ?;
-
-    let mut rows = stmt
-        .query_map(
-            rusqlite::params![
-                group_path,
-                filename,
-                title_without_adoc,
-                name_or_filename,
-            ],
-            |row| PageInfo::from_row(row),
-        )
-        ?;
-
-    match rows.next() {
-        Some(Ok(page)) => Ok(Some(page)),
-        Some(Err(e)) => Err(e.into()),
-        None => Ok(None),
+    // 1. Exact (group_path, filename)
+    if let Some(p) = query_one(conn, "group_path = ?1 AND filename = ?2", &[&group_path, &filename])? {
+        return Ok(Some(p));
     }
+    // 2. Exact (group_path, title)
+    if let Some(p) = query_one(conn, "group_path = ?1 AND title = ?2", &[&group_path, &title_without_adoc])? {
+        return Ok(Some(p));
+    }
+    // 3. Ungrouped filename match
+    if group_path.is_empty() {
+        if let Some(p) = query_one(conn, "group_path = '' AND filename = ?1", &[&filename])? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = query_one(conn, "group_path = '' AND title = ?1", &[&title_without_adoc])? {
+            return Ok(Some(p));
+        }
+    }
+    // 4. Global filename match
+    if let Some(p) = query_one(conn, "filename = ?1", &[&filename])? {
+        return Ok(Some(p));
+    }
+    // 5. Global title match
+    if let Some(p) = query_one(conn, "title = ?1", &[&title_without_adoc])? {
+        return Ok(Some(p));
+    }
+    // 6. Raw input as filename
+    if let Some(p) = query_one(conn, "filename = ?1", &[&name_or_filename])? {
+        return Ok(Some(p));
+    }
+    // 7. Raw input as title
+    if let Some(p) = query_one(conn, "title = ?1", &[&name_or_filename])? {
+        return Ok(Some(p));
+    }
+
+    Ok(None)
 }
 
 /// Sets or removes the custom note color for a page.

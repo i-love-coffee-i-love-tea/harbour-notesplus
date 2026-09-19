@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 
+use crate::MutexResultExt;
 use crate::agent::{
     build_template_instruction_ex, fetch_url, AgentStepResult, LlmClient, LlmProvider, PermissionManager,
 };
@@ -62,7 +63,7 @@ pub fn handle_agent_status<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let session_guard = ctx.session.lock().recover();
     let is_busy = session_guard.is_busy();
     let can_undo = session_guard.can_undo();
     let has_pending = session_guard.pending_action().is_some();
@@ -87,9 +88,9 @@ pub fn handle_agent_config<W: Write>(
 ) {
     match req.method.as_str() {
         "GET" => {
-            let cfg = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
-            let is_undo_available = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).can_undo();
-            let has_pending = ctx.session.lock().unwrap_or_else(|e| e.into_inner()).pending_action().is_some();
+            let cfg = ctx.llm_config.lock().recover();
+            let is_undo_available = ctx.session.lock().recover().can_undo();
+            let has_pending = ctx.session.lock().recover().pending_action().is_some();
             // Server address and tokens are configured on phone app and kept safe from leaking to the web UI
             let resp = json!({
                 "provider": match cfg.provider {
@@ -106,7 +107,7 @@ pub fn handle_agent_config<W: Write>(
         "POST" => {
             let body_str = String::from_utf8_lossy(&req.body);
             if let Ok(json_body) = serde_json::from_str::<serde_json::Value>(&body_str) {
-                let mut cfg_guard = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
+                let mut cfg_guard = ctx.llm_config.lock().recover();
                 if let Some(p) = json_body.get("provider").and_then(|v| v.as_str()) {
                     cfg_guard.provider = match p.to_lowercase().as_str() {
                         "openai" | "mimocode" | "compatible" => LlmProvider::OpenAiCompatible,
@@ -125,8 +126,8 @@ pub fn handle_agent_config<W: Write>(
                 }
 
                 let new_client = LlmClient::new(cfg_guard.clone());
-                let perm_mgr = PermissionManager::new(ctx.perm_config.lock().unwrap_or_else(|e| e.into_inner()).clone());
-                ctx.session.lock().unwrap_or_else(|e| e.into_inner()).update_config(perm_mgr, new_client);
+                let perm_mgr = PermissionManager::new(ctx.perm_config.lock().recover().clone());
+                ctx.session.lock().recover().update_config(perm_mgr, new_client);
 
                 let resp = json!({
                     "ok": true,
@@ -149,7 +150,7 @@ pub fn handle_agent_models<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let cfg = ctx.llm_config.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg = ctx.llm_config.lock().recover();
     let client = LlmClient::new(cfg.clone());
     drop(cfg);
 
@@ -178,10 +179,11 @@ pub fn handle_agent_chat<W: Write + Send + 'static>(
 
     send_sse_header(&mut stream, cors_origin);
 
-    let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut session_guard = ctx.session.lock().recover();
     if let Some(ref fname) = context_filename {
         let content = context_content.unwrap_or_else(|| {
-            fs::read_to_string(ctx.notes_dir.join(fname)).unwrap_or_default()
+            let safe_path = crate::page::safe_note_path(&ctx.notes_dir, fname);
+            fs::read_to_string(safe_path).unwrap_or_default()
         });
         session_guard.reset_session(Some((fname.as_str(), &content)), None);
     }
@@ -235,7 +237,7 @@ pub fn handle_agent_template<W: Write + Send + 'static>(
     let instruction = build_template_instruction_ex(template_id, "", Some(context_filename), Some(content), import_title, import_mode, import_custom);
 
     send_sse_header(&mut stream, cors_origin);
-    let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut session_guard = ctx.session.lock().recover();
     session_guard.reset_session(Some((context_filename, content)), None);
 
     let stream_mutex = Arc::new(Mutex::new(stream));
@@ -278,7 +280,7 @@ pub fn handle_agent_confirm<W: Write + Send + 'static>(
     let approved = json_body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
     send_sse_header(&mut stream, cors_origin);
-    let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut session_guard = ctx.session.lock().recover();
 
     let stream_mutex = Arc::new(Mutex::new(stream));
     let stream_for_tokens = stream_mutex.clone();
@@ -315,7 +317,7 @@ pub fn handle_agent_undo<W: Write>(
     ctx: &ServerContext,
     cors_origin: &str,
 ) {
-    let mut session_guard = ctx.session.lock().unwrap_or_else(|e| e.into_inner());
+    let mut session_guard = ctx.session.lock().recover();
     match session_guard.undo_last_action() {
         Ok(msg) => {
             let resp = json!({ "ok": true, "message": msg, "can_undo": session_guard.can_undo() });

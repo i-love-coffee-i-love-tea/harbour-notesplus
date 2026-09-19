@@ -10,8 +10,10 @@ pub struct SttModelInfo {
     pub size_bytes: u64,
     pub is_multilingual: bool,
     pub url: String,
-    #[serde(alias = "sha1", alias = "checksum")]
-    pub sha256: String,
+    /// Hash digest for integrity verification. Algorithm is determined by length:
+    /// 40 chars = SHA1 (legacy), 64 chars = SHA256 (preferred).
+    #[serde(alias = "sha1", alias = "sha256")]
+    pub checksum: String,
     pub is_installed: bool,
     pub is_active: bool,
 }
@@ -62,7 +64,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 77_691_713,
             is_multilingual: true,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin".to_string(),
-            sha256: "bd577a113a864445d4c299885e0cb97d4ba92b5f".to_string(),
+            checksum: "bd577a113a864445d4c299885e0cb97d4ba92b5f".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -73,7 +75,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 77_704_715,
             is_multilingual: false,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin".to_string(),
-            sha256: "c78c86eb1a8faa21b369bcd33207cc90d64ae9df".to_string(),
+            checksum: "c78c86eb1a8faa21b369bcd33207cc90d64ae9df".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -84,7 +86,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 147_951_465,
             is_multilingual: true,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin".to_string(),
-            sha256: "465707469ff3a37a2b9b8d8f89f2f99de7299dac".to_string(),
+            checksum: "465707469ff3a37a2b9b8d8f89f2f99de7299dac".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -95,7 +97,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 147_964_211,
             is_multilingual: false,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin".to_string(),
-            sha256: "137c40403d78fd54d454da0f9bd998f78703390c".to_string(),
+            checksum: "137c40403d78fd54d454da0f9bd998f78703390c".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -106,7 +108,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 487_601_967,
             is_multilingual: true,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin".to_string(),
-            sha256: "55356645c2b361a969dfd0ef2c5a50d530afd8d5".to_string(),
+            checksum: "55356645c2b361a969dfd0ef2c5a50d530afd8d5".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -117,7 +119,7 @@ pub fn default_model_catalog() -> Vec<SttModelInfo> {
             size_bytes: 487_601_967,
             is_multilingual: false,
             url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin".to_string(),
-            sha256: "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022".to_string(),
+            checksum: "db8a495a91d927739e50b3fc1cc4c6b8f6c2d022".to_string(),
             is_installed: false,
             is_active: false,
         },
@@ -156,7 +158,7 @@ mod tests {
             assert!(!model.description.is_empty());
             assert!(model.size_bytes > 0);
             assert!(model.url.starts_with("https://"));
-            assert!(model.sha256.len() == 40 || model.sha256.len() == 64);
+            assert!(model.checksum.len() == 40 || model.checksum.len() == 64);
             assert!(!model.is_installed);
             assert!(!model.is_active);
             assert_eq!(model.filename(), format!("{}.bin", model.id));

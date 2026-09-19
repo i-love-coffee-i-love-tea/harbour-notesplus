@@ -7,10 +7,7 @@ use super::common::cstr_to_path;
 pub extern "C" fn notes_core_db_open(db_path: *const c_char) -> *mut rusqlite::Connection {
     let path = unsafe { cstr_to_path(db_path) };
     match db::open_db(&path) {
-        Ok(conn) => {
-            let _ = db::init_schema(&conn);
-            Box::into_raw(Box::new(conn))
-        }
+        Ok(conn) => Box::into_raw(Box::new(conn)),
         Err(_) => std::ptr::null_mut(),
     }
 }

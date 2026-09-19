@@ -5,6 +5,7 @@ pub mod pages;
 
 use serde_json::json;
 
+use crate::MutexResultExt;
 use crate::constants::*;
 use crate::server::http::{
     get_local_ip_addresses, send_response, validate_cors_origin,
@@ -119,7 +120,7 @@ fn dispatch_public(
         return true;
     }
     if p == API_ROUTE_THEME && req.method == HttpMethod::Get {
-        let colors = ctx.theme_colors.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let colors = ctx.theme_colors.lock().recover().clone();
         let body = serde_json::to_string(&colors).unwrap_or_else(|_| "{}".into());
         send_response(writer, 200, "OK", MIME_JSON, body.as_bytes(), cors);
         return true;

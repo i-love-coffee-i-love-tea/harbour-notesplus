@@ -758,7 +758,13 @@ fn test_logout_flow_and_session_invalidation() {
     let set_cookie_hdr = status_res.header("Set-Cookie").unwrap().to_string();
     let status_json: serde_json::Value = status_res.into_json().unwrap();
     assert_eq!(status_json["status"], "approved");
-    let session_id = status_json["session_id"].as_str().unwrap().to_string();
+    // Extract session_id from the Set-Cookie header (no longer in JSON body)
+    let session_id = set_cookie_hdr
+        .split(';')
+        .next()
+        .and_then(|kv| kv.split_once('='))
+        .map(|(_, v)| v.to_string())
+        .unwrap();
 
     // 4. Verify accessing protected API with session cookie succeeds
     let notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))

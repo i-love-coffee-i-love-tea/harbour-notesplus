@@ -190,7 +190,6 @@ pub fn handle_challenge_status<W: Write>(
                         let remaining_secs = sess.expires_at.saturating_sub(now);
                         let resp = json!({
                             "status": "approved",
-                            "session_id": sess.id,
                             "user": sess.user,
                             "expires_at": sess.expires_at,
                             "remaining_secs": remaining_secs

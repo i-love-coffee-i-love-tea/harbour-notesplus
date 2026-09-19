@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
-use crate::NotesError;
+use crate::{MutexResultExt, NotesError};
 use crate::group::{self, GroupInfo, NoteSortOrder};
 use crate::page::{self, PageInfo};
 use crate::search::{self, SearchResult};
@@ -84,17 +84,17 @@ impl FsSqliteNoteRepository {
 
 impl NoteRepository for FsSqliteNoteRepository {
     fn list_pages(&self) -> Result<Vec<PageInfo>, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::list_pages(&conn)
     }
 
     fn search_pages(&self, query: &str) -> Result<Vec<SearchResult>, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         search::search_pages(&conn, query)
     }
 
     fn get_page(&self, name_or_filename: &str) -> Result<Option<PageInfo>, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::get_page(&conn, name_or_filename)
     }
 
@@ -113,7 +113,7 @@ impl NoteRepository for FsSqliteNoteRepository {
     }
 
     fn save_note(&self, filename: &str, content: &str) -> Result<PageInfo, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         let target_filename = if !filename.contains('/') {
             if let Ok(Some(page)) = page::get_page(&conn, filename) {
                 page.full_path()
@@ -127,12 +127,12 @@ impl NoteRepository for FsSqliteNoteRepository {
     }
 
     fn create_page(&self, name: &str, is_journal: bool, color: Option<&str>) -> Result<PageInfo, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::create_page(&conn, &self.notes_dir, name, is_journal, color)
     }
 
     fn set_page_color(&self, name_or_filename: &str, color: Option<&str>) -> Result<PageInfo, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         let target_filename = if !name_or_filename.contains('/') {
             if let Ok(Some(page)) = page::get_page(&conn, name_or_filename) {
                 page.full_path()
@@ -146,42 +146,42 @@ impl NoteRepository for FsSqliteNoteRepository {
     }
 
     fn delete_page(&self, name_or_filename: &str) -> Result<(), NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::delete_page(&conn, &self.notes_dir, name_or_filename)
     }
 
     fn sync_all(&self) -> Result<(), NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::sync_and_index_pages(&conn, &self.notes_dir)
     }
 
     fn create_group(&self, parent_path: &str, name: &str) -> Result<GroupInfo, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         group::create_group(&conn, &self.notes_dir, parent_path, name)
     }
 
     fn rename_group(&self, old_path: &str, new_name: &str) -> Result<String, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         group::rename_group(&conn, &self.notes_dir, old_path, new_name)
     }
 
     fn delete_group(&self, path: &str, recursive: bool) -> Result<(), NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         group::delete_group(&conn, &self.notes_dir, path, recursive)
     }
 
     fn list_groups(&self, parent_path: Option<&str>, max_depth: Option<i32>) -> Result<Vec<GroupInfo>, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         group::list_groups(&conn, parent_path, max_depth)
     }
 
     fn set_group_note_sort(&self, path: &str, note_sort: NoteSortOrder) -> Result<NoteSortOrder, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         group::set_group_note_sort(&conn, path, note_sort)
     }
 
     fn move_page(&self, source_name_or_path: &str, target_group: &str) -> Result<PageInfo, NotesError> {
-        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let conn = self.conn.lock().recover();
         page::move_page(&conn, &self.notes_dir, source_name_or_path, target_group)
     }
 

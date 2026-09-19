@@ -73,6 +73,32 @@ impl fmt::Display for NotesError {
 
 impl std::error::Error for NotesError {}
 
+impl NotesError {
+    /// Maps this error to the appropriate API error code for HTTP responses.
+    pub fn api_error_code(&self) -> ApiErrorCode {
+        match self {
+            NotesError::Auth(_) => ApiErrorCode::Unauthorized,
+            NotesError::Json(_) | NotesError::Http(_) => ApiErrorCode::BadRequest,
+            NotesError::Bind(_) | NotesError::Tls(_) => ApiErrorCode::InternalError,
+            NotesError::LlmNetwork(_)
+            | NotesError::LlmHttp { .. }
+            | NotesError::LlmTimeout
+            | NotesError::LlmResponse(_) => ApiErrorCode::AiError,
+            NotesError::SttModel(_)
+            | NotesError::SttAudio(_)
+            | NotesError::SttInference(_)
+            | NotesError::SttChecksum { .. }
+            | NotesError::SttCancelled => ApiErrorCode::InternalError,
+            NotesError::Io(_) | NotesError::Db(_) | NotesError::Msg(_) => ApiErrorCode::InternalError,
+        }
+    }
+
+    /// Returns the HTTP status code for this error.
+    pub fn status_code(&self) -> u16 {
+        self.api_error_code().status_code()
+    }
+}
+
 impl From<std::io::Error> for NotesError {
     fn from(e: std::io::Error) -> Self {
         NotesError::Io(e)

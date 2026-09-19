@@ -96,38 +96,20 @@ pub fn is_blocked_ip(ip: &IpAddr) -> bool {
             if segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0 {
                 return true;
             }
+            // Well-known NAT64 prefix (64:ff9b::/96)
+            if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2] == 0 && segments[3] == 0 {
+                return true;
+            }
             false
         }
     }
 }
 
 /// Checks if an IP address belongs to a private, loopback, or local link network.
-/// Subset of `is_blocked_ip` — used for CORS origin validation and public IP rejection.
+/// Used for CORS origin validation and public IP rejection.
+/// Consistent with `is_blocked_ip` — all blocked ranges are also rejected here.
 pub fn is_private_or_local_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => {
-            let octets = ipv4.octets();
-            if octets[0] == 127 { return true; }
-            if octets[0] == 10 { return true; }
-            if octets[0] == 172 && (16..=31).contains(&octets[1]) { return true; }
-            if octets[0] == 192 && octets[1] == 168 { return true; }
-            if octets[0] == 169 && octets[1] == 254 { return true; }
-            if octets[0] == 100 && (64..=127).contains(&octets[1]) { return true; }
-            if ipv4.is_unspecified() || ipv4.is_broadcast() { return true; }
-            false
-        }
-        IpAddr::V6(ipv6) => {
-            if ipv6.is_loopback() || ipv6.is_unspecified() { return true; }
-            let octets = ipv6.octets();
-            if octets[0..10] == [0; 10] && octets[10] == 0xff && octets[11] == 0xff {
-                let v4 = std::net::Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15]);
-                return is_private_or_local_ip(&IpAddr::V4(v4));
-            }
-            if (octets[0] & 0xfe) == 0xfc { return true; }
-            if octets[0] == 0xfe && (octets[1] & 0xc0) == 0x80 { return true; }
-            false
-        }
-    }
+    is_blocked_ip(ip)
 }
 
 /// Checks if an IP address is a public routable Internet address.

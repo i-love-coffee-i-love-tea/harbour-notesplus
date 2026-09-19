@@ -422,7 +422,30 @@ pub fn is_allowed_host(url: &str) -> bool {
     }
 }
 
-/// Helper to download web text from an HTTP/HTTPS URL with SSRF mitigation and secure redirect re-checking.
+/// Resolves a host:port, verifies all IPs are safe, and returns the pinned addresses.
+/// This is used to prevent DNS rebinding by resolving once and pinning the result.
+fn resolve_and_verify(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, NotesError> {
+    let socket_addr_str = format!("{}:{}", host, port);
+    let addrs: Vec<std::net::SocketAddr> = socket_addr_str
+        .to_socket_addrs()
+        .map_err(|e| NotesError::Http(format!("DNS resolution failed for '{}': {}", host, e)))?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(NotesError::Http(format!("DNS resolution returned no addresses for '{}'", host)));
+    }
+    for addr in &addrs {
+        if is_blocked_ip(&addr.ip()) {
+            return Err(NotesError::Http(format!(
+                "URL '{}' blocked: resolved to private/reserved IP {}",
+                host, addr.ip()
+            )));
+        }
+    }
+    Ok(addrs)
+}
+
+/// Helper to download web text from an HTTP/HTTPS URL with SSRF mitigation and DNS rebinding protection.
 pub fn fetch_url(url: &str) -> Result<String, NotesError> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -434,11 +457,6 @@ pub fn fetch_url(url: &str) -> Result<String, NotesError> {
         trimmed.to_string()
     };
 
-    let agent = ureq::AgentBuilder::new()
-        .redirects(0)
-        .timeout(std::time::Duration::from_secs(crate::constants::FETCH_URL_TIMEOUT_SECS))
-        .build();
-
     const MAX_REDIRECTS: usize = 3;
     let mut redirects_followed = 0;
 
@@ -449,6 +467,15 @@ pub fn fetch_url(url: &str) -> Result<String, NotesError> {
                 current_url
             )));
         }
+
+        // Resolve DNS once and pin the result to prevent DNS rebinding
+        let (host, port, _scheme) = parse_target_host_port(&current_url)?;
+        let pinned_addrs = resolve_and_verify(&host, port)?;
+        let agent = ureq::AgentBuilder::new()
+            .redirects(0)
+            .timeout(std::time::Duration::from_secs(crate::constants::FETCH_URL_TIMEOUT_SECS))
+            .resolver(move |_netloc: &str| Ok(pinned_addrs.clone()))
+            .build();
 
         match agent.get(&current_url).call() {
             Ok(r) => break r,
@@ -486,7 +513,9 @@ pub fn fetch_url(url: &str) -> Result<String, NotesError> {
     const MAX_RAW_FETCH_BYTES: u64 = 2 * 1024 * 1024; // 2 MB limit to prevent memory exhaustion
     let mut raw_bytes = Vec::new();
     let mut reader = resp.into_reader().take(MAX_RAW_FETCH_BYTES);
-    let _ = reader.read_to_end(&mut raw_bytes);
+    if let Err(e) = reader.read_to_end(&mut raw_bytes) {
+        log::warn!("Partial read from URL '{}': {}", url, e);
+    }
     let raw_text = String::from_utf8_lossy(&raw_bytes).into_owned();
 
     let processed = if content_type.contains("html") || crate::html::preprocess::looks_like_html(&raw_text) {

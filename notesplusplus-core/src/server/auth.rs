@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 
+use crate::MutexResultExt;
 use crate::error::NotesError;
 
 pub fn current_epoch_secs() -> u64 {
@@ -41,20 +42,6 @@ pub fn generate_verification_code(digit_count: u32) -> String {
     rng.fill(&mut bytes).expect("CSPRNG failure — cannot generate secure verification code");
     let num = u32::from_be_bytes(bytes) % max;
     format!("{:0width$}", num, width = digit_count as usize)
-}
-
-/// Constant-time comparison between two string slices to prevent timing attacks.
-pub fn constant_time_eq(a: &str, b: &str) -> bool {
-    let a_bytes = a.as_bytes();
-    let b_bytes = b.as_bytes();
-    if a_bytes.len() != b_bytes.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 /// Authentication configuration stored in server state / persistent settings.
@@ -145,7 +132,7 @@ impl SessionStore {
         if clean_token.is_empty() {
             return None;
         }
-        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.sessions.lock().recover();
         let now = current_epoch_secs();
 
         if let Some(session) = map.get(clean_token) {
@@ -182,7 +169,7 @@ impl SessionStore {
             expires_at: now + ttl_secs,
         };
 
-        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.sessions.lock().recover();
         map.insert(session_id, session.clone());
         self.persist(&map);
 
@@ -191,7 +178,7 @@ impl SessionStore {
 
     /// Revokes and removes a session by ID.
     pub fn remove_session(&self, session_id: &str) {
-        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.sessions.lock().recover();
         if map.remove(session_id).is_some() {
             self.persist(&map);
         }
@@ -199,7 +186,7 @@ impl SessionStore {
 
     /// Cleans up all expired sessions from memory and disk.
     pub fn clean_expired(&self) {
-        let mut map = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.sessions.lock().recover();
         let now = current_epoch_secs();
         let initial_len = map.len();
         map.retain(|_, s| s.expires_at > now);
@@ -257,7 +244,7 @@ impl AuthChallengeStore {
             expires_at: now + ttl_secs,
             status: ChallengeStatus::Pending,
         };
-        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.challenges.lock().recover();
         let id = challenge.challenge_id.clone();
         map.insert(id, challenge.clone());
         Ok(challenge)
@@ -265,14 +252,14 @@ impl AuthChallengeStore {
 
     /// Returns a challenge if it exists and hasn't been cleaned up.
     pub fn get_challenge(&self, id: &str) -> Option<AuthChallenge> {
-        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.challenges.lock().recover();
         map.retain(|_, c| !c.is_expired() || c.status == ChallengeStatus::Approved);
         map.get(id).cloned()
     }
 
     /// Marks a pending challenge as approved. Returns false if not found or not pending.
     pub fn approve_challenge(&self, id: &str) -> bool {
-        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.challenges.lock().recover();
         if let Some(challenge) = map.get_mut(id) {
             if challenge.status == ChallengeStatus::Pending && !challenge.is_expired() {
                 challenge.status = ChallengeStatus::Approved;
@@ -284,7 +271,7 @@ impl AuthChallengeStore {
 
     /// Marks a pending challenge as denied. Returns false if not found or not pending.
     pub fn deny_challenge(&self, id: &str) -> bool {
-        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.challenges.lock().recover();
         if let Some(challenge) = map.get_mut(id) {
             if challenge.status == ChallengeStatus::Pending {
                 challenge.status = ChallengeStatus::Denied;
@@ -296,7 +283,7 @@ impl AuthChallengeStore {
 
     /// Removes a challenge from the store (e.g. after browser has consumed the result).
     pub fn remove_challenge(&self, id: &str) {
-        let mut map = self.challenges.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.challenges.lock().recover();
         map.remove(id);
     }
 }
@@ -331,7 +318,7 @@ mod tests {
 
         // Reopen from disk
         let store2 = SessionStore::with_storage(sess_file.clone());
-        let map = store2.sessions.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let map = store2.sessions.lock().recover().clone();
         assert_eq!(map.len(), 1);
         assert_eq!(map.values().next().unwrap().user, "bob");
     }
@@ -373,15 +360,6 @@ mod tests {
 
         let after_deny = store.get_challenge(&challenge.challenge_id).unwrap();
         assert_eq!(after_deny.status, ChallengeStatus::Denied);
-    }
-
-    #[test]
-    fn test_constant_time_eq() {
-        assert!(constant_time_eq("secret123", "secret123"));
-        assert!(!constant_time_eq("secret123", "secret124"));
-        assert!(!constant_time_eq("secret123", "secret12"));
-        assert!(!constant_time_eq("secret12", "secret123"));
-        assert!(constant_time_eq("", ""));
     }
 
     #[test]

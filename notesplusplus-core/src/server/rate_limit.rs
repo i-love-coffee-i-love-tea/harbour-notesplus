@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::MutexResultExt;
+
 /// Rate limit tracking for an individual client/key.
 #[derive(Debug, Clone)]
 struct ClientHistory {
@@ -33,7 +35,7 @@ impl RateLimiter {
         max_requests: usize,
         window: Duration,
     ) -> Result<(), u64> {
-        let mut map = self.limits.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.limits.lock().recover();
         let now = Instant::now();
 
         // Periodically cleanup stale entries using each entry's own window duration
@@ -74,7 +76,7 @@ impl RateLimiter {
 
     /// Clears all recorded rate limit history (useful for testing).
     pub fn clear(&self) {
-        let mut map = self.limits.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = self.limits.lock().recover();
         map.clear();
     }
 }
