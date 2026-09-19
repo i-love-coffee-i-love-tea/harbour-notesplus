@@ -5,10 +5,13 @@
 #
 set -euo pipefail
 
-if git rev-parse "v$version" >/dev/null 2>&1; then
-    echo "Tag v$version already exists"
-    exit 0
+if ! git rev-parse "v$version" >/dev/null 2>&1; then
+    git tag -m "Release v$version" "v$version"
+    echo "Tagged v$version"
 fi
 
-git tag "v$version"
-echo "Tagged v$version — run 'git push && git push --tags' to publish"
+if ! git rev-parse "$version" >/dev/null 2>&1; then
+    git tag -m "Release $version" "$version"
+    echo "Tagged $version"
+fi
+echo "Tagged release — run 'git push && git push --tags' to publish"
