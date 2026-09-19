@@ -44,7 +44,6 @@ pub struct ServerConfig {
     pub llm_config: LlmConfig,
     pub permission_config: PermissionConfig,
     pub auth_config: auth::AuthConfig,
-    pub enable_tls: bool,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
     pub reject_public_networks: bool,
@@ -64,7 +63,6 @@ impl ServerConfig {
             llm_config: LlmConfig::default(),
             permission_config: PermissionConfig::default(),
             auth_config: auth::AuthConfig::default(),
-            enable_tls: false,
             tls_cert_path: None,
             tls_key_path: None,
             reject_public_networks: true,
@@ -142,16 +140,15 @@ pub struct ServerContext {
     pub reject_public_networks: Arc<AtomicBool>,
     pub theme_colors: Arc<Mutex<HashMap<String, String>>>,
     pub repository: Arc<dyn crate::repository::NoteRepository>,
-    pub is_tls: bool,
     pub pdf_exporter: Arc<Mutex<Option<PdfExporterFn>>>,
 }
 
 impl ServerContext {
     pub fn new(config: ServerConfig) -> Self {
-        Self::new_with_tls(config, false)
+        Self::new_internal(config)
     }
 
-    pub fn new_with_tls(config: ServerConfig, is_tls: bool) -> Self {
+    fn new_internal(config: ServerConfig) -> Self {
         let _ = fs::create_dir_all(&config.notes_dir);
         let _ = fs::create_dir_all(&config.backup_dir);
 
@@ -202,7 +199,6 @@ impl ServerContext {
             reject_public_networks: Arc::new(AtomicBool::new(config.reject_public_networks)),
             theme_colors: Arc::new(Mutex::new(HashMap::new())),
             repository,
-            is_tls,
             pdf_exporter: Arc::new(Mutex::new(None)),
         }
     }
@@ -351,13 +347,8 @@ impl HttpServerHandle {
             .first()
             .cloned()
             .unwrap_or_else(|| {
-                let scheme = if self.context.is_tls { "https" } else { "http" };
-                format!("{}://{}:{}", scheme, self.bind_address, self.port)
+                format!("https://{}:{}", self.bind_address, self.port)
             })
-    }
-
-    pub fn is_tls(&self) -> bool {
-        self.context.is_tls
     }
 
     pub fn context(&self) -> &ServerContext {
@@ -372,7 +363,7 @@ impl HttpServerHandle {
     }
 }
 
-/// Start the embedded documentation HTTP server with full explicit configuration.
+/// Start the embedded documentation HTTPS server with full explicit configuration.
 pub fn start_server_full(
     notes_dir: PathBuf,
     db_path: PathBuf,
@@ -380,19 +371,6 @@ pub fn start_server_full(
     requested_port: u16,
     llm_config: Option<LlmConfig>,
     permission_config: Option<PermissionConfig>,
-) -> Result<HttpServerHandle, NotesError> {
-    start_server_full_with_tls(notes_dir, db_path, backup_dir, requested_port, llm_config, permission_config, false, None, None)
-}
-
-/// Like `start_server_full` but with TLS configuration.
-pub fn start_server_full_with_tls(
-    notes_dir: PathBuf,
-    db_path: PathBuf,
-    backup_dir: PathBuf,
-    requested_port: u16,
-    llm_config: Option<LlmConfig>,
-    permission_config: Option<PermissionConfig>,
-    enable_tls: bool,
     tls_cert_path: Option<PathBuf>,
     tls_key_path: Option<PathBuf>,
 ) -> Result<HttpServerHandle, NotesError> {
@@ -407,7 +385,6 @@ pub fn start_server_full_with_tls(
         llm_config: llm_config.unwrap_or_default(),
         permission_config: permission_config.unwrap_or_default(),
         auth_config: auth::AuthConfig::default(),
-        enable_tls,
         tls_cert_path,
         tls_key_path,
         reject_public_networks: true,
@@ -432,83 +409,69 @@ pub fn start_server_with_config(config: ServerConfig) -> Result<HttpServerHandle
         None => return Err(NotesError::Bind(format!("Failed to bind to port {} or nearby ports", port))),
     };
 
-    let scheme = if config.enable_tls { "https" } else { "http" };
     let local_ips = get_local_ip_addresses();
     let mut local_urls = Vec::new();
     if config.bind_address == crate::constants::DEFAULT_BIND_ADDRESS {
-        local_urls.push(format!("{}://{}:{}", scheme, crate::constants::DEFAULT_BIND_ADDRESS, actual_port));
+        local_urls.push(format!("https://{}:{}", crate::constants::DEFAULT_BIND_ADDRESS, actual_port));
     }
     for ip in &local_ips {
-        local_urls.push(format!("{}://{}:{}", scheme, ip, actual_port));
+        local_urls.push(format!("https://{}:{}", ip, actual_port));
     }
     if local_urls.is_empty() {
-        local_urls.push(format!("{}://127.0.0.1:{}", scheme, actual_port));
+        local_urls.push(format!("https://127.0.0.1:{}", actual_port));
     }
 
-    let ssl_info = if config.enable_tls {
-        let parent_dir = config.notes_dir.parent().unwrap_or(&config.notes_dir);
-        let cert_dir = parent_dir.join("tls");
-        let cert_path = config
-            .tls_cert_path
-            .clone()
-            .unwrap_or_else(|| cert_dir.join("server.crt"));
-        let key_path = config
-            .tls_key_path
-            .clone()
-            .unwrap_or_else(|| cert_dir.join("server.key"));
+    let parent_dir = config.notes_dir.parent().unwrap_or(&config.notes_dir);
+    let cert_dir = parent_dir.join("tls");
+    let cert_path = config
+        .tls_cert_path
+        .clone()
+        .unwrap_or_else(|| cert_dir.join("server.crt"));
+    let key_path = config
+        .tls_key_path
+        .clone()
+        .unwrap_or_else(|| cert_dir.join("server.key"));
 
-        let mut alt_names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
-        for ip in &local_ips {
-            let addr = ip.to_string();
-            if !alt_names.contains(&addr) {
-                alt_names.push(addr);
-            }
+    let mut alt_names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+    for ip in &local_ips {
+        let addr = ip.to_string();
+        if !alt_names.contains(&addr) {
+            alt_names.push(addr);
         }
-        // Include wildcard DNS and common private ranges so the cert works
-        // regardless of which network the phone is on
-        for dns in &["*.local", "*.home", "*.lan"] {
-            let s = dns.to_string();
-            if !alt_names.contains(&s) {
-                alt_names.push(s);
-            }
+    }
+    // Include wildcard DNS and common private ranges so the cert works
+    // regardless of which network the phone is on
+    for dns in &["*.local", "*.home", "*.lan"] {
+        let s = dns.to_string();
+        if !alt_names.contains(&s) {
+            alt_names.push(s);
         }
-        let tls_opts = tls::TlsOptions {
-            alt_names,
-            ..tls::TlsOptions::default()
-        };
-        let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, Some(tls_opts))?;
-        let ssl_config = tiny_http::SslConfig {
-            certificate: cert.cert_pem.into_bytes(),
-            private_key: cert.key_pem.into_bytes(),
-        };
-        Some((ssl_config, cert_path, key_path))
-    } else {
-        None
+    }
+    let tls_opts = tls::TlsOptions {
+        alt_names,
+        ..tls::TlsOptions::default()
+    };
+    let cert = tls::get_or_create_tls_cert(&cert_path, &key_path, Some(tls_opts))?;
+    let ssl_config = tiny_http::SslConfig {
+        certificate: cert.cert_pem.into_bytes(),
+        private_key: cert.key_pem.into_bytes(),
     };
 
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_clone = is_running.clone();
-    let is_tls = ssl_info.is_some();
 
     let bind_address = config.bind_address.clone();
-    let context = ServerContext::new_with_tls(config, is_tls);
-    let (tiny_ssl, cert_p, key_p) = match ssl_info {
-        Some((ssl, cp, kp)) => (Some(ssl), Some(cp), Some(kp)),
-        None => (None, None, None),
-    };
+    let context = ServerContext::new_internal(config);
 
-    if let (Some(cert_path), Some(key_path)) = (cert_p, key_p) {
-        context.update_tls_status(Some(tls::TlsStatusInfo {
-            is_tls: true,
-            is_custom: tls::is_custom_cert_installed(&cert_path),
-            cert_path: cert_path.to_string_lossy().to_string(),
-            key_path: key_path.to_string_lossy().to_string(),
-            subject: "Notes++ Web Server".to_string(),
-        }));
-    }
+    context.update_tls_status(Some(tls::TlsStatusInfo {
+        is_custom: tls::is_custom_cert_installed(&cert_path),
+        cert_path: cert_path.to_string_lossy().to_string(),
+        key_path: key_path.to_string_lossy().to_string(),
+        subject: "Notes++ Web Server".to_string(),
+    }));
 
-    let server = tiny_http::Server::from_listener(listener, tiny_ssl)
-        .map_err(|e| NotesError::Bind(format!("Failed to create HTTP server: {}", e)))?;
+    let server = tiny_http::Server::from_listener(listener, Some(ssl_config))
+        .map_err(|e| NotesError::Bind(format!("Failed to create HTTPS server: {}", e)))?;
     let server = Arc::new(server);
 
     let context_clone = context.clone();

@@ -25,7 +25,6 @@ pub struct TlsCertificate {
 /// Metadata information about the active TLS certificate.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TlsStatusInfo {
-    pub is_tls: bool,
     pub is_custom: bool,
     pub cert_path: String,
     pub key_path: String,

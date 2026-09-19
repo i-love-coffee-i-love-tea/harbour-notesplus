@@ -6,6 +6,13 @@ use notesplus_core::agent::permissions::PermissionConfig;
 use serde_json::json;
 use tempfile::tempdir;
 
+/// Creates a ureq agent that accepts self-signed TLS certificates.
+fn tls_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .tls_config(Arc::new(notesplus_core::agent::client::build_insecure_tls_client_config()))
+        .build()
+}
+
 #[test]
 fn test_note_filename_sanitization() {
     assert_eq!(notesplus_core::page::sanitize_note_filename("My Note!"), "My_Note.adoc");
@@ -44,6 +51,8 @@ fn test_server_lifecycle_and_endpoints() {
         18920,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
 
     assert!(server_handle.is_running());
@@ -51,34 +60,34 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(port >= 18920);
 
     // Test GET /
-    let res_root = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+    let res_root = tls_agent().get(&format!("https://127.0.0.1:{}/", port)).call().unwrap();
     assert_eq!(res_root.status(), 200);
     let root_body = res_root.into_string().unwrap();
     assert!(root_body.contains("Notes Plus"));
 
     // Test GET /icon.png
-    let res_icon = ureq::get(&format!("http://127.0.0.1:{}/icon.png", port)).call().unwrap();
+    let res_icon = tls_agent().get(&format!("https://127.0.0.1:{}/icon.png", port)).call().unwrap();
     assert_eq!(res_icon.status(), 200);
     assert_eq!(res_icon.header("Content-Type").unwrap(), "image/png");
 
     // Test GET /app.js
-    let res_js = ureq::get(&format!("http://127.0.0.1:{}/app.js", port)).call().unwrap();
+    let res_js = tls_agent().get(&format!("https://127.0.0.1:{}/app.js", port)).call().unwrap();
     assert_eq!(res_js.status(), 200);
     let js_body = res_js.into_string().unwrap();
     assert!(js_body.contains("createApp"));
 
     // Test GET /vue.esm-browser.prod.js (vendored Vue)
-    let res_vue = ureq::get(&format!("http://127.0.0.1:{}/vue.esm-browser.prod.js", port)).call().unwrap();
+    let res_vue = tls_agent().get(&format!("https://127.0.0.1:{}/vue.esm-browser.prod.js", port)).call().unwrap();
     assert_eq!(res_vue.status(), 200);
     let vue_body = res_vue.into_string().unwrap();
     assert!(vue_body.contains("vue"));
 
     // Test GET /vue.js alias
-    let res_vue_alias = ureq::get(&format!("http://127.0.0.1:{}/vue.js", port)).call().unwrap();
+    let res_vue_alias = tls_agent().get(&format!("https://127.0.0.1:{}/vue.js", port)).call().unwrap();
     assert_eq!(res_vue_alias.status(), 200);
 
     // Test GET /style.css
-    let res_css = ureq::get(&format!("http://127.0.0.1:{}/style.css", port)).call().unwrap();
+    let res_css = tls_agent().get(&format!("https://127.0.0.1:{}/style.css", port)).call().unwrap();
     assert_eq!(res_css.status(), 200);
 
     // Authenticate session for API testing
@@ -86,7 +95,7 @@ fn test_server_lifecycle_and_endpoints() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // Test GET /api/notes
-    let res_notes = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+    let res_notes = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -97,7 +106,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(notes_json[0].get("id").is_some());
 
     // Test GET /api/tree
-    let res_tree = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+    let res_tree = tls_agent().get(&format!("https://127.0.0.1:{}/api/tree", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -114,7 +123,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(pages[0].get("preview_blocks_json").is_some());
 
     // Test GET /api/notes/welcome.adoc
-    let res_note = ureq::get(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
+    let res_note = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes/welcome.adoc", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -122,7 +131,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(res_note.into_string().unwrap().contains("Test content"));
 
     // Test PUT /api/notes/welcome.adoc
-    let put_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc", port))
+    let put_res = tls_agent().put(&format!("https://127.0.0.1:{}/api/notes/welcome.adoc", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "text/plain")
         .send_string("= Welcome\nUpdated content from PUT test.")
@@ -132,7 +141,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(updated_file.contains("Updated content from PUT test"));
 
     // Test POST /api/notes (create new)
-    let create_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes", port))
+    let create_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "title": "New Doc",
@@ -143,7 +152,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(notes_dir.join("New_Doc.adoc").exists());
 
     // Test POST /api/render
-    let render_res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
+    let render_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/render", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "content": "= Header\n* Bullet item\n"
@@ -154,7 +163,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(render_html.contains("Header") && render_html.contains("Bullet item"));
 
     // Test POST /api/blocks/parse
-    let parse_res = ureq::post(&format!("http://127.0.0.1:{}/api/blocks/parse", port))
+    let parse_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/blocks/parse", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "content": "= Heading 1\n\nParagraph text\n\n* [ ] Task 1"
@@ -166,7 +175,7 @@ fn test_server_lifecycle_and_endpoints() {
 
     // Test POST /api/notes/welcome.adoc/toggle (checklist toggle)
     fs::write(notes_dir.join("welcome.adoc"), "= Tasks\n* [ ] Task 1\n* [x] Task 2").unwrap();
-    let toggle_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
+    let toggle_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/notes/welcome.adoc/toggle", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "item_index": 0,
@@ -178,7 +187,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(toggled_file.contains("* [x] Task 1"));
 
     // Test POST /api/ai/config (update config)
-    let ai_update_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/config", port))
+    let ai_update_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/config", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "provider": "openai",
@@ -189,7 +198,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert_eq!(ai_update_res.status(), 200);
 
     // Verify updated config
-    let ai_cfg_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/ai/config", port))
+    let ai_cfg_res2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/ai/config", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -204,7 +213,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(ai_cfg_json2.get("allow_self_signed").is_none());
 
     // Test GET /raw/welcome.adoc
-    let raw_res = ureq::get(&format!("http://127.0.0.1:{}/raw/welcome.adoc", port))
+    let raw_res = tls_agent().get(&format!("https://127.0.0.1:{}/raw/welcome.adoc", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -212,7 +221,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(raw_res.into_string().unwrap().contains("Task"));
 
     // Test GET /export/welcome.adoc
-    let export_res = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.adoc", port))
+    let export_res = tls_agent().get(&format!("https://127.0.0.1:{}/export/welcome.adoc", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -220,7 +229,7 @@ fn test_server_lifecycle_and_endpoints() {
     assert!(export_res.into_string().unwrap().contains("html"));
 
     // Test DELETE /api/notes/New_Doc.adoc
-    let del_res = ureq::delete(&format!("http://127.0.0.1:{}/api/notes/New_Doc.adoc", port))
+    let del_res = tls_agent().delete(&format!("https://127.0.0.1:{}/api/notes/New_Doc.adoc", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -253,7 +262,7 @@ fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
         llm_config: LlmConfig::default(),
         permission_config: PermissionConfig::default(),
         auth_config: auth_cfg,
-        enable_tls: false,
+
         tls_cert_path: None,
         tls_key_path: None,
         reject_public_networks: true,
@@ -263,11 +272,11 @@ fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
     let port = server_handle.port();
 
     // 1. Initial unauthenticated access fails with 401
-    let unauth_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
+    let unauth_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port)).call();
     assert!(unauth_res.is_err());
 
     // 2. Client 1 initiates phone authorization challenge
-    let init_res1 = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res1 = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .send_json(json!({}))
         .unwrap();
     assert_eq!(init_res1.status(), 200);
@@ -285,14 +294,14 @@ fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
     );
 
     // 3. Client 1 polls status -> status: "pending"
-    let poll1 = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c1_id))
+    let poll1 = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c1_id))
         .call()
         .unwrap();
     let poll_json1: serde_json::Value = poll1.into_json().unwrap();
     assert_eq!(poll_json1["status"], "pending");
 
     // 4. Client 2 (or a repeated burst of requests) initiates another challenge
-    let init_res2 = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res2 = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .send_json(json!({}))
         .unwrap();
     assert_eq!(init_res2.status(), 200);
@@ -314,7 +323,7 @@ fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
     server_handle.context().clear_auth_challenge();
 
     // 6. Client 2 polls status -> approved, gets session cookie
-    let poll2 = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c2_id))
+    let poll2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, c2_id))
         .call()
         .unwrap();
     let session_cookie = poll2
@@ -328,7 +337,7 @@ fn test_server_phone_auth_challenge_flow_and_multi_request_superseding() {
     assert_eq!(poll_json2["status"], "approved");
 
     // 7. Client 2 uses cookie to access protected notes API
-    let notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+    let notes_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -360,22 +369,18 @@ fn test_server_tls_initialization() {
         llm_config: LlmConfig::default(),
         permission_config: PermissionConfig::default(),
         auth_config: auth::AuthConfig::default(),
-        enable_tls: true,
+
         tls_cert_path: Some(cert_path.clone()),
         tls_key_path: Some(key_path.clone()),
         reject_public_networks: true,
     };
 
     let server_handle = start_server_with_config(config).expect("TLS server should start");
-    assert!(server_handle.is_tls());
     assert!(server_handle.primary_url().starts_with("https://"));
     assert!(cert_path.exists());
     assert!(key_path.exists());
 
-    let agent = ureq::AgentBuilder::new()
-        .tls_config(Arc::new(notesplus_core::agent::client::build_insecure_tls_client_config()))
-        .build();
-    let ping_res = agent
+    let ping_res = tls_agent()
         .get(&format!("https://127.0.0.1:{}/api/ping", server_handle.port()))
         .call()
         .expect("HTTPS ping request should succeed");
@@ -655,11 +660,13 @@ fn test_security_asset_path_isolation() {
         18990,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
     // /assets/secret.adoc should NOT serve the note (notes are in notes/ subdir now)
-    let res = ureq::get(&format!("http://127.0.0.1:{}/assets/secret.adoc", port)).call();
+    let res = tls_agent().get(&format!("https://127.0.0.1:{}/assets/secret.adoc", port)).call();
     match res {
         Ok(resp) => panic!("Expected 404 for assets/secret.adoc, got {}", resp.status()),
         Err(ureq::Error::Status(code, _)) => assert_eq!(code, 404, "assets/ should not serve .adoc files from notes subdir"),
@@ -667,13 +674,13 @@ fn test_security_asset_path_isolation() {
     }
 
     // /raw/secret.adoc without auth should return the login page (SPA), not raw content
-    let res_raw = ureq::get(&format!("http://127.0.0.1:{}/raw/secret.adoc", port)).call().unwrap();
+    let res_raw = tls_agent().get(&format!("https://127.0.0.1:{}/raw/secret.adoc", port)).call().unwrap();
     assert_eq!(res_raw.status(), 200);
     let body = res_raw.into_string().unwrap();
     assert!(body.contains("Notes Plus"), "unauthenticated /raw/ should serve login page, not note content");
 
     // /api/notes without auth should return 401
-    let res_api = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port)).call();
+    let res_api = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port)).call();
     match res_api {
         Ok(resp) => panic!("Expected 401 for unauthenticated /api/notes, got {}", resp.status()),
         Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
@@ -681,23 +688,31 @@ fn test_security_asset_path_isolation() {
     }
 
     // /page/test without auth should return the login page
-    let res_page = ureq::get(&format!("http://127.0.0.1:{}/page/test", port)).call().unwrap();
+    let res_page = tls_agent().get(&format!("https://127.0.0.1:{}/page/test", port)).call().unwrap();
     assert_eq!(res_page.status(), 200);
     let page_body = res_page.into_string().unwrap();
     assert!(page_body.contains("Notes Plus"), "unauthenticated /page/ should serve login page");
 
-    // Path traversal attempt should be blocked (use raw TCP to avoid URL normalization)
+    // Path traversal attempt should be blocked (use raw TLS to avoid URL normalization)
     {
         use std::io::{Read, Write as IoWrite};
-        let mut tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
-        tcp.write_all(b"GET /assets/../../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
+        use std::net::Ipv4Addr;
+        use rustls::pki_types::{IpAddr as PkiIpAddr, ServerName};
+        use rustls::StreamOwned;
+        let tls_config = notesplus_core::agent::client::build_insecure_tls_client_config();
+        let server_name = ServerName::IpAddress(PkiIpAddr::from(Ipv4Addr::LOCALHOST));
+        let tcp = std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        let client = rustls::ClientConnection::new(Arc::new(tls_config), server_name).unwrap();
+        let mut stream = StreamOwned::new(client, tcp);
+        stream.write_all(b"GET /assets/../../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
         let mut resp = String::new();
-        tcp.read_to_string(&mut resp).unwrap();
+        // Server may close TLS without close_notify after sending 403
+        let _ = stream.read_to_string(&mut resp);
         assert!(resp.starts_with("HTTP/1.1 403"), "path traversal should return 403, got: {}", &resp[..50.min(resp.len())]);
     }
 
     // /api/ping should not leak TLS or auth status
-    let res_ping = ureq::get(&format!("http://127.0.0.1:{}/api/ping", port)).call().unwrap();
+    let res_ping = tls_agent().get(&format!("https://127.0.0.1:{}/api/ping", port)).call().unwrap();
     assert_eq!(res_ping.status(), 200);
     let ping_json: serde_json::Value = res_ping.into_json().unwrap();
     assert!(ping_json.get("ok").is_some(), "ping should have 'ok' field");
@@ -705,14 +720,14 @@ fn test_security_asset_path_isolation() {
     assert!(ping_json.get("auth_enabled").is_none(), "ping should not leak auth status");
 
     // /api/auth/config without auth should not leak username
-    let res_cfg = ureq::get(&format!("http://127.0.0.1:{}/api/auth/config", port)).call().unwrap();
+    let res_cfg = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/config", port)).call().unwrap();
     assert_eq!(res_cfg.status(), 200);
     let cfg_json: serde_json::Value = res_cfg.into_json().unwrap();
     assert!(cfg_json.get("basic_username").is_none(), "auth config should not leak username");
     assert!(cfg_json.get("has_password").is_none(), "auth config should not leak password existence");
 
     // Verify security headers are present
-    let res_headers = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+    let res_headers = tls_agent().get(&format!("https://127.0.0.1:{}/", port)).call().unwrap();
     assert_eq!(res_headers.header("X-Content-Type-Options").unwrap(), "nosniff");
     assert_eq!(res_headers.header("X-Frame-Options").unwrap(), "DENY");
     assert_eq!(res_headers.header("Referrer-Policy").unwrap(), "no-referrer");
@@ -735,11 +750,13 @@ fn test_logout_flow_and_session_invalidation() {
         18992,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
     // 1. Initiate challenge
-    let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .call()
         .unwrap();
     assert_eq!(init_res.status(), 200);
@@ -751,7 +768,7 @@ fn test_logout_flow_and_session_invalidation() {
     server_handle.context().clear_auth_challenge();
 
     // 3. Poll challenge status to receive session
-    let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+    let status_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
         .call()
         .unwrap();
     assert_eq!(status_res.status(), 200);
@@ -767,14 +784,14 @@ fn test_logout_flow_and_session_invalidation() {
         .unwrap();
 
     // 4. Verify accessing protected API with session cookie succeeds
-    let notes_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+    let notes_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &set_cookie_hdr)
         .call()
         .unwrap();
     assert_eq!(notes_res.status(), 200);
 
     // 5. Call POST /api/auth/logout
-    let logout_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/logout", port))
+    let logout_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/logout", port))
         .set("Cookie", &set_cookie_hdr)
         .call()
         .unwrap();
@@ -783,7 +800,7 @@ fn test_logout_flow_and_session_invalidation() {
     assert!(logout_cookie_hdr.contains("Max-Age=0") || logout_cookie_hdr.contains("notesplus_session="));
 
     // 6. Verify subsequent requests using the old session cookie are rejected with 401
-    let reject_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+    let reject_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &set_cookie_hdr)
         .call();
     match reject_res {
@@ -793,7 +810,7 @@ fn test_logout_flow_and_session_invalidation() {
     }
 
     // 7. Verify subsequent requests using the old session ID as Bearer token are also rejected
-    let reject_bearer = ureq::get(&format!("http://127.0.0.1:{}/api/notes", port))
+    let reject_bearer = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Authorization", &format!("Bearer {}", session_id))
         .call();
     match reject_bearer {
@@ -837,19 +854,21 @@ fn test_rate_limiting_on_auth_endpoint() {
         18993,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
     // Send 10 allowed initiate requests
     for _ in 0..10 {
-        let res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+        let res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
             .call()
             .unwrap();
         assert_eq!(res.status(), 200);
     }
 
     // The 11th request from the same IP should be blocked by rate limiter with 429
-    let blocked_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let blocked_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .call();
     match blocked_res {
         Ok(resp) => panic!("Expected 429 Too Many Requests, got {}", resp.status()),
@@ -882,6 +901,8 @@ fn test_configurable_session_expiration_and_remaining_time() {
         18994,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
@@ -890,7 +911,7 @@ fn test_configurable_session_expiration_and_remaining_time() {
     assert_eq!(server_handle.context().session_expiry_secs(), 7200);
 
     // Initiate challenge
-    let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .call()
         .unwrap();
     let init_json: serde_json::Value = init_res.into_json().unwrap();
@@ -901,7 +922,7 @@ fn test_configurable_session_expiration_and_remaining_time() {
     server_handle.context().clear_auth_challenge();
 
     // Poll status and verify remaining_secs and expires_at are reported
-    let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+    let status_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
         .call()
         .unwrap();
     assert_eq!(status_res.status(), 200);
@@ -913,7 +934,7 @@ fn test_configurable_session_expiration_and_remaining_time() {
     let expires_at = status_json["expires_at"].as_u64().unwrap();
 
     // Check /api/auth/config returns authenticated session info with remaining_secs
-    let cfg_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/config", port))
+    let cfg_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/config", port))
         .set("Cookie", &set_cookie_hdr)
         .call()
         .unwrap();
@@ -924,7 +945,7 @@ fn test_configurable_session_expiration_and_remaining_time() {
     assert!(cfg_json["remaining_secs"].as_u64().unwrap() > 0);
 
     // Check /api/auth/whoami returns session details with remaining_secs
-    let whoami_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/whoami", port))
+    let whoami_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/whoami", port))
         .set("Cookie", &set_cookie_hdr)
         .call()
         .unwrap();
@@ -1034,11 +1055,13 @@ fn test_fetch_url_and_read_file_endpoints() {
         18995,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
     // 1. Initiate challenge
-    let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .call()
         .unwrap();
     let init_json: serde_json::Value = init_res.into_json().unwrap();
@@ -1049,16 +1072,16 @@ fn test_fetch_url_and_read_file_endpoints() {
     server_handle.context().clear_auth_challenge();
 
     // 3. Poll status for session
-    let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+    let status_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
         .call()
         .unwrap();
     let set_cookie_hdr = status_res.header("Set-Cookie").unwrap().to_string();
 
     // 4. Test POST /api/ai/fetch_url with blocked host (localhost)
-    let blocked_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/fetch_url", port))
+    let blocked_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/fetch_url", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
-        .send_string(r#"{"url": "http://127.0.0.1:8080/test"}"#);
+        .send_string(r#"{"url": "https://127.0.0.1:8080/test"}"#);
     match blocked_res {
         Ok(resp) => {
             let json: serde_json::Value = resp.into_json().unwrap();
@@ -1074,7 +1097,7 @@ fn test_fetch_url_and_read_file_endpoints() {
     }
 
     // 5. Test POST /api/ai/fetch_url with missing URL parameter
-    let empty_url_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/fetch_url", port))
+    let empty_url_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/fetch_url", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
         .send_string(r#"{"url": ""}"#);
@@ -1085,7 +1108,7 @@ fn test_fetch_url_and_read_file_endpoints() {
     }
 
     // 6. Test POST /api/ai/read_file with directory traversal (should be forbidden)
-    let traversal_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/read_file", port))
+    let traversal_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/read_file", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
         .send_string(r#"{"file_path": "../../etc/passwd"}"#);
@@ -1097,7 +1120,7 @@ fn test_fetch_url_and_read_file_endpoints() {
 
     // 7. Test POST /api/ai/read_file with valid file within notes directory
     let file_path = notes_dir.join("imported-sample.adoc").to_str().unwrap().to_string();
-    let valid_file_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/read_file", port))
+    let valid_file_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/read_file", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
         .send_string(&format!(r#"{{"file_path": "{}"}}"#, file_path))
@@ -1109,7 +1132,7 @@ fn test_fetch_url_and_read_file_endpoints() {
 
     // 8. Test POST /api/ai/preprocess_html
     let raw_html = "<html><head><script>alert(1);</script><style>body{color:red;}</style></head><body><h1>Web Title</h1><p>Paragraph with <b>bold</b> text.</p></body></html>";
-    let preprocess_res = ureq::post(&format!("http://127.0.0.1:{}/api/ai/preprocess_html", port))
+    let preprocess_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/ai/preprocess_html", port))
         .set("Cookie", &set_cookie_hdr)
         .set("Content-Type", "application/json")
         .send_string(&serde_json::to_string(&serde_json::json!({ "html": raw_html })).unwrap())
@@ -1141,18 +1164,20 @@ fn test_challenge_approve_endpoint_not_exposed_over_http() {
         18996,
         None,
         None,
+        None,
+        None,
     ).expect("Server should start");
     let port = server_handle.port();
 
     // 1. Initiate challenge
-    let init_res = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/initiate", port))
+    let init_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/initiate", port))
         .call()
         .unwrap();
     let init_json: serde_json::Value = init_res.into_json().unwrap();
     let challenge_id = init_json["challenge_id"].as_str().unwrap().to_string();
 
     // 2. Attempting to approve or deny via HTTP fails / returns 404
-    let approve_attempt = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/approve", port))
+    let approve_attempt = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/approve", port))
         .set("Content-Type", "application/json")
         .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id));
     match approve_attempt {
@@ -1161,7 +1186,7 @@ fn test_challenge_approve_endpoint_not_exposed_over_http() {
         Err(e) => panic!("Unexpected error: {}", e),
     }
 
-    let deny_attempt = ureq::post(&format!("http://127.0.0.1:{}/api/auth/code/deny", port))
+    let deny_attempt = tls_agent().post(&format!("https://127.0.0.1:{}/api/auth/code/deny", port))
         .set("Content-Type", "application/json")
         .send_string(&format!(r#"{{"challenge_id": "{}"}}"#, challenge_id));
     match deny_attempt {
@@ -1171,7 +1196,7 @@ fn test_challenge_approve_endpoint_not_exposed_over_http() {
     }
 
     // 3. Status remains pending because HTTP attempts did nothing
-    let status_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+    let status_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
         .call()
         .unwrap();
     let status_json: serde_json::Value = status_res.into_json().unwrap();
@@ -1181,7 +1206,7 @@ fn test_challenge_approve_endpoint_not_exposed_over_http() {
     server_handle.context().auth_challenges.approve_challenge(&challenge_id);
     server_handle.context().clear_auth_challenge();
 
-    let approved_res = ureq::get(&format!("http://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
+    let approved_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/auth/code/status?challenge_id={}", port, challenge_id))
         .call()
         .unwrap();
     let approved_json: serde_json::Value = approved_res.into_json().unwrap();
@@ -1199,7 +1224,7 @@ fn test_composable_js_files_served() {
     let backup_dir = tmp.path().join("backups");
     fs::create_dir_all(&notes_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18997, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18997, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     let assets = [
@@ -1210,13 +1235,13 @@ fn test_composable_js_files_served() {
     ];
 
     for path in &assets {
-        let res = ureq::get(&format!("http://127.0.0.1:{}/{}", port, path)).call().unwrap();
+        let res = tls_agent().get(&format!("https://127.0.0.1:{}/{}", port, path)).call().unwrap();
         assert_eq!(res.status(), 200, "Expected 200 for {}", path);
         let body = res.into_string().unwrap();
         assert!(body.len() > 10, "Expected non-trivial content for {}", path);
     }
 
-    let app_js = ureq::get(&format!("http://127.0.0.1:{}/app.js", port)).call().unwrap().into_string().unwrap();
+    let app_js = tls_agent().get(&format!("https://127.0.0.1:{}/app.js", port)).call().unwrap().into_string().unwrap();
     assert!(app_js.contains("from '/composables/utils.js'") || app_js.contains("from './composables/utils.js'"), "app.js should import from composables/utils.js");
 
     server_handle.stop();
@@ -1248,7 +1273,7 @@ fn test_render_svgbob_block() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     let adoc = "[source,svgbob]\n----\n+---+\n| A |\n+---+\n----";
-    let res = ureq::post(&format!("http://127.0.0.1:{}/api/render", port))
+    let res = tls_agent().post(&format!("https://127.0.0.1:{}/api/render", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "content": adoc
@@ -1287,7 +1312,7 @@ fn test_groups_api_and_multisegment_notes() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // 1. Create group via POST /api/groups
-    let create_group_res = ureq::post(&format!("http://127.0.0.1:{}/api/groups", port))
+    let create_group_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/groups", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "name": "Projects",
@@ -1297,7 +1322,7 @@ fn test_groups_api_and_multisegment_notes() {
     assert_eq!(create_group_res.status(), 200);
 
     // 2. List groups via GET /api/groups
-    let list_groups_res = ureq::get(&format!("http://127.0.0.1:{}/api/groups", port))
+    let list_groups_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/groups", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1306,7 +1331,7 @@ fn test_groups_api_and_multisegment_notes() {
     assert!(groups_json.as_array().unwrap().iter().any(|g| g["path"] == "Work/Projects"));
 
     // 3. Create nested note via PUT /api/notes/Work/Projects/Sprint.adoc
-    let put_note_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
+    let put_note_res = tls_agent().put(&format!("https://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "text/plain")
         .send_string("= Sprint Plan\nNested note content.")
@@ -1314,7 +1339,7 @@ fn test_groups_api_and_multisegment_notes() {
     assert_eq!(put_note_res.status(), 200);
 
     // 4. Read nested note via GET /api/notes/Work/Projects/Sprint.adoc
-    let get_note_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
+    let get_note_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes/Work/Projects/Sprint.adoc", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1322,7 +1347,7 @@ fn test_groups_api_and_multisegment_notes() {
     assert!(get_note_res.into_string().unwrap().contains("Sprint Plan"));
 
     // 5. Update group note_sort via PUT /api/groups/Work/Projects
-    let put_group_res = ureq::put(&format!("http://127.0.0.1:{}/api/groups/Work/Projects", port))
+    let put_group_res = tls_agent().put(&format!("https://127.0.0.1:{}/api/groups/Work/Projects", port))
         .set("Cookie", &session_cookie)
         .send_json(json!({
             "note_sort": "name"
@@ -1331,7 +1356,7 @@ fn test_groups_api_and_multisegment_notes() {
     assert_eq!(put_group_res.status(), 200);
 
     // 6. Verify updated sort in GET /api/groups
-    let list_after_res = ureq::get(&format!("http://127.0.0.1:{}/api/groups", port))
+    let list_after_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/groups", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1365,7 +1390,7 @@ fn test_theme_api_endpoint() {
     let port = server_handle.port();
 
     // 1. Initial theme query returns empty JSON object
-    let res = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    let res = tls_agent().get(&format!("https://127.0.0.1:{}/api/theme", port)).call().unwrap();
     assert_eq!(res.status(), 200);
     let theme_json: serde_json::Value = res.into_json().unwrap();
     assert!(theme_json.as_object().unwrap().is_empty());
@@ -1382,7 +1407,7 @@ fn test_theme_api_endpoint() {
     server_handle.context().set_theme_colors(colors.clone());
 
     // 3. Query /api/theme again to verify updated theme colors
-    let res2 = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    let res2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/theme", port)).call().unwrap();
     assert_eq!(res2.status(), 200);
     let theme_json2: serde_json::Value = res2.into_json().unwrap();
     assert_eq!(theme_json2["colorScheme"], "dark");
@@ -1437,7 +1462,7 @@ fn test_server_start_with_theme_config() {
     let port = notesplus_core::ffi::notes_core_server_port(handle);
     assert!(port > 0);
 
-    let res = ureq::get(&format!("http://127.0.0.1:{}/api/theme", port)).call().unwrap();
+    let res = tls_agent().get(&format!("https://127.0.0.1:{}/api/theme", port)).call().unwrap();
     assert_eq!(res.status(), 200);
     let theme_json: serde_json::Value = res.into_json().unwrap();
     assert_eq!(theme_json["colorScheme"], "dark");
@@ -1459,11 +1484,11 @@ fn test_theme_assets_and_contrast_rules() {
     fs::create_dir_all(&notes_dir).unwrap();
     fs::create_dir_all(&assets_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18998, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 18998, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     // 1. Check style.css defines data-theme, heading-color, top icons and view-mode styling
-    let css_res = ureq::get(&format!("http://127.0.0.1:{}/style.css", port)).call().unwrap();
+    let css_res = tls_agent().get(&format!("https://127.0.0.1:{}/style.css", port)).call().unwrap();
     assert_eq!(css_res.status(), 200);
     let css = css_res.into_string().unwrap();
     assert!(css.contains("[data-theme=\"light\"]"));
@@ -1476,7 +1501,7 @@ fn test_theme_assets_and_contrast_rules() {
     assert!(css.contains(".view-mode-tabs button.active .tab-label"));
 
     // 2. Check index.html has theme selector
-    let html_res = ureq::get(&format!("http://127.0.0.1:{}/", port)).call().unwrap();
+    let html_res = tls_agent().get(&format!("https://127.0.0.1:{}/", port)).call().unwrap();
     assert_eq!(html_res.status(), 200);
     let html = html_res.into_string().unwrap();
     assert!(html.contains("themePreference"));
@@ -1484,7 +1509,7 @@ fn test_theme_assets_and_contrast_rules() {
     assert!(html.contains("System (Browser)"));
 
     // 3. Check theme store is served
-    let theme_js_res = ureq::get(&format!("http://127.0.0.1:{}/stores/theme.js", port)).call().unwrap();
+    let theme_js_res = tls_agent().get(&format!("https://127.0.0.1:{}/stores/theme.js", port)).call().unwrap();
     assert_eq!(theme_js_res.status(), 200);
     let theme_js = theme_js_res.into_string().unwrap();
     assert!(theme_js.contains("useThemeStore"));
@@ -1503,13 +1528,13 @@ fn test_events_sse_endpoint() {
     fs::create_dir_all(&notes_dir).unwrap();
     fs::create_dir_all(&assets_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir, db_path, backup_dir, 18999, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir, db_path, backup_dir, 18999, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
-    let res = ureq::get(&format!("http://127.0.0.1:{}/api/events", port))
+    let res = tls_agent().get(&format!("https://127.0.0.1:{}/api/events", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1539,7 +1564,7 @@ fn test_tree_api_and_adr_path_fetching() {
     fs::create_dir_all(&adr_dir).unwrap();
     fs::create_dir_all(&assets_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19001, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19001, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     // Create a note inside ADRs directory
@@ -1555,7 +1580,7 @@ fn test_tree_api_and_adr_path_fetching() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // Test GET /api/tree returns structured preview blocks with rendered HTML
-    let tree_res = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+    let tree_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/tree", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1594,7 +1619,7 @@ fn test_tree_api_and_adr_path_fetching() {
 
     // Test fetching ADR note via full path and filename
     let full_path = "Notes_Plus_Documentation/ADRs/001-hybrid-core-and-gui-architecture.adoc";
-    let get_note_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/{}", port, full_path))
+    let get_note_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes/{}", port, full_path))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1602,7 +1627,7 @@ fn test_tree_api_and_adr_path_fetching() {
     let raw_text = get_note_res.into_string().unwrap();
     assert!(raw_text.contains("ADR-001: Hybrid Core"));
 
-    let get_page_res = ureq::get(&format!("http://127.0.0.1:{}/api/pages/{}", port, full_path))
+    let get_page_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/pages/{}", port, full_path))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1666,7 +1691,7 @@ fn test_api_search_content_and_payload() {
     let docs_dir = notes_dir.join("Guides");
     fs::create_dir_all(&docs_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19002, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19002, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     // Create notes with distinct content keywords
@@ -1686,7 +1711,7 @@ fn test_api_search_content_and_payload() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // 1. Test searching content with ?q=
-    let search_res = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=lightning", port))
+    let search_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/search?q=lightning", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1707,7 +1732,7 @@ fn test_api_search_content_and_payload() {
     assert!(item["snippet"].as_str().unwrap().contains("<b>lightning</b>"));
 
     // 2. Test searching content with ?search= (alias)
-    let search_res2 = ureq::get(&format!("http://127.0.0.1:{}/api/search?search=neural", port))
+    let search_res2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/search?search=neural", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1722,7 +1747,7 @@ fn test_api_search_content_and_payload() {
     assert!(item2["snippet"].as_str().unwrap().contains("<b>neural</b>"));
 
     // 3. Test searching nonexistent query returns empty array
-    let search_res3 = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=nonexistentterm12345", port))
+    let search_res3 = tls_agent().get(&format!("https://127.0.0.1:{}/api/search?q=nonexistentterm12345", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1746,7 +1771,7 @@ fn test_rebuild_index_and_search_chronicles_wolpertinger() {
         Beware, it's a favorite of the Wolpertinger.\n";
     fs::write(notes_dir.join("chronicles.adoc"), chronicles_content).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19003, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19003, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     // Authenticate session
@@ -1759,7 +1784,7 @@ fn test_rebuild_index_and_search_chronicles_wolpertinger() {
     assert_eq!(stats.pages_indexed, 1);
 
     // Search via HTTP API for wolpertinger
-    let search_res = ureq::get(&format!("http://127.0.0.1:{}/api/search?q=wolpertinger", port))
+    let search_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/search?q=wolpertinger", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1783,7 +1808,7 @@ fn test_note_color_selection_and_persistence() {
     let backup_dir = tmp.path().join("backups");
     fs::create_dir_all(&notes_dir).unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19004, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path.clone(), backup_dir, 19004, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
@@ -1794,7 +1819,7 @@ fn test_note_color_selection_and_persistence() {
         "title": "Design Specs",
         "color": "#e74c3c"
     });
-    let create_res = ureq::post(&format!("http://127.0.0.1:{}/api/notes", port))
+    let create_res = tls_agent().post(&format!("https://127.0.0.1:{}/api/notes", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "application/json")
         .send_json(create_payload)
@@ -1805,7 +1830,7 @@ fn test_note_color_selection_and_persistence() {
     assert_eq!(created_info["custom_color"], "#e74c3c");
 
     // 2. Query GET /api/notes/Design_Specs.adoc/color
-    let get_color_res = ureq::get(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+    let get_color_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1815,7 +1840,7 @@ fn test_note_color_selection_and_persistence() {
     assert_eq!(color_info["custom_color"], "#e74c3c");
 
     // 3. Update color via PUT /api/notes/Design_Specs.adoc/color to #00b894
-    let update_color_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+    let update_color_res = tls_agent().put(&format!("https://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "application/json")
         .send_json(json!({ "color": "#00b894" }))
@@ -1826,7 +1851,7 @@ fn test_note_color_selection_and_persistence() {
     assert_eq!(updated_info["custom_color"], "#00b894");
 
     // 4. Verify /api/tree reflects the updated color
-    let tree_res = ureq::get(&format!("http://127.0.0.1:{}/api/tree", port))
+    let tree_res = tls_agent().get(&format!("https://127.0.0.1:{}/api/tree", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1840,7 +1865,7 @@ fn test_note_color_selection_and_persistence() {
     assert_eq!(found_page["custom_color"], "#00b894");
 
     // 5. Reset color (empty string assigns a random palette color)
-    let reset_res = ureq::put(&format!("http://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
+    let reset_res = tls_agent().put(&format!("https://127.0.0.1:{}/api/notes/Design_Specs.adoc/color", port))
         .set("Cookie", &session_cookie)
         .set("Content-Type", "application/json")
         .send_json(json!({ "color": "" }))
@@ -1864,14 +1889,14 @@ fn test_server_pdf_export_without_exporter() {
 
     fs::write(notes_dir.join("welcome.adoc"), "= Welcome Note\nPDF export test content.").unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19005, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19005, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     let sess = server_handle.context().session_store.create_session("admin", "code", 3600).unwrap();
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // 1. GET /export/welcome.pdf without exporter -> 501 Not Implemented
-    let resp = ureq::get(&format!("http://127.0.0.1:{}/export/welcome.pdf", port))
+    let resp = tls_agent().get(&format!("https://127.0.0.1:{}/export/welcome.pdf", port))
         .set("Cookie", &session_cookie)
         .call();
     match resp {
@@ -1881,7 +1906,7 @@ fn test_server_pdf_export_without_exporter() {
     }
 
     // 2. GET /api/pages/welcome/pdf without exporter -> 501 Not Implemented
-    let resp2 = ureq::get(&format!("http://127.0.0.1:{}/api/pages/welcome/pdf", port))
+    let resp2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/pages/welcome/pdf", port))
         .set("Cookie", &session_cookie)
         .call();
     match resp2 {
@@ -1891,7 +1916,7 @@ fn test_server_pdf_export_without_exporter() {
     }
 
     // 3. GET /page/welcome?export=pdf without exporter -> 501 Not Implemented
-    let resp3 = ureq::get(&format!("http://127.0.0.1:{}/page/welcome?export=pdf", port))
+    let resp3 = tls_agent().get(&format!("https://127.0.0.1:{}/page/welcome?export=pdf", port))
         .set("Cookie", &session_cookie)
         .call();
     match resp3 {
@@ -1915,7 +1940,7 @@ fn test_server_pdf_export_with_exporter() {
 
     fs::write(notes_dir.join("report.adoc"), "= Annual Report\nImportant metrics.").unwrap();
 
-    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19006, None, None).expect("Server should start");
+    let server_handle = start_server_full(notes_dir.clone(), db_path, backup_dir, 19006, None, None, None, None).expect("Server should start");
     let port = server_handle.port();
 
     // Register a mock PDF exporter
@@ -1932,7 +1957,7 @@ fn test_server_pdf_export_with_exporter() {
     let session_cookie = format!("{}={}", notesplus_core::constants::SESSION_COOKIE_NAME, sess.id);
 
     // 1. GET /export/report.pdf -> 200 OK, application/pdf, attachment header
-    let res1 = ureq::get(&format!("http://127.0.0.1:{}/export/report.pdf", port))
+    let res1 = tls_agent().get(&format!("https://127.0.0.1:{}/export/report.pdf", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1944,7 +1969,7 @@ fn test_server_pdf_export_with_exporter() {
     assert!(bytes1.starts_with(b"%PDF-1.4"));
 
     // 2. GET /api/pages/report/pdf -> 200 OK
-    let res2 = ureq::get(&format!("http://127.0.0.1:{}/api/pages/report/pdf", port))
+    let res2 = tls_agent().get(&format!("https://127.0.0.1:{}/api/pages/report/pdf", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1953,7 +1978,7 @@ fn test_server_pdf_export_with_exporter() {
     assert!(res2.header("Content-Disposition").unwrap().contains("attachment; filename=\"report.pdf\""));
 
     // 3. GET /page/report?export=pdf -> 200 OK
-    let res3 = ureq::get(&format!("http://127.0.0.1:{}/page/report?export=pdf", port))
+    let res3 = tls_agent().get(&format!("https://127.0.0.1:{}/page/report?export=pdf", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1961,7 +1986,7 @@ fn test_server_pdf_export_with_exporter() {
     assert_eq!(res3.header("Content-Type").unwrap(), "application/pdf");
 
     // 4. GET / (web companion app) contains Download PDF link
-    let res_index = ureq::get(&format!("http://127.0.0.1:{}/", port))
+    let res_index = tls_agent().get(&format!("https://127.0.0.1:{}/", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1970,7 +1995,7 @@ fn test_server_pdf_export_with_exporter() {
     assert!(index_body.contains("Download PDF"));
 
     // 5. GET /page/report?view=rendered contains Download PDF button linking to /export/report.pdf
-    let res_view = ureq::get(&format!("http://127.0.0.1:{}/page/report?view=rendered", port))
+    let res_view = tls_agent().get(&format!("https://127.0.0.1:{}/page/report?view=rendered", port))
         .set("Cookie", &session_cookie)
         .call()
         .unwrap();
@@ -1980,7 +2005,7 @@ fn test_server_pdf_export_with_exporter() {
     assert!(view_body.contains("/export/report.pdf"));
 
     // 6. GET /export/nonexistent.pdf -> 404 Not Found
-    let res_404 = ureq::get(&format!("http://127.0.0.1:{}/export/nonexistent.pdf", port))
+    let res_404 = tls_agent().get(&format!("https://127.0.0.1:{}/export/nonexistent.pdf", port))
         .set("Cookie", &session_cookie)
         .call();
     match res_404 {
@@ -1991,7 +2016,7 @@ fn test_server_pdf_export_with_exporter() {
 
     // 7. Failure handling: note that triggers export failure -> 500 Internal Server Error
     fs::write(notes_dir.join("fail_doc.adoc"), "= Fail Note\nShould trigger error.").unwrap();
-    let res_500 = ureq::get(&format!("http://127.0.0.1:{}/export/fail_doc.pdf", port))
+    let res_500 = tls_agent().get(&format!("https://127.0.0.1:{}/export/fail_doc.pdf", port))
         .set("Cookie", &session_cookie)
         .call();
     match res_500 {

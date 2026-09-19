@@ -75,7 +75,7 @@ pub fn handle_logout<W: Write>(
             ctx.session_store.remove_session(token);
         }
     }
-    let cookie_str = make_session_cookie("", ctx.is_tls, Some(0));
+    let cookie_str = make_session_cookie("", Some(0));
     let resp = json!({ "ok": true });
     send_response_full(
         stream,
@@ -185,7 +185,7 @@ pub fn handle_challenge_status<W: Write>(
                     Ok(sess) => {
                         // Clean up the challenge
                         ctx.auth_challenges.remove_challenge(&challenge_id);
-                        let cookie_str = make_session_cookie(&sess.id, ctx.is_tls, Some(ttl));
+                        let cookie_str = make_session_cookie(&sess.id, Some(ttl));
                         let now = current_epoch_secs();
                         let remaining_secs = sess.expires_at.saturating_sub(now);
                         let resp = json!({

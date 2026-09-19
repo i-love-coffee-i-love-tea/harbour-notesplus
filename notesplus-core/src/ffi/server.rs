@@ -33,11 +33,6 @@ pub extern "C" fn notes_core_server_start(
         .and_then(|v| v.get("llm"))
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    let enable_tls = parsed.as_ref()
-        .and_then(|v| v.get("enable_tls"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
     let tls_cert_path = parsed.as_ref()
         .and_then(|v| v.get("tls_cert_path"))
         .and_then(|v| v.as_str())
@@ -64,9 +59,9 @@ pub extern "C" fn notes_core_server_start(
         .and_then(|v| v.get("theme"))
         .and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    match server::start_server_full_with_tls(
+    match server::start_server_full(
         ndir, db, backup, port, llm_config, permission_config,
-        enable_tls, tls_cert_path, tls_key_path,
+        tls_cert_path, tls_key_path,
     ) {
         Ok(handle) => {
             // Apply auth config if provided
