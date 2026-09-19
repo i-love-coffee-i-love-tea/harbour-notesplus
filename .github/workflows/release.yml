@@ -26,7 +26,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run cargo test
-        run: cargo test -p notesplusplus-core
+        run: cargo test -p notesplus-core
 
   build-rpm:
     name: Build RPM (aarch64)

@@ -6,14 +6,14 @@ This document describes the development, build, test, and deployment workflows f
 
 ## 1. Architecture Overview
 
-- **`notesplusplus-core`**: Pure Rust core engine containing:
+- **`notesplus-core`**: Pure Rust core engine containing:
   - AsciiDoc AST parser (`parser/`, `block.rs`, `inline.rs`, `html.rs`).
   - SQLite database, full-text search (FTS), page indexing (`db/`, `search.rs`, `page.rs`).
   - Embedded HTTP/HTTPS web server with TLS and self-signed certificate generation (`server/mod.rs`, `server/tls.rs`).
   - Web Access Authentication: Verification code challenge with approve/deny on device (`server/auth.rs`).
   - Static Vue 3 ES Modules web editor & preview (`server/web_assets.rs`).
   - LLM AI Assistant client & agent tool execution loop (`agent/`).
-- **`notesplusplus-sailfish`**: Sailfish OS Silica QML GUI application and Qt bridge bindings (`src/bridge/`, `qml/`).
+- **`notesplus-sailfish`**: Sailfish OS Silica QML GUI application and Qt bridge bindings (`src/bridge/`, `qml/`).
 
 ---
 
@@ -23,12 +23,12 @@ This document describes the development, build, test, and deployment workflows f
 All parser logic, agent execution, TLS certificate generation, server lifecycle, and authentication handlers are tested natively without requiring the Sailfish OS SDK:
 
 ```bash
-cargo test -p notesplusplus-core
+cargo test -p notesplus-core
 ```
 
 To run a specific test suite:
 ```bash
-cargo test -p notesplusplus-core -- server::tests::test_server_authentication_basic_and_session
+cargo test -p notesplus-core -- server::tests::test_server_authentication_basic_and_session
 ```
 
 ---

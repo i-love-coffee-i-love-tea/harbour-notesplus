@@ -12,7 +12,7 @@ def qjs_engine():
     if _app is None:
         _app = QCoreApplication([])
     engine = QJSEngine()
-    with open("notesplusplus-sailfish/qml/js/BlockHtmlUtils.js", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/qml/js/BlockHtmlUtils.js", "r", encoding="utf-8") as f:
         code = f.read()
     # Strip .pragma library
     code = re.sub(r"^\.pragma\s+.*$", "", code, flags=re.MULTILINE)
@@ -22,7 +22,7 @@ def qjs_engine():
     return engine
 
 def test_editor_toolbar_file_contracts():
-    path = "notesplusplus-sailfish/qml/components/EditorToolbar.qml"
+    path = "notesplus-sailfish/qml/components/EditorToolbar.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

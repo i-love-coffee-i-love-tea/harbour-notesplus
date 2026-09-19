@@ -3,7 +3,7 @@ import re
 
 
 def test_pageview_pulldown_menu_items():
-    path = "notesplusplus-sailfish/qml/pages/PageView.qml"
+    path = "notesplus-sailfish/qml/pages/PageView.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -29,7 +29,7 @@ def test_pageview_pulldown_menu_items():
 
 
 def test_notecard_preview_tile_menu_retains_move_and_delete():
-    path = "notesplusplus-sailfish/qml/components/NoteCard.qml"
+    path = "notesplus-sailfish/qml/components/NoteCard.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

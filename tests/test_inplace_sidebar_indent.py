@@ -12,7 +12,7 @@ def qjs_engine():
     if _app is None:
         _app = QCoreApplication([])
     engine = QJSEngine()
-    with open("notesplusplus-sailfish/qml/js/BlockHtmlUtils.js", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/qml/js/BlockHtmlUtils.js", "r", encoding="utf-8") as f:
         code = f.read()
     # Strip .pragma library
     code = re.sub(r"^\.pragma\s+.*$", "", code, flags=re.MULTILINE)
@@ -22,7 +22,7 @@ def qjs_engine():
     return engine
 
 def test_inplace_sidebar_file_contracts():
-    path = "notesplusplus-sailfish/qml/components/InPlaceEditSidebar.qml"
+    path = "notesplus-sailfish/qml/components/InPlaceEditSidebar.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -44,7 +44,7 @@ def test_inplace_sidebar_file_contracts():
     assert "closeFlyout" in content
 
 def test_pageview_sidebar_wiring_contracts():
-    path = "notesplusplus-sailfish/qml/pages/PageView.qml"
+    path = "notesplus-sailfish/qml/pages/PageView.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -57,7 +57,7 @@ def test_pageview_sidebar_wiring_contracts():
     assert "function moveActiveEditorLines(" in content
 
 def test_mainpage_sidebar_wiring_contracts():
-    path = "notesplusplus-sailfish/qml/pages/MainPage.qml"
+    path = "notesplus-sailfish/qml/pages/MainPage.qml"
     assert os.path.exists(path), f"File {path} does not exist"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()

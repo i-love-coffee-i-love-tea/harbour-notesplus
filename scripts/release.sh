@@ -36,7 +36,7 @@ cargo_toml="Cargo.toml"
 spec="rpm/harbour-notesplus.spec"
 appdata="rpm/harbour-notesplus.appdata.xml"
 changes="rpm/harbour-notesplus.changes"
-qml_about="notesplusplus-sailfish/qml/components/ServicesSettingsTab.qml"
+qml_about="notesplus-sailfish/qml/components/ServicesSettingsTab.qml"
 hook_dir="$SCRIPT_DIR/release.d"
 
 export version cargo_toml spec appdata changes qml_about dry_run no_tag

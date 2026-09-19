@@ -1,0 +1,78 @@
+= ADR-001: Separation of Pure Rust Core Engine and Sailfish Silica UI Bridge
+:status: Accepted
+:date: 2026-09-01
+:toc:
+:icons: font
+:sectnums:
+
+[NOTE]
+.Status: Accepted
+This decision decouples the core document engine from platform-specific UI bindings, establishing a modular two-crate workspace architecture.
+
+== Context
+
+Notes Plus targets Sailfish OS devices running Qt Quick / QML (Silica), while simultaneously providing:
+
+* An embedded companion HTTP server for desktop browsers.
+* Real-time Server-Sent Events (SSE) streaming for AI interactions.
+* Headless HTML5 / CSS export pipelines.
+* Fast, automated test suites runnable on developer workstations.
+
+****
+.The Problem
+Tightly coupling document parsing, indexing, and networking to Qt/C++ or QObject runtimes would:
+
+1. Impose severe testing friction, requiring an emulator or physical device for basic parser and search tests.
+2. Complicate embedding the lightweight web companion and headless export CLI.
+3. Obstruct code reuse across platforms or alternative frontends.
+****
+
+== Decision
+
+Split the project into two distinct decoupled workspace crates:
+
+notesplus-core::
+A pure Rust library with *zero* Qt/QML dependencies. It encapsulates the AsciiDoc AST parser, block preprocessor, HTML/CSS exporter, SQLite FTS5 search index, embedded HTTP web server, and LLM agent client.
+
+notesplus-sailfish::
+The platform-specific Sailfish OS application providing QML views, Silica delegates, and a C++/Rust FFI bridge (`Sailors` / QObject) to expose core capabilities to the mobile UI.
+
+=== System Boundary Diagram
+
+[source,ascii]
+----
+┌────────────────────────────────────────────────────────┐
+│               Sailfish Silica UI (QML)                 │
+└───────────────────────────┬────────────────────────────┘
+                            │ QObject Properties / Slots // <1>
+┌───────────────────────────▼────────────────────────────┐
+│         notesplus-sailfish (Bridge / FFI)          │
+└───────────────────────────┬────────────────────────────┘
+                            │ Direct Rust API Calls     // <2>
+┌───────────────────────────▼────────────────────────────┐
+│                  notesplus-core                    │
+│  (Parser, AST, FTS5 Search, Web Server, AI Client)     │
+└────────────────────────────────────────────────────────┘
+----
+<1> QML communicates with C++/Rust bridge using standard Qt signals, slots, and properties.
+<2> Bridge calls into pure Rust `notesplus-core` crate synchronously or via worker threads.
+
+== Consequences
+
+=== Positive / Utility Delivered
+
+* icon:rocket[] *Rapid Host Testing* -- Core logic, parsing edge cases, search indexing, and HTTP endpoints are tested natively on the developer workstation via `cargo test -p notesplus-core` in seconds without running the Sailfish SDK or emulator.
+* icon:puzzle-piece[] *Clean Separation of Concerns* -- UI lifecycle events do not block backend tasks; file I/O, parsing, and search run on dedicated background threads.
+* icon:cogs[] *Headless Portability* -- `notesplus-core` can be compiled and reused as a CLI tool, background service, or web server across Linux, macOS, and Windows.
+
+=== Trade-offs & Mitigations
+
+[WARNING]
+.FFI Serialization Overhead
+Data exchanged across the QML/Rust boundary requires structured serialization (JSON strings or scalar properties) via the FFI bridge. Mitigated by compact JSON payloads and background worker threads.
+
+== Related Decisions
+
+* xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002: AsciiDoc as Canonical Storage Format]
+* xref:003-ast-driven-parsing-and-granular-block-mutation.adoc[ADR-003: AST-Based Block Parsing Pipeline]
+* xref:005-embedded-zero-dependency-web-server.adoc[ADR-005: Embedded HTTP Server]

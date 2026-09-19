@@ -13,7 +13,7 @@ def engine():
     if _app is None:
         _app = QCoreApplication([])
     eng = QJSEngine()
-    with open("notesplusplus-core/assets/web/composables/utils.js", "r", encoding="utf-8") as f:
+    with open("notesplus-core/assets/web/composables/utils.js", "r", encoding="utf-8") as f:
         code = f.read()
     code = re.sub(r"^export\s+", "", code, flags=re.MULTILINE)
     # Strip async function (QJSEngine doesn't support async/await)

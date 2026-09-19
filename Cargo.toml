@@ -1,5 +1,5 @@
 [workspace]
-members = ["notesplusplus-core"]
+members = ["notesplus-core"]
 resolver = "2"
 
 [workspace.package]

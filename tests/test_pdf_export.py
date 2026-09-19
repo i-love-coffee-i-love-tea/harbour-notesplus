@@ -358,11 +358,11 @@ def test_pdf_share_action_parameters():
 def test_heading_deduplication_in_rendered_html5():
     """Verify that document title is not duplicated in the body or table of contents."""
     import ctypes, re
-    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core = ctypes.CDLL("./target/debug/libnotesplus_core.so")
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
     ptr = core.notes_core_render_page_html5(examples_dir, b"readme.adoc")
     html = ctypes.string_at(ptr).decode("utf-8")
 
@@ -382,11 +382,11 @@ def test_heading_deduplication_in_rendered_html5():
 def test_document_layout_no_collapsed_line_height(qapp):
     """Verify that multi-section document renders with proper height and multiple pages without collapse."""
     import ctypes
-    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core = ctypes.CDLL("./target/debug/libnotesplus_core.so")
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
     ptr = core.notes_core_render_page_html5(examples_dir, b"syntax-highlighting.adoc")
     html = ctypes.string_at(ptr).decode("utf-8")
 
@@ -404,11 +404,11 @@ def test_document_layout_no_collapsed_line_height(qapp):
 def test_embedded_images_in_rendered_html5():
     """Verify that images in notes (e.g. chronicles.adoc) are converted to base64 data URIs."""
     import ctypes, re
-    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core = ctypes.CDLL("./target/debug/libnotesplus_core.so")
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
     ptr = core.notes_core_render_page_html5(examples_dir, b"chronicles.adoc")
     html = ctypes.string_at(ptr).decode("utf-8")
 
@@ -425,7 +425,7 @@ def test_embedded_images_in_rendered_html5():
 
 def test_confirm_dialog_qml_exists_and_properties():
     """Verify ConfirmDialog.qml exists and contains standard Silica Dialog properties."""
-    path = "notesplusplus-sailfish/qml/pages/ConfirmDialog.qml"
+    path = "notesplus-sailfish/qml/pages/ConfirmDialog.qml"
     assert os.path.exists(path)
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -440,7 +440,7 @@ def test_confirm_dialog_qml_exists_and_properties():
 
 def test_pageview_prompts_on_existing_pdf():
     """Verify PageView.qml prompts the user via ConfirmDialog before overwriting existing PDFs."""
-    path = "notesplusplus-sailfish/qml/pages/PageView.qml"
+    path = "notesplus-sailfish/qml/pages/PageView.qml"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
@@ -453,7 +453,7 @@ def test_pageview_prompts_on_existing_pdf():
 
 def test_services_settings_tab_prompts_on_existing_pdf():
     """Verify ServicesSettingsTab.qml prompts before batch exporting if PDFs already exist."""
-    path = "notesplusplus-sailfish/qml/components/ServicesSettingsTab.qml"
+    path = "notesplus-sailfish/qml/components/ServicesSettingsTab.qml"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
@@ -465,13 +465,13 @@ def test_services_settings_tab_prompts_on_existing_pdf():
 
 def test_bridge_and_export_helper_signatures():
     """Verify C++ headers declare the PDF export check methods."""
-    with open("notesplusplus-sailfish/src/bridge/ExportHelper.h", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/src/bridge/ExportHelper.h", "r", encoding="utf-8") as f:
         helper_h = f.read()
     assert "QString get_pdf_export_path(" in helper_h
     assert "bool pdf_export_exists(" in helper_h
     assert "bool any_pdf_export_exists()" in helper_h
 
-    with open("notesplusplus-sailfish/src/bridge/NotesBridge.h", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/src/bridge/NotesBridge.h", "r", encoding="utf-8") as f:
         bridge_h = f.read()
     assert "Q_INVOKABLE QString get_pdf_export_path(QString page_name);" in bridge_h
     assert "Q_INVOKABLE bool    pdf_export_exists(QString page_name);" in bridge_h
@@ -480,7 +480,7 @@ def test_bridge_and_export_helper_signatures():
 
 def test_code_block_print_style_no_black_background():
     """Verify code blocks in PDF export have a clean light background and mapped high-contrast text."""
-    with open("notesplusplus-sailfish/src/bridge/ExportHelper.cpp", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/src/bridge/ExportHelper.cpp", "r", encoding="utf-8") as f:
         helper_cpp = f.read()
 
     # Code block background must not be black
@@ -493,14 +493,14 @@ def test_code_block_print_style_no_black_background():
 
 def test_toc_rendered_without_bullets():
     """Verify TOC list styling removes disc bullets in both PDF print CSS and web stylesheet."""
-    with open("notesplusplus-sailfish/src/bridge/ExportHelper.cpp", "r", encoding="utf-8") as f:
+    with open("notesplus-sailfish/src/bridge/ExportHelper.cpp", "r", encoding="utf-8") as f:
         helper_cpp = f.read()
 
     assert ".toc ul" in helper_cpp
     assert "list-style: none;" in helper_cpp
     assert "list-style-type: none;" in helper_cpp
 
-    with open("notesplusplus-core/assets/html/document.css", "r", encoding="utf-8") as f:
+    with open("notesplus-core/assets/html/document.css", "r", encoding="utf-8") as f:
         doc_css = f.read()
 
     assert ".toc li::before {\n    content: \"\";\n    display: none;\n}" in doc_css
@@ -510,11 +510,11 @@ def test_toc_rendered_without_bullets():
 def test_pdf_toc_named_destinations_structure(qapp):
     """Verify that TOC links in generated PDF map to internal named destinations."""
     import ctypes, subprocess
-    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core = ctypes.CDLL("./target/debug/libnotesplus_core.so")
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
     ptr = core.notes_core_render_page_html5(examples_dir, b"readme.adoc")
     html = ctypes.string_at(ptr).decode("utf-8")
 
@@ -628,11 +628,11 @@ def test_pdf_font_sizing_points(qapp):
 def test_chronicles_first_heading_renders_italics(qapp):
     """Verify that in chronicles.adoc the first heading renders italic text without literal underscores."""
     import ctypes, subprocess
-    core = ctypes.CDLL("./target/debug/libnotesplusplus_core.so")
+    core = ctypes.CDLL("./target/debug/libnotesplus_core.so")
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplusplus-core/examples").encode("utf-8")
+    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
     ptr = core.notes_core_render_page_html5(examples_dir, b"chronicles.adoc")
     html = ctypes.string_at(ptr).decode("utf-8")
 

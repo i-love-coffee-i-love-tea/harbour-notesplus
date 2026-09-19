@@ -63,27 +63,27 @@ export CARGO_BUILD_JOBS=1
 export RUSTFLAGS="-C link-arg=-Wl,--as-needed"
 
 # Step 1: Build the Rust core as a static library (.a)
-cargo build --release --locked -p notesplusplus-core -j 1
+cargo build --release --locked -p notesplus-core -j 1
 
 # Locate the static library (cross-compilation puts it in target/<triple>/release/)
 RUST_TARGET_DIR="target/${SB2_RUST_TARGET_TRIPLE}/release"
-if [ ! -f "$RUST_TARGET_DIR/libnotesplusplus_core.a" ]; then
+if [ ! -f "$RUST_TARGET_DIR/libnotesplus_core.a" ]; then
     RUST_TARGET_DIR="target/release"
 fi
-ls -la "$RUST_TARGET_DIR/libnotesplusplus_core.a" || {
-  echo "ERROR: libnotesplusplus_core.a not found after cargo build"
+ls -la "$RUST_TARGET_DIR/libnotesplus_core.a" || {
+  echo "ERROR: libnotesplus_core.a not found after cargo build"
   exit 1
 }
 
 # Step 2: Build the C++ bridge using qmake (links the Rust static lib)
-cd notesplusplus-sailfish
+cd notesplus-sailfish
 qmake harbour-notesplus.pro \
-    "RUST_CORE_LIB=$PWD/../$RUST_TARGET_DIR/libnotesplusplus_core.a"
+    "RUST_CORE_LIB=$PWD/../$RUST_TARGET_DIR/libnotesplus_core.a"
 make -j$(nproc)
 cd ..
 
 # Compile translations
-cd notesplusplus-sailfish/translations
+cd notesplus-sailfish/translations
 lrelease harbour-notesplus.ts harbour-notesplus_de.ts harbour-notesplus_es.ts harbour-notesplus_en.ts harbour-notesplus_en_US.ts
 cd ../..
 
@@ -91,11 +91,11 @@ cd ../..
 rm -rf %{buildroot}
 mkdir -p %{buildroot}%{_bindir}
 
-# Find the binary (built by qmake in notesplusplus-sailfish/)
+# Find the binary (built by qmake in notesplus-sailfish/)
 BINARY=""
 for candidate in \
-    notesplusplus-sailfish/harbour-notesplus \
-    notesplusplus-sailfish/release/harbour-notesplus \
+    notesplus-sailfish/harbour-notesplus \
+    notesplus-sailfish/release/harbour-notesplus \
     target/release/harbour-notesplus; do
   if [ -f "$candidate" ] && [ -x "$candidate" ]; then
     BINARY="$candidate"
@@ -110,10 +110,10 @@ fi
 install -m 755 "$BINARY" %{buildroot}%{_bindir}/%{name}
 
 mkdir -p %{buildroot}%{_datadir}/%{name}/qml
-cp -r notesplusplus-sailfish/qml/* %{buildroot}%{_datadir}/%{name}/qml/
+cp -r notesplus-sailfish/qml/* %{buildroot}%{_datadir}/%{name}/qml/
 
 mkdir -p %{buildroot}%{_datadir}/%{name}/examples
-cp -r notesplusplus-core/examples/* %{buildroot}%{_datadir}/%{name}/examples/
+cp -r notesplus-core/examples/* %{buildroot}%{_datadir}/%{name}/examples/
 cp rpm/%{name}.png %{buildroot}%{_datadir}/%{name}/examples/icon.png 2>/dev/null || true
 
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -126,7 +126,7 @@ done
 
 # Install translations
 mkdir -p %{buildroot}%{_datadir}/%{name}/translations
-install -m 644 notesplusplus-sailfish/translations/*.qm %{buildroot}%{_datadir}/%{name}/translations/
+install -m 644 notesplus-sailfish/translations/*.qm %{buildroot}%{_datadir}/%{name}/translations/
 
 # Install AppStream metadata
 mkdir -p %{buildroot}%{_datadir}/metainfo

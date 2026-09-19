@@ -16,8 +16,8 @@ __pycache__/
 *.pyc
 
 # qmake build artifacts
-notesplusplus-sailfish/Makefile
-notesplusplus-sailfish/*.o
-notesplusplus-sailfish/moc_*
-notesplusplus-sailfish/harbour-notesplus
-notesplusplus-sailfish/*.pro.user
+notesplus-sailfish/Makefile
+notesplus-sailfish/*.o
+notesplus-sailfish/moc_*
+notesplus-sailfish/harbour-notesplus
+notesplus-sailfish/*.pro.user

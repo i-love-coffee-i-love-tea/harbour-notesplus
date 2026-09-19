@@ -5,5 +5,5 @@
 #
 set -euo pipefail
 
-cargo test -p notesplusplus-core --quiet
+cargo test -p notesplus-core --quiet
 echo "All tests passed"

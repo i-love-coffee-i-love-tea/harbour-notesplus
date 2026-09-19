@@ -1,0 +1,109 @@
+= Architecture Decision Records (ADRs)
+:toc:
+:icons: font
+:status: Active
+
+[NOTE]
+.Architecture Repository
+This document indexes the foundational Architecture Decision Records (ADRs) governing the technical design, storage protocols, and security boundaries of *Notes Plus* (`harbour-notesplus`).
+
+== Index of Architectural Decisions
+
+[cols="1,3,1", options="header"]
+|===
+| Record | Title | Status
+
+| xref:001-hybrid-core-and-gui-architecture.adoc[ADR-001]
+| Separation of Pure Rust Core Engine and Sailfish Silica UI Bridge
+| `icon:check[] Accepted`
+
+| xref:002-asciidoc-as-canonical-storage-format.adoc[ADR-002]
+| Plain-Text AsciiDoc Files on the Filesystem as Canonical Storage
+| `icon:check[] Accepted`
+
+| xref:003-ast-driven-parsing-and-granular-block-mutation.adoc[ADR-003]
+| AST-Based Block Parsing with In-Place Mutation Pipeline
+| `icon:check[] Accepted`
+
+| xref:004-sqlite-fts5-as-derived-search-cache.adoc[ADR-004]
+| SQLite FTS5 Index as an Asynchronous, Disposable Search Cache
+| `icon:check[] Accepted`
+
+| xref:005-embedded-zero-dependency-web-server.adoc[ADR-005]
+| Lightweight Embedded HTTP Server with Server-Sent Events (SSE)
+| `icon:check[] Accepted`
+
+| xref:006-public-network-rejection-and-local-isolation.adoc[ADR-006]
+| Socket-Level Public IP Rejection and Session Persistence Strategy
+| `icon:check[] Accepted`
+
+| xref:007-offline-vendored-web-assets.adoc[ADR-007]
+| Zero External CDN Dependency and Vendored Vue 3 ESM Assets
+| `icon:check[] Accepted`
+
+| xref:008-provider-agnostic-llm-adapter-architecture.adoc[ADR-008]
+| Extensible LLM Client Adapter for Local and Cloud AI Backends
+| `icon:check[] Accepted`
+
+| xref:009-presentation-mode-document-segmentation.adoc[ADR-009]
+| Dynamic Slide Deck Partitioning via Headings and Page Breaks
+| `icon:check[] Accepted`
+
+| xref:010-note-storage-directory-convention.adoc[ADR-010]
+| Note Storage Directory Convention and Asset Directories
+| `icon:check[] Accepted`
+|===
+
+== System Architecture Overview
+
+[source,ascii]
+----
++-------------------------------------------------------------+
+|                  Sailfish Silica UI (QML)                   |
++------------------------------+------------------------------+
+                               | QObject Signals & Slots
++------------------------------v------------------------------+
+|             notesplus-sailfish (Bridge / FFI)           |
++------------------------------+------------------------------+
+                               | Pure Rust API Calls
++------------------------------v------------------------------+
+|                     notesplus-core                      |
+|  +-------------------------------------------------------+  |
+|  | Parser & AST (Block Mutations & Granular Serialization)|  |
+|  | SQLite FTS5 Search Index (Asynchronous Cache)         |  |
+|  | Embedded HTTP/1.1 Server & SSE Streaming Engine       |  |
+|  | Multi-Provider LLM Agent & Tool Dispatcher            |  |
+|  +-------------------------------------------------------+  |
++-------------------------------------------------------------+
+----
+
+== ADR Authoring Template
+
+When proposing architectural changes, create a new `.adoc` document following this structure:
+
+[source,asciidoc]
+----
+= ADR-XXX: [Title]
+:status: Proposed
+:date: YYYY-MM-DD
+:toc:
+:icons: font
+
+[NOTE]
+.Status: [Proposed | Accepted | Deprecated | Superseded]
+Summary of the proposal and current approval state.
+
+== Context
+Describe the architectural problem, requirements, operational constraints, and considerations.
+
+== Decision
+Specify the technical design, abstractions, and trade-offs chosen.
+
+== Consequences
+
+=== Positive / Utility Delivered
+* icon:check[] Key benefit or capability unlocked.
+
+=== Trade-offs & Mitigations
+* icon:warning[] Constraint accepted or managed operational risk.
+----

@@ -54,7 +54,7 @@ The app icon is at `rpm/icons/128x128/harbour-notesplus.png`.
 ### Run Tests (Host)
 
 ```bash
-cargo test -p notesplusplus-core
+cargo test -p notesplus-core
 ```
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed architecture, testing, and CI documentation.
@@ -62,7 +62,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed architecture, testing, and CI 
 ## Project Structure
 
 ```
-├── notesplusplus-core/          # Pure Rust core engine
+├── notesplus-core/          # Pure Rust core engine
 │   ├── src/
 │   │   ├── parser/              # AsciiDoc AST parser
 │   │   ├── agent/               # LLM client + tool-calling agent
@@ -71,7 +71,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed architecture, testing, and CI 
 │   │   ├── db.rs                # SQLite + FTS5
 │   │   └── page.rs              # Page indexing & management
 │   └── assets/web/              # Vue 3 web UI (static files)
-├── notesplusplus-sailfish/      # Sailfish OS GUI application
+├── notesplus-sailfish/      # Sailfish OS GUI application
 │   ├── src/bridge/              # Rust ↔ QML bridge objects
 │   └── qml/                     # Sailfish Silica QML pages
 ├── build-sailfish.sh            # Cross-compile for Sailfish OS
