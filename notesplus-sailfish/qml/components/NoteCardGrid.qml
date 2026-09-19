@@ -7,6 +7,7 @@ Grid {
     property var model: []
     property string searchTerm: ""
     property bool isPortraitOrientation: true
+    property var remorsePopupRef: null
 
     signal itemClicked(var itemData, int itemIndex)
 
@@ -24,6 +25,7 @@ Grid {
             width: (index % noteCardGrid.columns === noteCardGrid.columns - 1) ? (noteCardGrid.width - noteCardGrid.cellWidth * (noteCardGrid.columns - 1)) : noteCardGrid.cellWidth
             cardData: modelData
             noteIndex: index
+            remorsePopupRef: noteCardGrid.remorsePopupRef
             onClicked: {
                 noteCardGrid.itemClicked(cardData, index)
             }

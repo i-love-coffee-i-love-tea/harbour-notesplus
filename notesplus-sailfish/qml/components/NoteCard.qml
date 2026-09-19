@@ -10,6 +10,7 @@ GridItem {
 
     property var cardData: ({})
     property int noteIndex: 0
+    property var remorsePopupRef: null
 
     property string _fullPath: (cardData && cardData.full_path) ? cardData.full_path : ((cardData && cardData.group_path ? cardData.group_path + "/" : "") + (cardData ? cardData.filename : ""))
     property string _title: (cardData && cardData.name) ? cardData.name : _fullPath
@@ -61,7 +62,13 @@ GridItem {
         MenuItem {
             text: qsTr("Delete")
             onClicked: {
-                bridge.delete_page(_fullPath)
+                if (noteCardItem.remorsePopupRef) {
+                    noteCardItem.remorsePopupRef.execute(qsTr("Deleting '%1'").arg(_title), function() {
+                        bridge.delete_page(_fullPath)
+                    })
+                } else {
+                    bridge.delete_page(_fullPath)
+                }
             }
         }
     }

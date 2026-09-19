@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-git add "$cargo_toml" "$spec" "$appdata" "$changes" "$qml_about"
+git add "$cargo_toml" "$spec" "$appdata" "$changes" "$qml_about" "CHANGELOG.md"
 
 # Also stage Cargo.lock if it changed (cargo update on version bump)
 git add Cargo.lock 2>/dev/null || true

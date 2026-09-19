@@ -386,6 +386,7 @@ Page {
                 isPortraitOrientation: isPortrait
                 model: searchField.text.length > 0 ? parsedSearchResults : []
                 searchTerm: searchField.text
+                remorsePopupRef: remorsePopup
                 visible: searchField.text.length > 0 && parsedSearchResults.length > 0
                 onItemClicked: function(itemData, itemIndex) {
                     var target = itemData.full_path || itemData.name

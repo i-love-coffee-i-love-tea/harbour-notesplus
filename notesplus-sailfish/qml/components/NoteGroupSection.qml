@@ -238,6 +238,7 @@ Column {
         width: parent.width
         isPortraitOrientation: groupSection.isPortraitOrientation
         model: pages
+        remorsePopupRef: groupSection.remorsePopupRef
         visible: !isCollapsed && pages && pages.length > 0
         onItemClicked: function(itemData, itemIndex) {
             var fullPath = itemData.full_path || (itemData.group_path ? itemData.group_path + "/" + itemData.filename : itemData.filename)

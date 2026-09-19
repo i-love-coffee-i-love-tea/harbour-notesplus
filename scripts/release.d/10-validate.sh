@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-for f in "$cargo_toml" "$spec" "$appdata" "$changes" "$qml_about"; do
+for f in "$cargo_toml" "$spec" "$appdata" "$changes" "$qml_about" "CHANGELOG.md"; do
     if [ ! -f "$f" ]; then
         echo "error: $f not found"
         exit 1
