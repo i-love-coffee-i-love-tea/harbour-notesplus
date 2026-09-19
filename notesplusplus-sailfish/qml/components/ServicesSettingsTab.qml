@@ -292,7 +292,7 @@ Column {
     Label {
         x: Theme.horizontalPageMargin
         width: parent.width - Theme.horizontalPageMargin * 2
-        text: qsTr("Notes Plus v0.1.0\nAsciiDoc reader & notebook for Sailfish OS")
+        text: qsTr("Notes Plus v0.2.0\nAsciiDoc reader & notebook for Sailfish OS")
         color: Theme.secondaryColor
         font.pixelSize: Theme.fontSizeSmall
         wrapMode: Text.Wrap

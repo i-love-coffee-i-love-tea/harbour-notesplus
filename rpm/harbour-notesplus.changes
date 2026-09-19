@@ -1,0 +1,15 @@
+# harbour-notesplus changelog
+
+* Sa Sep 19 2026 gobuki <github.com@gobuki.org> 0.2.0-1
+- (describe changes here)
+
+* Wed Jul 15 2026 gobuki <github.com@gobuki.org> 0.1.0-1
+- Initial release of Notes Plus for Sailfish OS
+- Daily journal with auto-managed pages
+- AsciiDoc editing with live preview
+- Page linking and full-text search
+- HTML5 export
+- Built-in web server for document access
+- AI assistant integration (Ollama / MiMoCode)
+- External source import (clipboard, URLs, files)
+- German and Spanish translations
