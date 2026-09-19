@@ -2,6 +2,10 @@
 
 A fast, offline-first AsciiDoc notes app for **Sailfish OS** with an AI assistant, speech-to-text, and a built-in web editor accessible from any browser on your network.
 
+## Why Notes Plus?
+
+I've been a Sailfish OS user for over a decade — starting with the first Jolla phone, and before that an N900. At work I build AI tools and work with AI daily, so I got used to having it around. I also got used to Jolla Notes: its simplicity is exactly what I want from a notes app. But I often wished for just a bit more — AsciiDoc formatting, full-text search, a way to get my notes onto a bigger screen. Notes Plus is that "tad more." It tries to stay out of your way like Jolla Notes does, but adds the features I kept reaching for. Web UI, text-to-speech, and AI assistant can all be disabled. It works completely offline and does not send your data anywhere unless you explicitly connect it to an AI provider by entering its address in the settings.
+
 ## Features
 
 - **AsciiDoc Notes** — Full parser with headings, lists, tables, code blocks, admonitions, cross-references, and image support
