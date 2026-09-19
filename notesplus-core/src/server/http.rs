@@ -217,7 +217,7 @@ pub fn build_cors_headers(origin: &str) -> String {
     )
 }
 
-pub fn make_session_cookie(session_id: &str, _is_tls: bool, max_age: Option<u64>) -> String {
+pub fn make_session_cookie(session_id: &str, max_age: Option<u64>) -> String {
     let mut cookie = format!("{}={}; Path=/; HttpOnly; Secure; SameSite=Lax", SESSION_COOKIE_NAME, session_id);
     if let Some(age) = max_age {
         cookie.push_str(&format!("; Max-Age={}", age));
