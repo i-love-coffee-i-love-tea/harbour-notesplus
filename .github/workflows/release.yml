@@ -69,19 +69,22 @@ jobs:
       - name: Generate Checksums
         working-directory: ./dist
         run: |
+          ls -la
           sha256sum *.rpm > sha256sums.txt
           cat sha256sums.txt
 
-      - name: Create GitHub Release
+      - name: Upload RPM to release
+        working-directory: ./dist
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           gh release create "$TAG" \
-            ./dist/*.rpm \
-            ./dist/sha256sums.txt \
+            --repo "${{ github.repository }}" \
             --title "Notes Plus $TAG" \
-            --generate-notes
+            --generate-notes \
+            *.rpm \
+            sha256sums.txt
 
   openrepos-publish:
     name: Publish to OpenRepos.net
