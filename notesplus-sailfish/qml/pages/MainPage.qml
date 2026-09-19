@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import "../components"
+import "../components/common"
+import "../components/editor"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 import "../js/EditorHelpers.js" as EH
 
@@ -88,7 +89,7 @@ Page {
     }
 
     function openElementPicker() {
-        var dialog = pageStack.push(Qt.resolvedUrl("AsciiDocElementPickerDialog.qml"))
+        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/AsciiDocElementPickerDialog.qml"))
         dialog.insertSnippet.connect(function(snippet) {
             insertSnippetIntoActiveEditor(snippet)
         })
@@ -170,7 +171,7 @@ Page {
                 sel = txt.substring(start, end)
             }
         }
-        var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/PageLinkDialog.qml"), {
             selectedText: sel
         })
         dialog.accepted.connect(function() {
@@ -316,7 +317,7 @@ Page {
             MenuItem {
                 text: qsTr("New Group")
                 onClicked: {
-                    var dialog = pageStack.push(Qt.resolvedUrl("NewGroupDialog.qml"))
+                    var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/NewGroupDialog.qml"))
                     dialog.accepted.connect(function() {
                         if (dialog.groupName.length > 0) {
                             if (bridge.create_group("", dialog.groupName)) {
@@ -331,7 +332,7 @@ Page {
             MenuItem {
                 text: qsTr("New Note")
                 onClicked: {
-                    var dialog = pageStack.push(Qt.resolvedUrl("NewPageDialog.qml"))
+                    var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/NewPageDialog.qml"))
                     dialog.accepted.connect(function() {
                         if (dialog.pageName.length > 0) {
                             bridge.create_page(dialog.pageName, dialog.selectedColor)

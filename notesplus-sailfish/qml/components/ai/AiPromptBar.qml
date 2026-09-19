@@ -1,6 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import "../js/ThemeColors.js" as TC
+import "../../js/ThemeColors.js" as TC
 
 Rectangle {
     id: promptBarCard

@@ -3,7 +3,7 @@ import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
 import "pages"
 import "cover"
-import "components"
+import "components/common"
 import "js/AiInstructionsManager.js" as AiInstructions
 
 ApplicationWindow {

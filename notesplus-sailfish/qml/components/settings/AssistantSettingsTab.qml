@@ -30,7 +30,7 @@ Column {
 
     BackgroundItem {
         width: parent.width
-        onClicked: pageStack.push(Qt.resolvedUrl("../pages/AiCapabilitiesPage.qml"))
+        onClicked: pageStack.push(Qt.resolvedUrl("../../pages/AiCapabilitiesPage.qml"))
 
         Label {
             x: Theme.horizontalPageMargin
@@ -291,7 +291,7 @@ Column {
                 text: ((typeof app !== "undefined" && app && app.aiSystemPrompt && app.aiSystemPrompt.trim().length > 0)
                       ? qsTr("View & Edit System Prompt (Customized)")
                       : qsTr("View & Edit System Prompt..."))
-                onClicked: pageStack.push(Qt.resolvedUrl("../pages/SystemPromptPage.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../../pages/SystemPromptPage.qml"))
             }
         }
     }
@@ -320,12 +320,12 @@ Column {
 
             Button {
                 text: qsTr("Manage Templates (%1)").arg((typeof app !== "undefined" && app.customAiInstructions) ? app.customAiInstructions.length : 0)
-                onClicked: pageStack.push(Qt.resolvedUrl("../pages/CustomInstructionsPage.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../../pages/CustomInstructionsPage.qml"))
             }
 
             Button {
                 text: qsTr("+ Add New")
-                onClicked: pageStack.push(Qt.resolvedUrl("../pages/CustomInstructionDialog.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../../dialogs/CustomInstructionDialog.qml"))
             }
         }
     }

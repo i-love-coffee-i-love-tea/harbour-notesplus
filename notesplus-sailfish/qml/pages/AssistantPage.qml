@@ -1,7 +1,8 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
-import "../components"
+import "../components/common"
+import "../components/ai"
 
 Page {
     id: assistantPage
@@ -151,7 +152,7 @@ Page {
         for (var i = 0; i < curNotes.length; i++) {
             preselected.push(curNotes[i].filename)
         }
-        var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/PageLinkDialog.qml"), {
             mode: "select",
             allowMultiple: true,
             selectedFilenames: preselected
@@ -236,7 +237,7 @@ Page {
         } else {
             if (!speechBridge.has_installed_models) {
                 remorsePopup.execute(qsTr("No speech model installed. Please download a model."), function() {})
-                pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                pageStack.push(Qt.resolvedUrl("../dialogs/ModelDownloadDialog.qml"))
                 return
             }
             if (!speechBridge.start_recording()) {
@@ -351,7 +352,7 @@ Page {
 
             MenuItem {
                 text: qsTr("Manage Speech Models")
-                onClicked: pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../dialogs/ModelDownloadDialog.qml"))
             }
 
             MenuItem {
@@ -525,7 +526,7 @@ Page {
                             inst = def.instruction
                         }
                     }
-                    pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"), {
+                    pageStack.push(Qt.resolvedUrl("../dialogs/CustomInstructionDialog.qml"), {
                         "instructionId": item.id || "",
                         "initialButtonText": item.buttonText || item.title || "",
                         "initialIcon": item.icon || "icon-m-note",

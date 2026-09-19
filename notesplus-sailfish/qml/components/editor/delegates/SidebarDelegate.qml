@@ -1,7 +1,8 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../"
-import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../../common"
+import "../../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Item {
     id: sidebarDelegate

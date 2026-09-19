@@ -1,8 +1,9 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../"
-import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
-import "../../js/ThemeColors.js" as TC
+import "../../common"
+import "../../../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../../../js/ThemeColors.js" as TC
 
 Column {
     id: codeDelegate

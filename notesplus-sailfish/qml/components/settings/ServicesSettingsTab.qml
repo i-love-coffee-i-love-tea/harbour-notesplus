@@ -168,7 +168,7 @@ Column {
         anchors.horizontalCenter: parent.horizontalCenter
         text: qsTr("Test Web Login Prompt")
         onClicked: {
-            pageStack.push(Qt.resolvedUrl("../pages/AuthPrompt.qml"), {
+            pageStack.push(Qt.resolvedUrl("../../pages/AuthPrompt.qml"), {
                 challengeId: "test-challenge",
                 verificationCode: "1234"
             })
@@ -260,7 +260,7 @@ Column {
             }
 
             if (bridge.any_pdf_export_exists()) {
-                var dialog = pageStack.push(Qt.resolvedUrl("../pages/ConfirmDialog.qml"), {
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/ConfirmDialog.qml"), {
                     title: qsTr("Overwrite Existing PDFs?"),
                     message: qsTr("Some notes already have exported PDF files in Notes++ Exports. Do you want to overwrite them?"),
                     acceptText: qsTr("Overwrite")

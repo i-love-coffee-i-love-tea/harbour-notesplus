@@ -1,7 +1,8 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
-import "../components"
+import "../components/common"
+import "../components/ai"
 import "../js/ThemeColors.js" as TC
 
 Page {
@@ -43,7 +44,7 @@ Page {
         } else {
             if (!speechBridge.has_installed_models) {
                 remorsePopup.execute(qsTr("No speech model installed. Please download a model."), function() {})
-                pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                pageStack.push(Qt.resolvedUrl("../dialogs/ModelDownloadDialog.qml"))
                 return
             }
             if (!speechBridge.start_recording()) {
@@ -145,7 +146,7 @@ Page {
 
             MenuItem {
                 text: qsTr("Manage Speech Models")
-                onClicked: pageStack.push(Qt.resolvedUrl("ModelDownloadDialog.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../dialogs/ModelDownloadDialog.qml"))
             }
         }
 

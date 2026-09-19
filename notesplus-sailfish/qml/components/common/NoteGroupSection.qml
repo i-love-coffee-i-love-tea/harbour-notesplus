@@ -61,7 +61,7 @@ Column {
             MenuItem {
                 text: qsTr("New Note")
                 onClicked: {
-                    var newPage = pageStack.push(Qt.resolvedUrl("../pages/NewPageDialog.qml"), {
+                    var newPage = pageStack.push(Qt.resolvedUrl("../../dialogs/NewPageDialog.qml"), {
                         targetGroup: groupPath
                     })
                     newPage.accepted.connect(function() {
@@ -75,7 +75,7 @@ Column {
             MenuItem {
                 text: qsTr("New Subgroup")
                 onClicked: {
-                    var newSub = pageStack.push(Qt.resolvedUrl("../pages/NewGroupDialog.qml"), {
+                    var newSub = pageStack.push(Qt.resolvedUrl("../../dialogs/NewGroupDialog.qml"), {
                         parentPath: groupPath
                     })
                     newSub.accepted.connect(function() {
@@ -103,7 +103,7 @@ Column {
                 text: qsTr("Rename")
                 visible: groupPath.length > 0
                 onClicked: {
-                    var ren = pageStack.push(Qt.resolvedUrl("../pages/RenameGroupDialog.qml"), {
+                    var ren = pageStack.push(Qt.resolvedUrl("../../dialogs/RenameGroupDialog.qml"), {
                         oldPath: groupPath,
                         currentName: displayName
                     })
@@ -185,7 +185,7 @@ Column {
                     width: Theme.itemSizeExtraSmall
                     height: Theme.itemSizeExtraSmall
                     onClicked: {
-                        var dialog = pageStack.push(Qt.resolvedUrl("../pages/NewPageDialog.qml"), {
+                        var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/NewPageDialog.qml"), {
                             targetGroup: groupPath
                         })
                         dialog.accepted.connect(function() {
@@ -242,7 +242,7 @@ Column {
         visible: !isCollapsed && pages && pages.length > 0
         onItemClicked: function(itemData, itemIndex) {
             var fullPath = itemData.full_path || (itemData.group_path ? itemData.group_path + "/" + itemData.filename : itemData.filename)
-            pageStack.push(Qt.resolvedUrl("../pages/PageView.qml"), {
+            pageStack.push(Qt.resolvedUrl("../../pages/PageView.qml"), {
                 initialTargetPage: fullPath,
                 pageName: itemData.name || fullPath
             })

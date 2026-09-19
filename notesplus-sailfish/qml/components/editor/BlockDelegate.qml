@@ -1,7 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "./delegates"
-import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Item {
     id: delegate

@@ -1,7 +1,8 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import Sailfish.Share 1.0
-import "../components"
+import "../components/common"
+import "../components/editor"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 import "../js/EditorHelpers.js" as EH
 
@@ -265,7 +266,7 @@ Page {
                 text: qsTr("Edit Source")
                 onClicked: {
                     var targetPath = pageView.pageFullPath
-                    var editor = pageStack.push(Qt.resolvedUrl("PageSourceEditor.qml"), {
+                    var editor = pageStack.push(Qt.resolvedUrl("../dialogs/PageSourceEditor.qml"), {
                         pageName: targetPath
                     })
                     editor.accepted.connect(function() {
@@ -301,7 +302,7 @@ Page {
                     if (bridge.pdf_export_exists(fullPath)) {
                         var outPath = bridge.get_pdf_export_path(fullPath)
                         var fileName = outPath.split("/").pop()
-                        var dialog = pageStack.push(Qt.resolvedUrl("ConfirmDialog.qml"), {
+                        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/ConfirmDialog.qml"), {
                             title: qsTr("Overwrite PDF?"),
                             message: qsTr("The file '%1' already exists in Exports. Do you want to overwrite it?").arg(fileName),
                             acceptText: qsTr("Overwrite")
@@ -330,7 +331,7 @@ Page {
                     if (bridge.pdf_export_exists(fullPath)) {
                         var outPath = bridge.get_pdf_export_path(fullPath)
                         var fileName = outPath.split("/").pop()
-                        var dialog = pageStack.push(Qt.resolvedUrl("ConfirmDialog.qml"), {
+                        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/ConfirmDialog.qml"), {
                             title: qsTr("Overwrite PDF?"),
                             message: qsTr("The file '%1' already exists in Exports. Do you want to overwrite it?").arg(fileName),
                             acceptText: qsTr("Overwrite")
@@ -649,7 +650,7 @@ Page {
     }
 
     function openElementPicker() {
-        var dialog = pageStack.push(Qt.resolvedUrl("AsciiDocElementPickerDialog.qml"))
+        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/AsciiDocElementPickerDialog.qml"))
         dialog.insertSnippet.connect(function(snippet) {
             insertSnippetIntoActiveEditor(snippet)
         })
@@ -729,7 +730,7 @@ Page {
                 sel = txt.substring(start, end)
             }
         }
-        var dialog = pageStack.push(Qt.resolvedUrl("PageLinkDialog.qml"), {
+        var dialog = pageStack.push(Qt.resolvedUrl("../dialogs/PageLinkDialog.qml"), {
             selectedText: sel
         })
         dialog.accepted.connect(function() {

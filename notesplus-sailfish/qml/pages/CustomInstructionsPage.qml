@@ -25,7 +25,7 @@ Page {
             MenuItem {
                 text: qsTr("Add AI Instruction")
                 onClicked: {
-                    pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"))
+                    pageStack.push(Qt.resolvedUrl("../dialogs/CustomInstructionDialog.qml"))
                 }
             }
         }
@@ -105,7 +105,7 @@ Page {
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: qsTr("+ Add Action Template")
-                onClicked: pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("../dialogs/CustomInstructionDialog.qml"))
             }
 
             SectionHeader {
@@ -134,7 +134,7 @@ Page {
             }
 
             function edit() {
-                pageStack.push(Qt.resolvedUrl("CustomInstructionDialog.qml"), {
+                pageStack.push(Qt.resolvedUrl("../dialogs/CustomInstructionDialog.qml"), {
                     "instructionId": modelData.id || "",
                     "initialButtonText": modelData.buttonText || "",
                     "initialIcon": modelData.icon || "icon-m-note",

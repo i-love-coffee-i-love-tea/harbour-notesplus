@@ -1,6 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import "../js/ThemeColors.js" as TC
+import "../../js/ThemeColors.js" as TC
 
 GridItem {
     id: noteCardItem
@@ -21,7 +21,7 @@ GridItem {
         MenuItem {
             text: qsTr("Color")
             onClicked: {
-                var dialog = pageStack.push(Qt.resolvedUrl("../pages/ColorPickerDialog.qml"), {
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/ColorPickerDialog.qml"), {
                     selectedColor: (cardData && cardData.color) ? cardData.color : noteCardItem.getNoteColor(_title)
                 })
                 dialog.accepted.connect(function() {
@@ -32,7 +32,7 @@ GridItem {
         MenuItem {
             text: qsTr("Move")
             onClicked: {
-                var dialog = pageStack.push(Qt.resolvedUrl("../pages/MovePageDialog.qml"), {
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/MovePageDialog.qml"), {
                     pageFullPath: _fullPath,
                     pageTitle: _title,
                     currentGroup: _group
@@ -48,7 +48,7 @@ GridItem {
         MenuItem {
             text: qsTr("Rename")
             onClicked: {
-                var dialog = pageStack.push(Qt.resolvedUrl("../pages/RenamePageDialog.qml"), {
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/RenamePageDialog.qml"), {
                     currentTitle: _title
                 })
                 dialog.accepted.connect(function() {

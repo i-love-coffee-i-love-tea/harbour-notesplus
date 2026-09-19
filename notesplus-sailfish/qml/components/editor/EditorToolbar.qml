@@ -1,6 +1,6 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
-import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
+import "../../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Rectangle {
     id: editorToolbar
@@ -398,7 +398,7 @@ Rectangle {
         var txt = targetTextArea.text || ""
         var selected = (start !== end && start >= 0 && end <= txt.length) ? txt.substring(start, end) : ""
 
-        var dialog = pageStack.push(Qt.resolvedUrl("../pages/PageLinkDialog.qml"), {
+        var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/PageLinkDialog.qml"), {
             selectedText: selected
         })
         dialog.accepted.connect(function() {
