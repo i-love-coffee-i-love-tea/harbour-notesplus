@@ -8,7 +8,7 @@ I've been a Sailfish OS user for over a decade — starting with the first Jolla
 
 ## Why AsciiDoc?
 
-Markdown would have been the obvious choice, but AsciiDoc does things Markdown can't — without plugins or non-standard extensions. It has native tables with column widths and cell spans, admonitions (`NOTE:`, `TIP:`, `WARNING:`), typed delimited blocks for code, quotes, and sidebars, cross-references between documents, and document attributes for metadata. All of this is part of the spec, not a GitHub-flavored bolt-on.
+Markdown is everywhere, but AsciiDoc does things Markdown can't — without plugins or non-standard extensions. It has native tables with column widths and cell spans, admonitions (`NOTE:`, `TIP:`, `WARNING:`), typed delimited blocks for code, quotes, and sidebars, cross-references between documents, and document attributes for metadata. All of this is part of the spec, not a GitHub-flavored bolt-on.
 
 Your notes are stored as plain `.adoc` files on the filesystem. No database, no proprietary format, no cloud lock-in. Sync them with Syncthing, Nextcloud, Git, or just copy them over USB — every text editor can open them.
 
