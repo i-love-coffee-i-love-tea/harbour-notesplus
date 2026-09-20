@@ -92,10 +92,18 @@ Column {
             }
 
             MenuItem {
-                text: noteSort === "name" ? qsTr("Sort Notes: Newest First") : qsTr("Sort Notes: By Name")
+                text: qsTr("Sort Notes")
                 onClicked: {
-                    var nextSort = (noteSort === "name") ? "newest" : "name"
-                    bridge.set_group_note_sort(groupPath, nextSort)
+                    var sortDlg = pageStack.push(Qt.resolvedUrl("../../dialogs/SortNotesDialog.qml"), {
+                        groupPath: groupPath,
+                        groupName: displayName,
+                        currentSort: noteSort
+                    })
+                    sortDlg.accepted.connect(function() {
+                        if (sortDlg.selectedSort) {
+                            bridge.set_group_note_sort(groupPath, sortDlg.selectedSort)
+                        }
+                    })
                 }
             }
 

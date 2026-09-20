@@ -147,12 +147,13 @@ bool GroupManager::set_group_note_sort(const QString &group_path,
     void *conn = m_ctx.rawConn();
     if (!conn) return false;
 
-    /* Convert sort string to int: "newest"->0, "oldest"->1, "alphabetical"->2 */
+    /* Convert sort string to int: "newest"->0, "name"->1 (also accept aliases "alphabetical"/"by_name") */
     int sortOrder = 0;
-    if (note_sort == QLatin1String("oldest"))
+    if (note_sort == QLatin1String("name") ||
+        note_sort == QLatin1String("alphabetical") ||
+        note_sort == QLatin1String("by_name")) {
         sortOrder = 1;
-    else if (note_sort == QLatin1String("alphabetical"))
-        sortOrder = 2;
+    }
 
     int rc = notes_core_group_set_note_sort(
         conn, qstrToFFI(group_path), sortOrder);
@@ -173,8 +174,7 @@ QString GroupManager::get_group_note_sort(const QString &group_path)
         conn, qstrToFFI(group_path));
 
     switch (sort) {
-    case 1:  return QStringLiteral("oldest");
-    case 2:  return QStringLiteral("alphabetical");
+    case 1:  return QStringLiteral("name");
     default: return QStringLiteral("newest");
     }
 }

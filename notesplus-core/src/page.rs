@@ -644,6 +644,14 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, t
     };
     copy_dir_recursive(conn, notes_dir, examples_dir, &dest_dir, target_group, false)?;
 
+    // Sort ADRs by name by default (reference docs benefit from stable alphabetical order)
+    let adrs_group = if target_group.is_empty() {
+        "Notes_Plus_Documentation/ADRs".to_string()
+    } else {
+        format!("{}/ADRs", target_group)
+    };
+    let _ = crate::group::set_group_note_sort(conn, &adrs_group, crate::group::NoteSortOrder::ByName);
+
     // Save version marker so we skip next time
     if !app_version.is_empty() {
         let _ = std::fs::write(&marker_path, app_version);
@@ -1309,7 +1317,7 @@ mod tests {
 
         let notes = dir.path().join("notes");
 
-        copy_examples(&conn, &notes, &examples, "").unwrap();
+        copy_examples(&conn, &notes, &examples, "", "0.3.0").unwrap();
         assert!(notes.join("test.adoc").exists());
         assert!(!notes.join("not_adoc.txt").exists());
         let pages = list_pages(&conn).unwrap();
@@ -1325,7 +1333,7 @@ mod tests {
         std::fs::write(adr_dir.join("001-test.adoc"), "= ADR-001\nADR Content\n").unwrap();
 
         let notes = dir.path().join("notes");
-        copy_examples(&conn, &notes, &examples, "").unwrap();
+        copy_examples(&conn, &notes, &examples, "", "0.3.0").unwrap();
 
         assert!(notes.join("Notes_Plus_Documentation").join("ADRs").join("001-test.adoc").exists());
         let page = get_page(&conn, "Notes_Plus_Documentation/ADRs/001-test.adoc").unwrap();

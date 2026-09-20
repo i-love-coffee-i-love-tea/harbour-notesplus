@@ -256,3 +256,48 @@ pub extern "C" fn notes_core_load_main_page_data_json(
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use crate::ffi::db::{notes_core_db_close, notes_core_db_open};
+    use std::ffi::CString;
+
+    #[test]
+    fn test_ffi_group_note_sort() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let notes_dir = dir.path().join("notes");
+        std::fs::create_dir_all(&notes_dir).unwrap();
+
+        let c_db_path = CString::new(db_path.to_str().unwrap()).unwrap();
+        let conn_ptr = notes_core_db_open(c_db_path.as_ptr());
+        assert!(!conn_ptr.is_null());
+
+        let c_notes_dir = CString::new(notes_dir.to_str().unwrap()).unwrap();
+        let c_parent = CString::new("").unwrap();
+        let c_name = CString::new("MyGroup").unwrap();
+        let rc = notes_core_group_create(conn_ptr, c_notes_dir.as_ptr(), c_parent.as_ptr(), c_name.as_ptr());
+        assert_eq!(rc, 0);
+
+        let c_group_path = CString::new("MyGroup").unwrap();
+        // Default sort should be 0 (NewestFirst)
+        let initial_sort = notes_core_group_get_note_sort(conn_ptr, c_group_path.as_ptr());
+        assert_eq!(initial_sort, 0);
+
+        // Set to 1 (ByName)
+        let rc = notes_core_group_set_note_sort(conn_ptr, c_group_path.as_ptr(), 1);
+        assert_eq!(rc, 0);
+        let updated_sort = notes_core_group_get_note_sort(conn_ptr, c_group_path.as_ptr());
+        assert_eq!(updated_sort, 1);
+
+        // Set back to 0 (NewestFirst)
+        let rc = notes_core_group_set_note_sort(conn_ptr, c_group_path.as_ptr(), 0);
+        assert_eq!(rc, 0);
+        let reset_sort = notes_core_group_get_note_sort(conn_ptr, c_group_path.as_ptr());
+        assert_eq!(reset_sort, 0);
+
+        notes_core_db_close(conn_ptr);
+    }
+}
