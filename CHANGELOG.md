@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Build targets for armv7hl (Xperia XA2, Xperia 10, community ports) and i486 (emulator)
+- CI/CD pipelines build and release RPMs for aarch64, armv7hl, and i486
+
+### Fixed
+
+- Cross-compilation: set CC/CXX to sb2 wrappers for ring and whisper.cpp builds on armv7hl/i486
+- Cross-compilation: define `__fp16` as `uint16_t` for whisper.cpp on 32-bit ARM
+- Build: clean stale object files before qmake when switching architectures
+
 ## 0.3.0 (2026-09-20)
 
 ### Added

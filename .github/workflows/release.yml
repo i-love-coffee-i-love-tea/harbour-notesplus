@@ -29,9 +29,12 @@ jobs:
         run: cargo test -p notesplus-core
 
   build-rpm:
-    name: Build RPM (aarch64)
+    name: Build RPM (${{ matrix.arch }})
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [aarch64, armv7hl, i486]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -41,14 +44,14 @@ jobs:
       - name: Build RPM package
         uses: R1tschY/sailfish-build-rpm@v1
         with:
-          arch: aarch64
+          arch: ${{ matrix.arch }}
           release: '5.1.0.11'
           output-dir: ./rpms
 
       - name: Upload RPM Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: harbour-notesplus-aarch64-rpm
+          name: harbour-notesplus-${{ matrix.arch }}-rpm
           path: ./rpms/*.rpm
           if-no-files-found: error
 
@@ -79,13 +82,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
-          echo "Creating release for tag: $TAG"
-          gh release create "$TAG" \
-            --repo "${{ github.repository }}" \
-            --title "Notes Plus $TAG" \
-            --generate-notes \
-            *.rpm \
-            sha256sums.txt
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — uploading missing artifacts"
+            gh release upload "$TAG" \
+              --repo "${{ github.repository }}" \
+              *.rpm \
+              sha256sums.txt || {
+              echo "Some artifacts already exist in the release — that's OK, missing ones were added."
+            }
+          else
+            echo "Creating release for tag: $TAG"
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "Notes Plus $TAG" \
+              --generate-notes \
+              *.rpm \
+              sha256sums.txt
+          fi
 
   openrepos-publish:
     name: Publish to OpenRepos.net
@@ -107,7 +120,10 @@ jobs:
         uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
-          install-chromedriver: true
+          install-chromedriver: false
+
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@master
 
       - name: Install OpenRepos WebClient
         run: |
@@ -124,13 +140,20 @@ jobs:
             exit 0
           fi
 
-          openrepos \
-            --username "$OPENREPOS_USERNAME" \
-            --password "$OPENREPOS_PASSWORD" \
-            --xvfb \
-            --webdriver chrome \
-            upload-rpm \
-              --appname harbour-notesplus \
-              --platform SailfishOS \
-              --category Applications \
-              ./dist/*.rpm
+          for RPM in ./dist/*.aarch64.rpm ./dist/*.armv7hl.rpm ./dist/*.i486.rpm; do
+            if [ ! -f "$RPM" ]; then
+              echo "::warning ::$RPM not found, skipping"
+              continue
+            fi
+            echo "Uploading $(basename "$RPM")..."
+            openrepos \
+              --username "$OPENREPOS_USERNAME" \
+              --password "$OPENREPOS_PASSWORD" \
+              --xvfb \
+              --webdriver chrome \
+              upload-rpm \
+                --appname harbour-notesplus \
+                --platform SailfishOS \
+                --category Applications \
+                "$RPM" || echo "::warning ::Failed to upload $(basename "$RPM"), continuing"
+          done

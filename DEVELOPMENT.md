@@ -35,11 +35,17 @@ cargo test -p notesplus-core -- server::tests::test_server_authentication_basic_
 
 ## 3. Building for Sailfish OS (`build-sailfish.sh`)
 
-Sailfish OS binaries are cross-compiled for `aarch64` using the `sfdk` Sailfish SDK Docker container (`sailfish-sdk-build-engine_gobuki`).
+Sailfish OS binaries are cross-compiled using the `sfdk` Sailfish SDK Docker container (`sailfish-sdk-build-engine_gobuki`). The default target is `aarch64`; use `SAILFISH_TARGET` to select another architecture.
 
 ### Build Command:
 ```bash
 ./build-sailfish.sh
+
+# armv7hl (Xperia XA2, Xperia 10, community ports):
+SAILFISH_TARGET=SailfishOS-5.1.0.11-armv7hl ./build-sailfish.sh
+
+# i486 (emulator):
+SAILFISH_TARGET=SailfishOS-5.1.0.11-i486 ./build-sailfish.sh
 ```
 
 ### What `build-sailfish.sh` does automatically:
@@ -49,9 +55,9 @@ Sailfish OS binaries are cross-compiled for `aarch64` using the `sfdk` Sailfish 
 2. **Rust 1.75 Lockfile Compatibility**:
    - Ensures `Cargo.lock` uses `version = 3` (supported by the SDK's Rust 1.75).
 3. **Executes `sfdk build` Directly In-Tree**:
-   - Runs `sfdk -c target=SailfishOS-5.1.0.11-aarch64 build` directly inside the project root directory.
+   - Runs `sfdk -c target=$SAILFISH_TARGET build` directly inside the project root directory (default: `SailfishOS-5.1.0.11-aarch64`).
 4. **Copies Artifacts**:
-   - Places the compiled `aarch64` binary in `target/aarch64-unknown-linux-gnu/release/` and generated RPM in `rpms/`.
+   - Places the compiled binary and generated RPM in `rpms/`.
 
 ---
 
@@ -152,7 +158,7 @@ The repository includes automated GitHub Actions workflows under `.github/workfl
 ### Problem 4: `GLIBC_2.33 not found` when building with older SDK targets
 - **Root Cause**: The `SailfishOS-4.6.0.13` tooling ships glibc 2.30. Rust's `serde_derive` proc-macro binary (and any proc-macro crate compiled inside sb2) gets linked against the tooling's glibc, which produces a `.so` requiring GLIBC 2.33+. The `SailfishOS-5.1.0.11` tooling ships glibc 2.41 which is sufficient.
 - **Scope**: This is NOT a dependency version issue — it affects ANY Rust project using proc-macros (serde, syn, etc.) on the 4.6 SDK. Downgrading crate versions does not help.
-- **Status**: Fundamental SDK toolchain limitation. Only `SailfishOS-5.1.0.11-aarch64` can build Rust projects.
+- **Status**: Resolved by using `SailfishOS-5.1.0.11` targets (aarch64, armv7hl, i486).
 
 ### Problem 5: `can't find crate for zerofrom_derive` / ICU dependency chain
 - **Root Cause**: `url` >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Unicode normalization stack (`icu_collections`, `icu_normalizer`, `displaydoc`, `zerofrom`). These proc-macro crates trigger sb2 cross-compilation bugs.
@@ -163,29 +169,39 @@ The repository includes automated GitHub Actions workflows under `.github/workfl
 
 ## 8. Device Compatibility
 
-### Current build target
+### Build targets
 
-All RPMs are built with `SailfishOS-5.1.0.11-aarch64`. This produces **aarch64** binaries linked against **glibc 2.32+**.
+RPMs are built with `SailfishOS-5.1.0.11` for three architectures:
 
-### Supported devices
+| SDK Target | RPM Arch | Rust Target Triple |
+|------------|----------|--------------------|
+| `SailfishOS-5.1.0.11-aarch64` | aarch64 | `aarch64-unknown-linux-gnu` |
+| `SailfishOS-5.1.0.11-armv7hl` | armv7hl | `armv7-unknown-linux-gnueabihf` |
+| `SailfishOS-5.1.0.11-i486` | i486 | `i686-unknown-linux-gnu` |
 
-| Device | Arch | Sailfish OS | Compatible |
-|--------|------|-------------|------------|
-| Jolla C2 | aarch64 | 5.1+ | Yes |
-| Xperia 10 II / III / IV | aarch64 | 4.5+ | Yes (if SFOS 5.1+) |
-| Xperia XA2 (64-bit SFOS) | aarch64 | 5.0+ | No — SDK glibc 2.32+ required, device has 2.30 |
-| Xperia XA2 (32-bit SFOS) | armv7hl | 4.6 | No — architecture mismatch |
-| Jolla C | armv7hl | 4.x | No — architecture mismatch |
-| Jolla 1 | armv7l | 3.4 | No — architecture mismatch + too old |
+All SDK 5.1 targets ship glibc 2.41, which is sufficient for Rust proc-macro crates.
 
-### Why not older targets?
+### Verified devices
 
-**SailfishOS-4.6.0.13-aarch64** was tested to support older devices (glibc 2.30). It fails because the SDK tooling's glibc 2.30 is too old — Rust proc-macro crates (`serde_derive`, `syn`, etc.) compiled inside sb2 produce `.so` files requiring GLIBC 2.33+. This is a fundamental SDK toolchain limitation, not a dependency version issue.
+| Device | Arch | Sailfish OS | Status |
+|--------|------|-------------|--------|
+| Jolla C2 | aarch64 | 5.1+ | Verified |
+| Xperia 10 III | aarch64 | 5.1+ | Verified |
+| Jolla Phone 2026 | aarch64 | 5.1+ | Verified |
+| Xperia 10 II / IV / V | aarch64 | 4.5+ | Compatible (if SFOS 5.1+) |
+| Xperia XA2 / XA2 Plus / XA2 Ultra | armv7hl | 4.6+ | Compatible (armv7hl RPM) |
+| Xperia 10 / 10 Plus (1st gen) | armv7hl | 3.2+ | Compatible (armv7hl RPM, if SFOS 5.1+) |
+| Sailfish OS Emulator | i486 | 5.1+ | Compatible (i486 RPM) |
 
-**armv7hl** builds are blocked by:
-1. sb2 SIGSEGV in `libsb2.so.1(opendir)` during Rust cross-compilation
-2. The `ring` crate's `build.rs` passes x86 host flags to the ARM cross-compiler
-3. The same glibc limitation as aarch64 (4.6 tooling glibc too old for proc-macros)
+### Historical blockers (now resolved)
+
+The following blockers previously prevented armv7hl builds with SDK 4.6:
+
+1. **glibc 2.30 too old** — Resolved: SDK 5.1 ships glibc 2.41.
+2. **sb2 SIGSEGV in `libsb2.so.1(opendir)`** — Was specific to the 4.6 SDK's sb2 version. SDK 5.1 includes a newer sb2.
+3. **`ring` / `cc` crate can't find cross-compiler** — The `cc` crate defaults to looking for `arm-linux-gnueabihf-gcc` / `arm-linux-gnueabihf-g++`, which don't exist in sb2. In sb2, `gcc`/`g++` are transparent cross-compiler wrappers. Fix: `export CC=gcc` and `export CXX=g++` in the spec file's `%build` section.
+4. **`__fp16` type unavailable on armv7** — The vendored whisper.cpp uses `__fp16` (a GCC ARM extension) which is not supported by the sb2 armv7 GCC. Fix: `build.rs` defines `__fp16` as `uint16_t` when targeting `arm`.
+5. **Stale object files from previous architecture** — In-tree builds leave `.o` files from the previous architecture. Fix: `make distclean` before `qmake` in the spec file.
 
 ### Dependency note: `url` crate and ICU chain
 
@@ -195,6 +211,13 @@ The `url` crate >=2.5.3 pulls in `idna` >=1.0 which depends on the full ICU4C Un
 cargo update -p url --precise 2.5.2
 ```
 
-### Building for older Sailfish versions
+### Building for a specific architecture
 
-Currently not possible for Rust-based apps due to SDK toolchain limitations. The app will only install on Sailfish OS 5.1+ aarch64 devices.
+The default build target is `aarch64`. To build for another architecture:
+
+```bash
+SAILFISH_TARGET=SailfishOS-5.1.0.11-armv7hl ./build-sailfish.sh
+SAILFISH_TARGET=SailfishOS-5.1.0.11-i486 ./build-sailfish.sh
+```
+
+The CI pipelines build all three architectures automatically on every push and release.

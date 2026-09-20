@@ -17,6 +17,8 @@ fn build_whisper_cpp() {
 
     println!("cargo:rerun-if-changed={}", dir);
 
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+
     let mut c_build = cc::Build::new();
     c_build
         .include(dir)
@@ -28,6 +30,12 @@ fn build_whisper_cpp() {
         .flag_if_supported("-w")
         .define("_GNU_SOURCE", None)
         .define("NDEBUG", None);
+
+    // On 32-bit ARM, __fp16 may not be available — fall back to uint16_t storage
+    if target_arch == "arm" {
+        c_build.define("__fp16", "uint16_t");
+    }
+
     c_build.compile("ggml");
 
     let mut cxx_build = cc::Build::new();

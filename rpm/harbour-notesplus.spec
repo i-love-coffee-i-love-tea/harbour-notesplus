@@ -38,6 +38,10 @@ full-text search, HTML5 export, and embedded documentation web server.
 export QMAKE=/usr/bin/qmake
 
 # Cross-compilation setup
+# In sb2, gcc/g++ are cross-compiler wrappers — tell the cc crate to use them
+export CC=gcc
+export CXX=g++
+
 %ifarch aarch64
 export SB2_RUST_TARGET_TRIPLE=aarch64-unknown-linux-gnu
 export CFLAGS_aarch64_unknown_linux_gnu=$CFLAGS
@@ -77,6 +81,8 @@ ls -la "$RUST_TARGET_DIR/libnotesplus_core.a" || {
 
 # Step 2: Build the C++ bridge using qmake (links the Rust static lib)
 cd notesplus-sailfish
+# Clean stale object files from previous architecture builds
+make distclean 2>/dev/null || rm -f *.o moc_* harbour-notesplus Makefile 2>/dev/null || true
 qmake harbour-notesplus.pro \
     "RUST_CORE_LIB=$PWD/../$RUST_TARGET_DIR/libnotesplus_core.a"
 make -j$(nproc)

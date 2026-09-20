@@ -69,12 +69,18 @@ More screenshots: [docs/screenshots/](docs/screenshots/)
 
 - [Sailfish OS SDK](https://docs.sailfishos.org/Tools/Sailfish_SDK/) with Docker engine
 - `sfdk` in PATH
-- Build target: `SailfishOS-5.1.0.11-aarch64` (configurable via `SAILFISH_TARGET` env var)
+- Build target: `SailfishOS-5.1.0.11-aarch64` (default), `SailfishOS-5.1.0.11-armv7hl`, or `SailfishOS-5.1.0.11-i486` (configurable via `SAILFISH_TARGET` env var)
 
 ### Build
 
 ```bash
 ./build-sailfish.sh
+
+# armv7hl (Xperia XA2, Xperia 10, community ports):
+SAILFISH_TARGET=SailfishOS-5.1.0.11-armv7hl ./build-sailfish.sh
+
+# i486 (emulator):
+SAILFISH_TARGET=SailfishOS-5.1.0.11-i486 ./build-sailfish.sh
 ```
 
 ### Deploy to Phone
