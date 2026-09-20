@@ -38,8 +38,14 @@ pub extern "C" fn notes_core_page_save_source(
             let name = cstr_to_string(name);
             let content = cstr_to_string(content);
             match page::save_and_index_page(conn, &dir, &name, &content) {
-                Ok(_) => 0,
-                Err(_) => -1,
+                Ok(info) => {
+                    eprintln!("[save_source] OK: '{}' saved, {} bytes", info.filename, content.len());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("[save_source] FAILED '{}': {:?}", name, e);
+                    -1
+                }
             }
         })
     }
@@ -64,8 +70,14 @@ pub extern "C" fn notes_core_page_create(
                 if s.is_empty() { None } else { Some(s) }
             };
             match page::create_page(conn, &dir, &name, false, color_str.as_deref()) {
-                Ok(_) => 0,
-                Err(_) => -1,
+                Ok(info) => {
+                    eprintln!("[create_page] OK: '{}' ({})", info.filename, info.title);
+                    0
+                }
+                Err(e) => {
+                    eprintln!("[create_page] FAILED '{}': {:?}", name, e);
+                    -1
+                }
             }
         })
     }
@@ -203,18 +215,26 @@ pub extern "C" fn notes_core_rebuild_index(
     }
 }
 
-/// Copy example and documentation notes to user notes directory. Returns 0 on success.
+/// Copy example and documentation notes to user notes directory.
+/// Skips if the bundled docs version marker matches the current app version.
+/// Returns 0 on success.
 #[no_mangle]
 pub extern "C" fn notes_core_copy_examples(
     conn: *mut rusqlite::Connection,
     notes_dir: *const c_char,
     examples_dir: *const c_char,
+    app_version: *const c_char,
 ) -> i32 {
     unsafe {
         with_conn_mut(conn, -1, |conn| {
             let notes = cstr_to_path(notes_dir);
             let examples = cstr_to_path(examples_dir);
-            match page::copy_examples(conn, &notes, &examples, "") {
+            let version = if app_version.is_null() {
+                String::new()
+            } else {
+                cstr_to_string(app_version)
+            };
+            match page::copy_examples(conn, &notes, &examples, "", &version) {
                 Ok(_) => 0,
                 Err(_) => -1,
             }
@@ -337,7 +357,10 @@ pub extern "C" fn notes_core_page_save_block(
             // Read current page content
             let content = match page::read_page(&dir, &path) {
                 Ok(c) => c,
-                Err(_) => return -1,
+                Err(e) => {
+                    eprintln!("[save_block] FAILED to read page '{}': {:?}", path, e);
+                    return -1;
+                }
             };
 
             let mut blocks = parser::parse_blocks_with_options(&content, drop);
@@ -345,6 +368,7 @@ pub extern "C" fn notes_core_page_save_block(
             let cnt = count.max(1) as usize;
 
             if start >= blocks.len() {
+                eprintln!("[save_block] index {} >= blocks.len() {}", start, blocks.len());
                 return -1;
             }
 
@@ -355,8 +379,14 @@ pub extern "C" fn notes_core_page_save_block(
 
             let new_content = parser::blocks_to_adoc(&blocks);
             match page::save_and_index_page(conn, &dir, &path, &new_content) {
-                Ok(_) => 0,
-                Err(_) => -1,
+                Ok(info) => {
+                    eprintln!("[save_block] OK: '{}' saved, {} bytes", info.filename, new_content.len());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("[save_block] FAILED to save '{}': {:?}", path, e);
+                    -1
+                }
             }
         })
     }

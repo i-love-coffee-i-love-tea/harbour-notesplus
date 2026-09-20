@@ -31,3 +31,8 @@ pub extern "C" fn notes_core_const_default_system_prompt() -> *mut c_char {
 pub extern "C" fn notes_core_const_default_server_port() -> u16 {
     constants::DEFAULT_SERVER_PORT
 }
+
+#[no_mangle]
+pub extern "C" fn notes_core_const_app_version() -> *mut c_char {
+    string_to_c(env!("CARGO_PKG_VERSION").to_string())
+}

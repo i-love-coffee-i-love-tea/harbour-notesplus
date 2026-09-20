@@ -82,9 +82,6 @@ Page {
         var target = getActiveEditorTextArea()
         if (target) {
             target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
         }
     }
 
@@ -95,7 +92,7 @@ Page {
         })
         dialog.statusChanged.connect(function() {
             if (dialog.status === PageStatus.Inactive)
-                Qt.callLater(mainPage.refocusActiveEditor)
+                mainPage.refocusActiveEditor()
         })
     }
 
@@ -110,7 +107,6 @@ Page {
             focusCb: function(t) {
                 if (t) {
                     t.forceActiveFocus()
-                    Qt.callLater(function() { if (t) t.forceActiveFocus() })
                 }
             }
         }
@@ -247,9 +243,7 @@ Page {
         newJournalBlockText = ""
         isAddingJournalBlock = true
         currentEditorTextArea = journalInlineNewTextArea
-        Qt.callLater(function() {
-            journalInlineNewTextArea.forceActiveFocus()
-        })
+        journalInlineNewTextArea.forceActiveFocus()
     }
 
     function saveNewJournalBlock() {

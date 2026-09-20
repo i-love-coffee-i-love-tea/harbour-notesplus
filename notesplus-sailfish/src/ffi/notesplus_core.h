@@ -38,6 +38,7 @@ char* notes_core_const_default_ai_endpoint(void);
 char* notes_core_const_default_ai_model(void);
 char* notes_core_const_default_system_prompt(void);
 uint16_t notes_core_const_default_server_port(void);
+char* notes_core_const_app_version(void);
 
 /* ------------------------------------------------------------------ */
 /* AppPaths                                                            */
@@ -69,7 +70,7 @@ int   notes_core_page_set_color(void* conn, const char* notes_dir, const char* n
 char* notes_core_page_extract_title(const char* content, const char* fallback);
 int   notes_core_sync_index(void* conn, const char* notes_dir);
 int   notes_core_rebuild_index(void* conn, const char* notes_dir);
-int   notes_core_copy_examples(void* conn, const char* notes_dir, const char* examples_dir);
+int   notes_core_copy_examples(void* conn, const char* notes_dir, const char* examples_dir, const char* app_version);
 char* notes_core_recent_pages_json(void* conn, int limit);
 
 /* ------------------------------------------------------------------ */

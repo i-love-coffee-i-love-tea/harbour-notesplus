@@ -615,10 +615,21 @@ pub fn set_page_color(
 /// Copy example .adoc files to the notes directory on first run
 /// and register them in the database under the given group.
 /// Skips copying if the target directory already contains .adoc files (not first run).
-pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, target_group: &str) -> Result<(), NotesError> {
+pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, target_group: &str, app_version: &str) -> Result<(), NotesError> {
     if !examples_dir.exists() {
         return Ok(());
     }
+
+    // Skip if bundled docs are already up to date for this version
+    let marker_path = notes_dir.join(".bundled_docs_version");
+    if !app_version.is_empty() {
+        if let Ok(stored) = std::fs::read_to_string(&marker_path) {
+            if stored.trim() == app_version {
+                return Ok(());
+            }
+        }
+    }
+
     // Clean up any legacy unsanitized "Notes Plus Documentation" folder if present
     let legacy_doc_dir = notes_dir.join("Notes Plus Documentation");
     if legacy_doc_dir.exists() {
@@ -631,21 +642,13 @@ pub fn copy_examples(conn: &Connection, notes_dir: &Path, examples_dir: &Path, t
         let _ = std::fs::create_dir_all(&d);
         d
     };
-    // Skip if target already has .adoc files (examples were already copied)
-    if !target_group.is_empty() {
-        let has_adoc = std::fs::read_dir(&dest_dir)
-            .ok()
-            .and_then(|mut entries| entries.find(|e| {
-                e.as_ref().ok().map_or(false, |e| {
-                    e.path().extension().and_then(|ext| ext.to_str()) == Some("adoc")
-                })
-            }))
-            .is_some();
-        if has_adoc {
-            return Ok(());
-        }
-    }
     copy_dir_recursive(conn, notes_dir, examples_dir, &dest_dir, target_group, false)?;
+
+    // Save version marker so we skip next time
+    if !app_version.is_empty() {
+        let _ = std::fs::write(&marker_path, app_version);
+    }
+
     Ok(())
 }
 

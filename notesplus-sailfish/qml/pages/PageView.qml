@@ -61,9 +61,7 @@ Page {
         if (initialAnchor && initialAnchor.length > 0 && parsedBlocks && parsedBlocks.length > 0) {
             var anchor = initialAnchor
             initialAnchor = ""
-            Qt.callLater(function() {
-                pageView.jumpToAnchor(anchor)
-            })
+            pageView.jumpToAnchor(anchor)
         }
     }
 
@@ -643,9 +641,6 @@ Page {
         var target = getActiveEditorTextArea()
         if (target) {
             target.forceActiveFocus()
-            Qt.callLater(function() {
-                if (target) target.forceActiveFocus()
-            })
         }
     }
 
@@ -656,7 +651,7 @@ Page {
         })
         dialog.statusChanged.connect(function() {
             if (dialog.status === PageStatus.Inactive)
-                Qt.callLater(pageView.refocusActiveEditor)
+                pageView.refocusActiveEditor()
         })
     }
 
@@ -671,7 +666,6 @@ Page {
             focusCb: function(t) {
                 if (t) {
                     t.forceActiveFocus()
-                    Qt.callLater(function() { if (t) t.forceActiveFocus() })
                 }
             }
         }
@@ -783,10 +777,8 @@ Page {
         newBlockText = ""
         isAddingNewBlock = true
         currentEditorTextArea = inlineNewTextArea
-        Qt.callLater(function() {
-            listView.positionViewAtEnd()
-            inlineNewTextArea.forceActiveFocus()
-        })
+        listView.positionViewAtEnd()
+        inlineNewTextArea.forceActiveFocus()
     }
 
     function saveNewBlock() {
