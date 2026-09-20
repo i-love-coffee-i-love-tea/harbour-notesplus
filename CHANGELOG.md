@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 (2026-09-20)
+
+### Added
+
+- System Prompt & Persona and Action Templates as standalone entries on the main settings page
+- Whisperfish attribution on the About page as a build reference inspiration
+- AI action template properties and management functions consolidated into AppSettings component
+
+### Changed
+
+- Use chat icon for System Prompt & Persona settings entry
+- Use robot icon for AI Assistant settings entry
+- Narrow AI Assistant settings description to tool permissions
+
 ## 0.2.1 (2026-09-19)
 
 ### Added

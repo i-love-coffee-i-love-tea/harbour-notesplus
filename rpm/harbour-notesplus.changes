@@ -1,11 +1,10 @@
 # harbour-notesplus changelog
 
-* Sat Sep 19 2026 gobuki <github.com@gobuki.org> 0.2.1-1
-- Automatic provisioning and synchronization of bundled documentation on app launch
-- Package architecture decision records (ADRs) and user documentation directly in application RPM
-- Precompiled Vue templates eliminating runtime eval and enabling strict CSP headers
-- Restructure Sailfish QML directory layout into dedicated subdirectories
-- Validate AsciiDoc format for Architecture Decision Records in release tooling
-- Restore original AsciiDoc ADR numbering (001–013)
-- Update test suite paths for restructured QML components
+* Sun Sep 20 2026 gobuki <github.com@gobuki.org> 0.3.0-1
+- System Prompt & Persona and Action Templates as standalone entries on the main settings page
+- Whisperfish attribution on the About page as a build reference inspiration
+- AI action template properties and management functions consolidated into AppSettings component
+- Use chat icon for System Prompt & Persona settings entry
+- Use robot icon for AI Assistant settings entry
+- Narrow AI Assistant settings description to tool permissions
 

@@ -1,6 +1,6 @@
 Name:       harbour-notesplus
 Summary:    Notes Plus — AsciiDoc notes app for Sailfish OS
-Version:    0.2.1
+Version:    0.3.0
 Release:    1
 Group:      Utilities
 License:    MIT
