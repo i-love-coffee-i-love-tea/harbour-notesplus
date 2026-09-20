@@ -69,7 +69,7 @@ Page {
 
                     Icon {
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "image://theme/icon-m-browser"
+                        source: "image://theme/icon-m-website"
                         color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                     }
 
@@ -164,7 +164,85 @@ Page {
 
                         Label {
                             width: parent.width
-                            text: qsTr("LLM provider, model configuration, and prompts")
+                            text: qsTr("LLM provider, model configuration, and tool permissions")
+                            color: Theme.secondaryColor
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            truncationMode: TruncationMode.Fade
+                        }
+                    }
+                }
+            }
+
+            BackgroundItem {
+                width: parent.width
+                height: Theme.itemSizeMedium
+                onClicked: pageStack.push(Qt.resolvedUrl("SystemPromptPage.qml"))
+
+                Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin
+                    spacing: Theme.paddingMedium
+
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "image://theme/icon-m-document"
+                        color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    }
+
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - Theme.iconSizeMedium - Theme.paddingMedium
+
+                        Label {
+                            width: parent.width
+                            text: qsTr("System Prompt & Persona")
+                            color: parent.parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            font.pixelSize: Theme.fontSizeMedium
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: qsTr("Base prompt template and custom system instructions")
+                            color: Theme.secondaryColor
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            truncationMode: TruncationMode.Fade
+                        }
+                    }
+                }
+            }
+
+            BackgroundItem {
+                width: parent.width
+                height: Theme.itemSizeMedium
+                onClicked: pageStack.push(Qt.resolvedUrl("CustomInstructionsPage.qml"))
+
+                Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.horizontalPageMargin
+                    anchors.rightMargin: Theme.horizontalPageMargin
+                    spacing: Theme.paddingMedium
+
+                    Icon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        source: "image://theme/icon-m-levels"
+                        color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    }
+
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - Theme.iconSizeMedium - Theme.paddingMedium
+
+                        Label {
+                            width: parent.width
+                            text: qsTr("Action Templates")
+                            color: parent.parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            font.pixelSize: Theme.fontSizeMedium
+                        }
+
+                        Label {
+                            width: parent.width
+                            text: qsTr("One-tap prompt buttons for the AI chat composer")
                             color: Theme.secondaryColor
                             font.pixelSize: Theme.fontSizeExtraSmall
                             truncationMode: TruncationMode.Fade

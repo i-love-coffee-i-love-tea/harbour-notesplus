@@ -110,6 +110,23 @@ Page {
                 }
             }
 
+            InfoCard {
+                Label {
+                    width: parent.width
+                    text: "Whisperfish"
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: true
+                }
+                Label {
+                    width: parent.width
+                    text: qsTr("Used as a reference for building a Rust-based application with the Sailfish SDK, including sfdk cross-compilation, static library linking, and RPM packaging. By Ruben De Smet and contributors.")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    wrapMode: Text.Wrap
+                }
+            }
+
             SectionHeader {
                 text: qsTr("Third-Party Libraries & Attributions")
             }

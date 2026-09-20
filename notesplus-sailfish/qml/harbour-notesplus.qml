@@ -4,7 +4,6 @@ import harbour.notesplus 1.0
 import "pages"
 import "cover"
 import "components/common"
-import "js/AiInstructionsManager.js" as AiInstructions
 
 ApplicationWindow {
     id: app
@@ -64,34 +63,16 @@ ApplicationWindow {
     property alias aiAllowSelfSigned: appSettings.aiAllowSelfSigned
     property alias aiSystemPrompt: appSettings.aiSystemPrompt
 
-    readonly property var defaultCustomAiInstructions: AiInstructions.defaultCustomAiInstructions
-    property var customAiInstructions: AiInstructions.parseCustomAiInstructions(appSettings.customAiInstructionsRaw)
+    property alias defaultCustomAiInstructions: appSettings.defaultCustomAiInstructions
+    property alias customAiInstructions: appSettings.customAiInstructions
 
-    function isDefaultAiInstruction(id) {
-        return AiInstructions.isDefaultAiInstruction(id)
-    }
+    function isDefaultAiInstruction(id) { return appSettings.isDefaultAiInstruction(id) }
+    function getDefaultAiInstruction(id) { return appSettings.getDefaultAiInstruction(id) }
 
-    function getDefaultAiInstruction(id) {
-        return AiInstructions.getDefaultAiInstruction(id)
-    }
-
-    function saveCustomAiInstruction(item) {
-        appSettings.setCustomAiInstructionsRaw(AiInstructions.saveCustomAiInstruction(customAiInstructions, item))
-    }
-
-    function deleteCustomAiInstruction(id) {
-        appSettings.setCustomAiInstructionsRaw(AiInstructions.deleteCustomAiInstruction(customAiInstructions, id))
-    }
-
-    function resetSingleAiInstruction(id) {
-        var def = getDefaultAiInstruction(id)
-        if (!def) return
-        saveCustomAiInstruction(def)
-    }
-
-    function resetCustomAiInstructions() {
-        appSettings.setCustomAiInstructionsRaw(AiInstructions.resetCustomAiInstructions(customAiInstructions))
-    }
+    function saveCustomAiInstruction(item) { appSettings.saveCustomAiInstruction(item) }
+    function deleteCustomAiInstruction(id) { appSettings.deleteCustomAiInstruction(id) }
+    function resetSingleAiInstruction(id) { appSettings.resetSingleAiInstruction(id) }
+    function resetCustomAiInstructions() { appSettings.resetCustomAiInstructions() }
 
     function setFontScale(scale) {
         appSettings.setFontScale(scale)

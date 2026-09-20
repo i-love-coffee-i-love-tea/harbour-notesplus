@@ -1,5 +1,6 @@
 import QtQuick 2.6
 import Nemo.Configuration 1.0
+import "../../js/AiInstructionsManager.js" as AiInstructions
 
 Item {
     id: settings
@@ -216,6 +217,9 @@ Item {
     property string customAiInstructionsRaw: customAiInstructionsConf.value !== undefined ? customAiInstructionsConf.value : ""
     property string aiSystemPrompt: aiSystemPromptConf.value !== undefined ? aiSystemPromptConf.value : ""
 
+    readonly property var defaultCustomAiInstructions: AiInstructions.defaultCustomAiInstructions
+    property var customAiInstructions: AiInstructions.parseCustomAiInstructions(customAiInstructionsRaw)
+
     property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
     property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""
     property string notesPath: notesPathConf.value !== undefined ? notesPathConf.value : ""
@@ -249,6 +253,30 @@ Item {
     function setAiAllowSelfSigned(v) { aiAllowSelfSignedConf.value = v; }
     function setCustomAiInstructionsRaw(v) { customAiInstructionsConf.value = v; }
     function setAiSystemPrompt(v) { aiSystemPromptConf.value = v; }
+
+    function isDefaultAiInstruction(id) { return AiInstructions.isDefaultAiInstruction(id) }
+    function getDefaultAiInstruction(id) { return AiInstructions.getDefaultAiInstruction(id) }
+
+    function saveCustomAiInstruction(item) {
+        customAiInstructionsConf.value = AiInstructions.saveCustomAiInstruction(customAiInstructions, item)
+        customAiInstructions = AiInstructions.parseCustomAiInstructions(customAiInstructionsConf.value)
+    }
+
+    function deleteCustomAiInstruction(id) {
+        customAiInstructionsConf.value = AiInstructions.deleteCustomAiInstruction(customAiInstructions, id)
+        customAiInstructions = AiInstructions.parseCustomAiInstructions(customAiInstructionsConf.value)
+    }
+
+    function resetSingleAiInstruction(id) {
+        var def = AiInstructions.getDefaultAiInstruction(id)
+        if (!def) return
+        saveCustomAiInstruction(def)
+    }
+
+    function resetCustomAiInstructions() {
+        customAiInstructionsConf.value = AiInstructions.resetCustomAiInstructions(customAiInstructions)
+        customAiInstructions = AiInstructions.parseCustomAiInstructions(customAiInstructionsConf.value)
+    }
 
     function setSttEnabled(v) { sttEnabledConf.value = v; }
     function setSttModel(v) { sttModelConf.value = v; }

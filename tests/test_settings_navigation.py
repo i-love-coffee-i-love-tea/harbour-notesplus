@@ -18,6 +18,13 @@ def test_settings_page_category_navigation():
     assert 'text: qsTr("AI Assistant")' in content
     assert 'text: qsTr("Speech Recognition")' in content
 
+    # Category icons present and valid
+    assert 'source: "image://theme/icon-m-edit"' in content
+    assert 'source: "image://theme/icon-m-website"' in content
+    assert 'source: "image://theme/icon-m-document"' in content
+    assert 'source: "image://theme/icon-m-developer-mode"' in content
+    assert 'source: "image://theme/icon-m-mic"' in content
+
     # Subpage links
     assert 'pageStack.push(Qt.resolvedUrl("DisplaySettingsPage.qml"))' in content
     assert 'pageStack.push(Qt.resolvedUrl("WebSettingsPage.qml"))' in content
