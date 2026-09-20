@@ -451,14 +451,14 @@ def test_pageview_prompts_on_existing_pdf():
     assert 'acceptText: qsTr("Overwrite")' in content
 
 
-def test_services_settings_tab_prompts_on_existing_pdf():
-    """Verify ServicesSettingsTab.qml prompts before batch exporting if PDFs already exist."""
-    path = "notesplus-sailfish/qml/components/settings/ServicesSettingsTab.qml"
+def test_backup_page_prompts_on_existing_pdf():
+    """Verify BackupPage.qml prompts before batch exporting if PDFs already exist."""
+    path = "notesplus-sailfish/qml/pages/BackupPage.qml"
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
     assert "bridge.any_pdf_export_exists()" in content
-    assert 'pageStack.push(Qt.resolvedUrl("../../dialogs/ConfirmDialog.qml")' in content
+    assert 'pageStack.push(Qt.resolvedUrl("../dialogs/ConfirmDialog.qml")' in content
     assert 'title: qsTr("Overwrite Existing PDFs?")' in content
     assert 'acceptText: qsTr("Overwrite")' in content
 

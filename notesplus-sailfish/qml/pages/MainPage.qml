@@ -301,6 +301,12 @@ Page {
                 }
             }
             MenuItem {
+                text: qsTr("Backup & Export")
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("BackupPage.qml"))
+                }
+            }
+            MenuItem {
                 text: qsTr("Settings")
                 onClicked: {
                     pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))

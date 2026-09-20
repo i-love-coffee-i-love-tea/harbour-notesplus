@@ -258,22 +258,24 @@ def test_qml_components_storage_migration_integration():
     assert "bridge.migration_success" in dialog
     assert "bridge.migration_error" in dialog
 
-    # 3. ServicesSettingsTab.qml
-    services_tab_path = "notesplus-sailfish/qml/components/settings/ServicesSettingsTab.qml"
-    assert os.path.exists(services_tab_path)
-    with open(services_tab_path, "r", encoding="utf-8") as f:
-        services_tab = f.read()
-    assert 'text: qsTr("Storage Location")' in services_tab
-    assert 'id: notesPathField' in services_tab
-    assert "bridge.notes_dir" in services_tab
-    assert "bridge.default_notes_dir" in services_tab
-    assert 'text: qsTr("Migrate Storage...")' in services_tab
-    assert "MigrateStorageDialog.qml" in services_tab
-    assert 'text: qsTr("Reset to Default")' in services_tab
+    # 3. StorageSettingsPage.qml (dedicated Storage category)
+    storage_page_path = "notesplus-sailfish/qml/pages/StorageSettingsPage.qml"
+    assert os.path.exists(storage_page_path)
+    with open(storage_page_path, "r", encoding="utf-8") as f:
+        storage_page = f.read()
+    assert 'text: qsTr("Storage Location")' in storage_page
+    assert 'id: notesPathField' in storage_page
+    assert "bridge.notes_dir" in storage_page
+    assert "bridge.default_notes_dir" in storage_page
+    assert 'text: qsTr("Migrate Storage...")' in storage_page
+    assert "MigrateStorageDialog.qml" in storage_page
+    assert 'text: qsTr("Reset to Default")' in storage_page
+    assert 'text: qsTr("Database & Search Index")' in storage_page
+    assert 'text: qsTr("Rebuild Search Index")' in storage_page
 
     # Ensure no remorse popup is executed after leaving MigrateStorageDialog
-    storage_section = services_tab.split('qsTr("Storage Location")')[1].split('qsTr("Web Server")')[0]
-    assert "servicesRemorsePopup" not in storage_section
+    storage_section = storage_page.split('qsTr("Storage Location")')[1].split('qsTr("Database & Search Index")')[0]
+    assert "storageRemorsePopup" not in storage_section
 
     # 4. harbour-notesplus.qml
     main_qml_path = "notesplus-sailfish/qml/harbour-notesplus.qml"
