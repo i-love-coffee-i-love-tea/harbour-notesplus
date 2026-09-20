@@ -201,7 +201,7 @@ Item {
     property string bindAddress: bindAddressConf.value !== undefined ? bindAddressConf.value : "0.0.0.0"
     property int sessionExpiryHours: sessionExpiryHoursConf.value !== undefined ? sessionExpiryHoursConf.value : 24
     property int groupDisplayDepth: groupDisplayDepthConf.value !== undefined ? groupDisplayDepthConf.value : 2
-    property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : true
+    property bool journalEnabled: journalEnabledConf.value !== undefined ? journalEnabledConf.value : false
 
     property bool aiEnabled: aiEnabledConf.value !== undefined ? aiEnabledConf.value : true
     property string aiProvider: aiProviderConf.value !== undefined ? aiProviderConf.value : "ollama"

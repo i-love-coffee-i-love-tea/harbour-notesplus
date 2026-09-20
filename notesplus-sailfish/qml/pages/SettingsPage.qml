@@ -147,7 +147,7 @@ Page {
 
                     Icon {
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "image://theme/icon-m-developer-mode"
+                        source: "image://theme/icon-m-android"
                         color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                     }
 
@@ -186,7 +186,7 @@ Page {
 
                     Icon {
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "image://theme/icon-m-document"
+                        source: "image://theme/icon-m-chat"
                         color: parent.parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                     }
 

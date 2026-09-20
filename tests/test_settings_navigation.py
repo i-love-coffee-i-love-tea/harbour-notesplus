@@ -22,7 +22,7 @@ def test_settings_page_category_navigation():
     assert 'source: "image://theme/icon-m-edit"' in content
     assert 'source: "image://theme/icon-m-website"' in content
     assert 'source: "image://theme/icon-m-document"' in content
-    assert 'source: "image://theme/icon-m-developer-mode"' in content
+    assert 'source: "image://theme/icon-m-android"' in content
     assert 'source: "image://theme/icon-m-mic"' in content
 
     # Subpage links

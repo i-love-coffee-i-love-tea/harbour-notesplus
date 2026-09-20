@@ -709,7 +709,7 @@ use crate::inline::InlineSpan;
     #[test]
     fn parse_blocks_advanced_demo_does_not_panic() {
         // This is the actual file that caused the crash
-        let text = include_str!("../../examples/advanced-demo.adoc");
+        let text = include_str!("../../examples/Notes_Plus_Documentation/Examples/advanced-demo.adoc");
         let _blocks = parse_blocks(text);
         // Must not panic — that's the only assertion
     }
@@ -1063,7 +1063,7 @@ use crate::inline::InlineSpan;
 
     #[test]
     fn test_parse_full_chronicles_example() {
-        let chronicles_adoc = include_str!("../../examples/chronicles.adoc");
+        let chronicles_adoc = include_str!("../../examples/Notes_Plus_Documentation/Examples/chronicles.adoc");
         let blocks = parse_blocks(chronicles_adoc);
 
         // Verify that blocks after the deep dots ordered list item are correctly parsed

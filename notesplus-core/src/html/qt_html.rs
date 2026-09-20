@@ -927,7 +927,7 @@ mod tests {
 
     #[test]
     fn full_example_chronicles() {
-        let adoc = include_str!("../../examples/chronicles.adoc");
+        let adoc = include_str!("../../examples/Notes_Plus_Documentation/Examples/chronicles.adoc");
         let blocks = parser::parse_blocks(adoc);
         let html = render_qt_block(&blocks[0], 0, &default_theme(), &default_opts());
         // Should produce valid-looking HTML without panics
