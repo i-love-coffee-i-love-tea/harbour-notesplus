@@ -93,6 +93,23 @@ Page {
                 }
             }
 
+            InfoCard {
+                Label {
+                    width: parent.width
+                    text: "Asciidoctor"
+                    color: Theme.highlightColor
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: true
+                }
+                Label {
+                    width: parent.width
+                    text: qsTr("Used the sample document from Asciidoctor PDF and its reference renderings to verify AsciiDoc rendering correctness. By Dan Allen and the Asciidoctor community.")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    wrapMode: Text.Wrap
+                }
+            }
+
             SectionHeader {
                 text: qsTr("Third-Party Libraries & Attributions")
             }
