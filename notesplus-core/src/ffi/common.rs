@@ -2,10 +2,58 @@ use std::ffi::{CStr, CString};
 use std::fmt::Write;
 use std::os::raw::c_char;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use crate::block::{collect_footnotes, Block};
 use crate::html;
 use crate::html::qt_html::{QtRenderOptions, QtThemeColors};
+
+/// Thread-safe wrapper around a SQLite database connection for FFI consumers.
+pub struct DbConn {
+    pub inner: Mutex<rusqlite::Connection>,
+}
+
+impl DbConn {
+    pub fn new(conn: rusqlite::Connection) -> Self {
+        Self {
+            inner: Mutex::new(conn),
+        }
+    }
+}
+
+/// Safely execute an FFI closure with shared reference to the connection, guarding against concurrent access and panics.
+pub unsafe fn with_conn<F, R>(conn_ptr: *mut rusqlite::Connection, default: R, f: F) -> R
+where
+    F: FnOnce(&rusqlite::Connection) -> R + std::panic::UnwindSafe,
+    R: std::panic::UnwindSafe,
+{
+    if conn_ptr.is_null() {
+        return default;
+    }
+    let db_conn = &*(conn_ptr as *const DbConn);
+    let guard = match db_conn.inner.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&guard))).unwrap_or(default)
+}
+
+/// Safely execute an FFI closure with mutable reference to the connection, guarding against concurrent access and panics.
+pub unsafe fn with_conn_mut<F, R>(conn_ptr: *mut rusqlite::Connection, default: R, f: F) -> R
+where
+    F: FnOnce(&mut rusqlite::Connection) -> R + std::panic::UnwindSafe,
+    R: std::panic::UnwindSafe,
+{
+    if conn_ptr.is_null() {
+        return default;
+    }
+    let db_conn = &*(conn_ptr as *const DbConn);
+    let mut guard = match db_conn.inner.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut guard))).unwrap_or(default)
+}
 
 /// Render blocks to JSON array with pre-rendered HTML, matching the Rust bridge behavior.
 pub fn blocks_to_json_with_html(

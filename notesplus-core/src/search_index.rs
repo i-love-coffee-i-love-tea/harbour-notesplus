@@ -250,3 +250,91 @@ pub fn cleanup_orphaned_groups(conn: &Connection) -> Result<(), NotesError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use crate::db::open_db;
+
+    #[test]
+    fn test_sync_and_index_preserves_page_color_and_metadata() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let notes_dir = dir.path().join("notes");
+        std::fs::create_dir_all(&notes_dir).unwrap();
+        let conn = open_db(&db_path).unwrap();
+
+        // 1. Create a note file on disk
+        let note_file = notes_dir.join("meeting.adoc");
+        std::fs::write(&note_file, "= Meeting 1\n\nDiscussion points.\n").unwrap();
+
+        // 2. Initial sync
+        sync_and_index_pages(&conn, &notes_dir).unwrap();
+
+        let (page_id, title, color): (i64, String, Option<String>) = conn.query_row(
+            "SELECT id, title, color FROM pages WHERE filename = 'meeting.adoc'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(title, "Meeting 1");
+        assert_eq!(color, Some("".to_string()));
+
+        // 3. Set a custom color in database (as user would in UI)
+        conn.execute(
+            "UPDATE pages SET color = '#e74c3c' WHERE id = ?1",
+            rusqlite::params![page_id],
+        ).unwrap();
+
+        // 4. Update note content on disk (with later mtime)
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&note_file, "= Meeting 1 Updated\n\nUpdated discussion points.\n").unwrap();
+
+        // 5. Run non-destructive sync
+        sync_and_index_pages(&conn, &notes_dir).unwrap();
+
+        // 6. Verify page ID and color are preserved, and title is updated
+        let (updated_id, updated_title, preserved_color): (i64, String, Option<String>) = conn.query_row(
+            "SELECT id, title, color FROM pages WHERE filename = 'meeting.adoc'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+
+        assert_eq!(updated_id, page_id, "Page ID must be preserved during sync");
+        assert_eq!(updated_title, "Meeting 1 Updated", "Title should update when content changes");
+        assert_eq!(preserved_color, Some("#e74c3c".to_string()), "Page color must be preserved by sync_and_index_pages");
+
+        // 7. Verify rebuild_index destroys the color
+        let _ = rebuild_index(&conn, &notes_dir).unwrap();
+        let wiped_color: Option<String> = conn.query_row(
+            "SELECT color FROM pages WHERE filename = 'meeting.adoc'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(wiped_color, Some("".to_string()), "rebuild_index destroys custom color, demonstrating why sync_and_index_pages is needed on startup");
+    }
+
+    #[test]
+    fn test_sync_and_index_cleans_orphaned_pages() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let notes_dir = dir.path().join("notes");
+        std::fs::create_dir_all(&notes_dir).unwrap();
+        let conn = open_db(&db_path).unwrap();
+
+        let note_file = notes_dir.join("temporary.adoc");
+        std::fs::write(&note_file, "= Temp Note\n\nContent.\n").unwrap();
+
+        sync_and_index_pages(&conn, &notes_dir).unwrap();
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM pages", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+
+        // Delete file on disk
+        std::fs::remove_file(&note_file).unwrap();
+
+        // Sync again
+        sync_and_index_pages(&conn, &notes_dir).unwrap();
+        let count_after: i64 = conn.query_row("SELECT COUNT(*) FROM pages", [], |r| r.get(0)).unwrap();
+        assert_eq!(count_after, 0, "Orphaned page should be removed from database");
+    }
+}

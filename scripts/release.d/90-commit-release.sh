@@ -6,6 +6,9 @@
 set -euo pipefail
 
 git add "$cargo_toml" "$spec" "$appdata" "$changes" "$qml_about" "CHANGELOG.md"
+if [ -f "notesplus-sailfish/qml/pages/AboutPage.qml" ]; then
+    git add "notesplus-sailfish/qml/pages/AboutPage.qml"
+fi
 
 # Also stage Cargo.lock if it changed (cargo update on version bump)
 git add Cargo.lock 2>/dev/null || true

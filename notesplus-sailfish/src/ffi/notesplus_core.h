@@ -43,6 +43,7 @@ uint16_t notes_core_const_default_server_port(void);
 /* AppPaths                                                            */
 /* ------------------------------------------------------------------ */
 AppPaths* notes_core_app_paths_new(void);
+AppPaths* notes_core_app_paths_new_with_dirs(const char* data_dir, const char* notes_dir);
 void      notes_core_app_paths_free(AppPaths* p);
 char*     notes_core_app_paths_data_dir(const AppPaths* p);
 char*     notes_core_app_paths_notes_dir(const AppPaths* p);
@@ -66,6 +67,7 @@ int   notes_core_page_rename(void* conn, const char* notes_dir, const char* name
 int   notes_core_page_move(void* conn, const char* notes_dir, const char* source_name, const char* target_group);
 int   notes_core_page_set_color(void* conn, const char* notes_dir, const char* name, const char* color);
 char* notes_core_page_extract_title(const char* content, const char* fallback);
+int   notes_core_sync_index(void* conn, const char* notes_dir);
 int   notes_core_rebuild_index(void* conn, const char* notes_dir);
 int   notes_core_copy_examples(void* conn, const char* notes_dir, const char* examples_dir);
 char* notes_core_recent_pages_json(void* conn, int limit);

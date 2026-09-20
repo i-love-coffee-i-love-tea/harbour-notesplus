@@ -3,6 +3,7 @@ import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
 import "."
 import "../common"
+import "../ai"
 
 Column {
     id: sttSettingsTab

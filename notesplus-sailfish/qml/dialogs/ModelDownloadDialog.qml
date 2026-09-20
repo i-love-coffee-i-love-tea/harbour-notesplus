@@ -2,6 +2,7 @@ import QtQuick 2.6
 import Sailfish.Silica 1.0
 import harbour.notesplus 1.0
 import "../components/common"
+import "../components/ai"
 
 Dialog {
     id: modelDownloadDialog

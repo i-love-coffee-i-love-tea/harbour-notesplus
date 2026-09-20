@@ -56,6 +56,10 @@ public:
     /* ---- Path resolver ---- */
 
     const PagePathResolver &pathResolver() const { return m_pathResolver; }
+    void setNotesPath(const QString &newPath)
+    {
+        m_pathResolver = PagePathResolver(newPath);
+    }
 
     /* ---- Async poll ---- */
 

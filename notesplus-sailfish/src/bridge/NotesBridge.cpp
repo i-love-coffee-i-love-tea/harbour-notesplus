@@ -14,7 +14,12 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QDirIterator>
+#include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
+#include <QDebug>
 #include <cstdlib>
 
 /* ================================================================== */
@@ -33,17 +38,107 @@ static QString dbPathFor(const QString &dataDir)
     return dataDir + QLatin1Char('/') + defaultDbFilename();
 }
 
+QString NotesBridge::defaultNotesDir()
+{
+    QString docDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (docDir.isEmpty()) {
+        docDir = QDir::homePath() + QStringLiteral("/Documents");
+    }
+    return docDir + QStringLiteral("/Notes Plus");
+}
+
+bool NotesBridge::copyDirectoryRecursively(const QString &srcPath, const QString &dstPath, bool overwrite)
+{
+    QDir srcDir(srcPath);
+    if (!srcDir.exists())
+        return false;
+
+    QDir().mkpath(dstPath);
+
+    const QFileInfoList entries = srcDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QFileInfo &entry : entries) {
+        QString destEntry = dstPath + QLatin1Char('/') + entry.fileName();
+        if (entry.isDir()) {
+            if (!copyDirectoryRecursively(entry.filePath(), destEntry, overwrite))
+                return false;
+        } else {
+            if (QFile::exists(destEntry)) {
+                if (overwrite) {
+                    QFile::remove(destEntry);
+                    if (!QFile::copy(entry.filePath(), destEntry))
+                        return false;
+                }
+            } else {
+                if (!QFile::copy(entry.filePath(), destEntry))
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
+void NotesBridge::migrateLegacyStartupData(const QString &targetDataDir, const QString &targetNotesDir)
+{
+    QDir().mkpath(targetDataDir);
+    QDir().mkpath(targetNotesDir);
+
+    // 1. Check legacy database in ~/.local/share/harbour-notesplus/notesplus.db
+    QString legacyBase = QDir::homePath() + QStringLiteral("/.local/share/harbour-notesplus");
+    QString legacyDb = legacyBase + QStringLiteral("/notesplus.db");
+    QString targetDb = targetDataDir + QStringLiteral("/notesplus.db");
+
+    if (QFile::exists(legacyDb) && !QFile::exists(targetDb)) {
+        qDebug() << "[NotesBridge] Migrating legacy database from" << legacyDb << "to" << targetDb;
+        QFile::copy(legacyDb, targetDb);
+    }
+
+    // 2. Check legacy notes in ~/.local/share/harbour-notesplus/notes
+    QString legacyNotes = legacyBase + QStringLiteral("/notes");
+    if (QDir(legacyNotes).exists()) {
+        qDebug() << "[NotesBridge] Migrating legacy notes from" << legacyNotes << "to" << targetNotesDir;
+        copyDirectoryRecursively(legacyNotes, targetNotesDir, false);
+    }
+
+    // 3. Also check if notes were placed in targetDataDir/notes (e.g. from an intermediate build)
+    QString intermediateNotes = targetDataDir + QStringLiteral("/notes");
+    if (intermediateNotes != targetNotesDir && QDir(intermediateNotes).exists()) {
+        qDebug() << "[NotesBridge] Migrating intermediate notes from" << intermediateNotes << "to" << targetNotesDir;
+        copyDirectoryRecursively(intermediateNotes, targetNotesDir, false);
+    }
+}
+
 /* ================================================================== */
 /*  Constructor / Destructor                                           */
 /* ================================================================== */
 
 NotesBridge::NotesBridge(QObject *parent)
     : QObject(parent)
-    , paths_(notes_core_app_paths_new())
     , m_themeColorsJson(QStringLiteral("{\"highlightColor\":\"#0088cc\",\"primaryColor\":\"#ffffff\",\"highlightBackgroundColor\":\"rgba(0,136,204,0.25)\"}"))
     , m_blockListModel(new BlockListModel(this))
     , m_alive(std::make_shared<std::atomic<bool>>(true))
 {
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (dataDir.isEmpty()) {
+        dataDir = QDir::homePath() + QStringLiteral("/.local/share/org.gobuki/harbour-notesplus");
+    }
+
+    QString defaultNotes = defaultNotesDir();
+    QString iniFile = dataDir + QStringLiteral("/settings.ini");
+    QSettings iniSettings(iniFile, QSettings::IniFormat);
+    QString customNotes = iniSettings.value(QStringLiteral("notes_path")).toString().trimmed();
+
+    if (customNotes.isEmpty() || !QDir(customNotes).isAbsolute()) {
+        QSettings settings;
+        customNotes = settings.value(QStringLiteral("notes_path")).toString().trimmed();
+    }
+    QString notesDir = (!customNotes.isEmpty() && QDir(customNotes).isAbsolute()) ? customNotes : defaultNotes;
+
+    migrateLegacyStartupData(dataDir, notesDir);
+
+    paths_.reset(notes_core_app_paths_new_with_dirs(
+        dataDir.toUtf8().constData(),
+        notesDir.toUtf8().constData()));
+
     m_notesPath = ffiStringToQString(
         notes_core_app_paths_notes_dir(paths_.get()));
     m_dataDir = ffiStringToQString(
@@ -184,8 +279,8 @@ void NotesBridge::ensureInit()
             if (QDir(installedExamples).exists()) {
                 notes_core_copy_examples(raw, notesDir.c_str(), installedExamples.toUtf8().constData());
             }
-            /* Rebuild index so the DB knows about all .adoc files */
-            notes_core_rebuild_index(raw, notesDir.c_str());
+            /* Non-destructive sync so the DB knows about all .adoc files without wiping data */
+            notes_core_sync_index(raw, notesDir.c_str());
         }
 
         if (!alive->load(std::memory_order_acquire)) return;
@@ -737,6 +832,41 @@ void NotesBridge::set_session_expiry_hours(int hours)
     m_serverManager->set_session_expiry_hours(hours);
 }
 
+void NotesBridge::set_notes_dir(const QString &newPath)
+{
+    QString trimmed = newPath.trimmed();
+    if (trimmed.isEmpty() || !QDir(trimmed).isAbsolute() || trimmed == m_notesPath) {
+        return;
+    }
+
+    m_notesPath = trimmed;
+    m_notesDir = trimmed;
+    m_ctx.notesPath = trimmed;
+    if (m_pageStore) {
+        m_pageStore->setNotesPath(trimmed);
+    }
+
+    paths_.reset(notes_core_app_paths_new_with_dirs(
+        m_dataDir.toUtf8().constData(),
+        trimmed.toUtf8().constData()));
+
+    QString iniFile = m_dataDir + QStringLiteral("/settings.ini");
+    QSettings iniSettings(iniFile, QSettings::IniFormat);
+    iniSettings.setValue(QStringLiteral("notes_path"), trimmed);
+    iniSettings.sync();
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("notes_path"), trimmed);
+    settings.sync();
+
+    if (m_mainPageLoader) {
+        m_mainPageLoader->load_main_page_data(this);
+    }
+
+    emit notes_dir_changed();
+    emit data_refreshed();
+}
+
 /* ================================================================== */
 /*  Auth (delegated to ServerManager)                                  */
 /* ================================================================== */
@@ -765,4 +895,250 @@ void NotesBridge::deny_auth_challenge(QString challenge_id)
 QString NotesBridge::render_element_previews()
 {
     return m_renderHelper->render_element_previews();
+}
+
+/* ================================================================== */
+/*  Storage Migration & Scanning                                      */
+/* ================================================================== */
+
+QJsonObject NotesBridge::scan_notes_dir(const QString &dir)
+{
+    QJsonObject result;
+    int notesCount = 0;
+    int foldersCount = 0;
+    qint64 totalBytes = 0;
+
+    QString cleanDir = dir.trimmed();
+    if (cleanDir.startsWith(QLatin1String("~/"))) {
+        cleanDir = QDir::homePath() + cleanDir.mid(1);
+    }
+    cleanDir = QDir::cleanPath(cleanDir);
+
+    QDir rootDir(cleanDir);
+    if (rootDir.exists()) {
+        QDirIterator it(cleanDir, QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            QFileInfo fi = it.fileInfo();
+            if (fi.isDir()) {
+                foldersCount++;
+            } else if (fi.isFile()) {
+                if (fi.suffix() == QLatin1String("adoc")) {
+                    notesCount++;
+                }
+                totalBytes += fi.size();
+            }
+        }
+    }
+
+    result[QStringLiteral("notes_count")] = notesCount;
+    result[QStringLiteral("folders_count")] = foldersCount;
+    result[QStringLiteral("total_bytes")] = totalBytes;
+
+    QString formattedSize;
+    if (totalBytes < 1024) {
+        formattedSize = QStringLiteral("%1 B").arg(totalBytes);
+    } else if (totalBytes < 1024 * 1024) {
+        formattedSize = QStringLiteral("%1 KB").arg(QString::number(totalBytes / 1024.0, 'f', 1));
+    } else {
+        formattedSize = QStringLiteral("%1 MB").arg(QString::number(totalBytes / (1024.0 * 1024.0), 'f', 1));
+    }
+    result[QStringLiteral("formatted_size")] = formattedSize;
+
+    return result;
+}
+
+void NotesBridge::reset_migration_state()
+{
+    m_isMigrating = false;
+    m_migrationProgress = 0.0;
+    m_migrationStatus.clear();
+    m_migrationCurrentFile.clear();
+    m_migrationCopiedCount = 0;
+    m_migrationTotalCount = 0;
+    m_migrationFinished = false;
+    m_migrationSuccess = false;
+    m_migrationError.clear();
+
+    emit migration_changed();
+    emit migration_progress_changed();
+    emit migration_status_changed();
+}
+
+void NotesBridge::start_notes_migration(const QString &newNotesDir)
+{
+    if (m_isMigrating) {
+        return;
+    }
+
+    QString targetPath = newNotesDir.trimmed();
+    if (targetPath.startsWith(QLatin1String("~/"))) {
+        targetPath = QDir::homePath() + targetPath.mid(1);
+    }
+    targetPath = QDir::cleanPath(targetPath);
+
+    if (targetPath.isEmpty() || !QDir(targetPath).isAbsolute()) {
+        m_isMigrating = false;
+        m_migrationFinished = true;
+        m_migrationSuccess = false;
+        m_migrationError = tr("Invalid target directory path.");
+        emit migration_changed();
+        return;
+    }
+
+    QString currentClean = QDir::cleanPath(m_notesPath);
+    if (targetPath == currentClean) {
+        m_isMigrating = false;
+        m_migrationFinished = true;
+        m_migrationSuccess = true;
+        m_migrationStatus = tr("Already at target directory.");
+        emit migration_changed();
+        return;
+    }
+
+    m_isMigrating = true;
+    m_migrationProgress = 0.0;
+    m_migrationStatus = tr("Preparing target directory...");
+    m_migrationCurrentFile.clear();
+    m_migrationCopiedCount = 0;
+    m_migrationTotalCount = 0;
+    m_migrationFinished = false;
+    m_migrationSuccess = false;
+    m_migrationError.clear();
+
+    emit migration_changed();
+    emit migration_progress_changed();
+    emit migration_status_changed();
+
+    QString srcPath = m_notesPath;
+    auto alive = m_alive;
+
+    QtConcurrent::run([this, alive, srcPath, targetPath]() {
+        // Step 1: Ensure target directory can be created
+        if (!QDir().mkpath(targetPath)) {
+            QTimer::singleShot(0, this, [this]() {
+                m_isMigrating = false;
+                m_migrationFinished = true;
+                m_migrationSuccess = false;
+                m_migrationError = tr("Could not create target directory. Check permissions.");
+                emit migration_changed();
+            });
+            return;
+        }
+
+        // Step 2: Scan source files to copy
+        struct FileItem {
+            QString relPath;
+            QString srcFullPath;
+            QString dstFullPath;
+        };
+        QList<FileItem> itemsToCopy;
+
+        QDir srcDir(srcPath);
+        if (srcDir.exists()) {
+            QDirIterator it(srcPath, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                it.next();
+                QString fullSrc = it.filePath();
+                QString rel = srcDir.relativeFilePath(fullSrc);
+                QString fullDst = targetPath + QLatin1Char('/') + rel;
+                itemsToCopy.append(FileItem{rel, fullSrc, fullDst});
+            }
+        }
+
+        const int totalCount = itemsToCopy.size();
+
+        QTimer::singleShot(0, this, [this, totalCount]() {
+            m_migrationTotalCount = totalCount;
+            m_migrationStatus = tr("Copying notes and folders...");
+            emit migration_progress_changed();
+            emit migration_status_changed();
+        });
+
+        // Step 3: Copy each file
+        int copiedCount = 0;
+        for (const FileItem &item : itemsToCopy) {
+            if (!alive->load(std::memory_order_acquire))
+                return;
+
+            // Ensure destination subfolder exists
+            QFileInfo dstInfo(item.dstFullPath);
+            QDir().mkpath(dstInfo.dir().absolutePath());
+
+            // If file already exists, overwrite if different, or copy
+            if (QFile::exists(item.dstFullPath)) {
+                QFile::remove(item.dstFullPath);
+            }
+            if (!QFile::copy(item.srcFullPath, item.dstFullPath)) {
+                qWarning() << "[NotesBridge] Failed to copy file:" << item.srcFullPath << "->" << item.dstFullPath;
+            }
+
+            copiedCount++;
+            double progress = totalCount > 0 ? (static_cast<double>(copiedCount) / totalCount) * 85.0 : 85.0;
+            QString curRel = item.relPath;
+
+            QTimer::singleShot(0, this, [this, copiedCount, curRel, progress]() {
+                m_migrationCopiedCount = copiedCount;
+                m_migrationCurrentFile = curRel;
+                m_migrationProgress = progress;
+                emit migration_progress_changed();
+            });
+        }
+
+        // Step 4: Index new target directory into database
+        if (!alive->load(std::memory_order_acquire))
+            return;
+
+        QTimer::singleShot(0, this, [this]() {
+            m_migrationStatus = tr("Updating database search index...");
+            m_migrationProgress = 90.0;
+            emit migration_status_changed();
+            emit migration_progress_changed();
+        });
+
+        void *conn = rawConn();
+        if (conn) {
+            notes_core_sync_index(conn, targetPath.toUtf8().constData());
+        }
+
+        // Step 5: Finalize and switch active directory on main thread
+        QTimer::singleShot(0, this, [this, targetPath, copiedCount]() {
+            m_notesPath = targetPath;
+            m_notesDir = targetPath;
+            m_ctx.notesPath = targetPath;
+            m_pageStore->setNotesPath(targetPath);
+
+            paths_.reset(notes_core_app_paths_new_with_dirs(
+                m_dataDir.toUtf8().constData(),
+                targetPath.toUtf8().constData()));
+
+            // Persist setting to both ini and native QSettings with explicit sync
+            QString iniFile = m_dataDir + QStringLiteral("/settings.ini");
+            QSettings iniSettings(iniFile, QSettings::IniFormat);
+            iniSettings.setValue(QStringLiteral("notes_path"), targetPath);
+            iniSettings.sync();
+
+            QSettings settings;
+            settings.setValue(QStringLiteral("notes_path"), targetPath);
+            settings.sync();
+
+            // Rebuild tree and reload main page
+            if (m_mainPageLoader) {
+                m_mainPageLoader->load_main_page_data(this);
+            }
+
+            m_isMigrating = false;
+            m_migrationFinished = true;
+            m_migrationSuccess = true;
+            m_migrationProgress = 100.0;
+            m_migrationStatus = tr("Migration completed successfully!");
+            m_migrationCopiedCount = copiedCount;
+
+            emit notes_dir_changed();
+            emit migration_changed();
+            emit migration_progress_changed();
+            emit migration_status_changed();
+            emit data_refreshed();
+        });
+    });
 }

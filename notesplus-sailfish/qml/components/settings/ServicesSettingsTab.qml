@@ -16,6 +16,80 @@ Column {
     }
 
     SectionHeader {
+        text: qsTr("Storage Location")
+    }
+
+    Label {
+        x: Theme.horizontalPageMargin
+        width: parent.width - Theme.horizontalPageMargin * 2
+        text: qsTr("Directory where notes, journals, and attachments are stored. Changing location safely copies all your notes.")
+        color: Theme.secondaryColor
+        font.pixelSize: Theme.fontSizeExtraSmall
+        wrapMode: Text.Wrap
+    }
+
+    TextField {
+        id: notesPathField
+        width: parent.width
+        label: qsTr("Notes Storage Path")
+        labelVisible: true
+        text: bridge.notes_dir
+        placeholderText: bridge.default_notes_dir
+        EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+        EnterKey.onClicked: focus = false
+    }
+
+    Connections {
+        target: bridge
+        onNotes_dir_changed: {
+            notesPathField.text = bridge.notes_dir
+        }
+    }
+
+    Row {
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: Theme.paddingMedium
+
+        Button {
+            text: qsTr("Migrate Storage...")
+            enabled: notesPathField.text.trim().length > 0 &&
+                     notesPathField.text.trim() !== bridge.notes_dir &&
+                     !bridge.is_migrating
+            onClicked: {
+                var target = notesPathField.text.trim()
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/MigrateStorageDialog.qml"), {
+                    sourcePath: bridge.notes_dir,
+                    targetPath: target
+                })
+                dialog.accepted.connect(function() {
+                    if (typeof app !== "undefined" && app && app.setNotesPath) {
+                        app.setNotesPath(target)
+                    }
+                })
+            }
+        }
+
+        Button {
+            text: qsTr("Reset to Default")
+            visible: bridge.notes_dir !== bridge.default_notes_dir
+            enabled: !bridge.is_migrating
+            onClicked: {
+                var target = bridge.default_notes_dir
+                notesPathField.text = target
+                var dialog = pageStack.push(Qt.resolvedUrl("../../dialogs/MigrateStorageDialog.qml"), {
+                    sourcePath: bridge.notes_dir,
+                    targetPath: target
+                })
+                dialog.accepted.connect(function() {
+                    if (typeof app !== "undefined" && app && app.setNotesPath) {
+                        app.setNotesPath(target)
+                    }
+                })
+            }
+        }
+    }
+
+    SectionHeader {
         text: qsTr("Web Server")
     }
 
@@ -283,18 +357,5 @@ Column {
                 servicesRemorsePopup.execute("Exported to " + out, function() {})
             }
         }
-    }
-
-    SectionHeader {
-        text: qsTr("About")
-    }
-
-    Label {
-        x: Theme.horizontalPageMargin
-        width: parent.width - Theme.horizontalPageMargin * 2
-        text: qsTr("Notes Plus v0.2.1\nAsciiDoc reader & notebook for Sailfish OS")
-        color: Theme.secondaryColor
-        font.pixelSize: Theme.fontSizeSmall
-        wrapMode: Text.Wrap
     }
 }

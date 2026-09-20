@@ -286,6 +286,12 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("About Notes Plus")
+                onClicked: {
+                    pageStack.push(Qt.resolvedUrl("AboutPage.qml"))
+                }
+            }
+            MenuItem {
                 text: qsTr("Share Server URL")
                 visible: bridge.web_server_running
                 onClicked: {

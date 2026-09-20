@@ -311,7 +311,10 @@ SpeechBridge::SpeechBridge(QObject *parent)
     FfiString dataDirRaw(notes_core_app_paths_data_dir(paths.get()));
     QString dataDir = dataDirRaw ? QString::fromUtf8(dataDirRaw.get()) : QString();
     if (dataDir.isEmpty()) {
-        dataDir = QDir::homePath() + QStringLiteral("/.local/share/harbour-notesplus");
+        dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        if (dataDir.isEmpty()) {
+            dataDir = QDir::homePath() + QStringLiteral("/.local/share/org.gobuki/harbour-notesplus");
+        }
     }
     m_modelsDir = dataDir + QStringLiteral("/models/stt");
     QDir().mkpath(m_modelsDir);
@@ -734,12 +737,10 @@ bool SpeechBridge::start_recording()
         return false;
     }
 
-    // Compute output path (matches Rust: XDG_CACHE_HOME/harbour-notesplus/stt-recording.wav)
+    // Compute output path (matches Rust: XDG_CACHE_HOME/org.gobuki/harbour-notesplus/stt-recording.wav)
     QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
     if (cacheDir.isEmpty())
-        cacheDir = QDir::homePath() + QStringLiteral("/.cache/harbour-notesplus");
-    else
-        cacheDir += QStringLiteral("/harbour-notesplus");
+        cacheDir = QDir::homePath() + QStringLiteral("/.cache/org.gobuki/harbour-notesplus");
     QDir().mkpath(cacheDir);
     QString outputPath = cacheDir + QStringLiteral("/stt-recording.wav");
 

@@ -49,7 +49,17 @@ class NotesBridge : public QObject
     Q_PROPERTY(BlockListModel* block_model           READ blockModel                 CONSTANT)
     Q_PROPERTY(bool        is_journal_page           READ isJournalPage              NOTIFY page_changed)
     Q_PROPERTY(int         blocks_version            READ blocksVersion              NOTIFY page_changed)
-    Q_PROPERTY(QString     notes_dir                 MEMBER m_notesDir               NOTIFY page_changed)
+    Q_PROPERTY(QString     notes_dir                 READ notesDir                   NOTIFY notes_dir_changed)
+    Q_PROPERTY(QString     default_notes_dir         READ defaultNotesDir            CONSTANT)
+    Q_PROPERTY(bool        is_migrating              READ isMigrating                NOTIFY migration_changed)
+    Q_PROPERTY(double      migration_progress        READ migrationProgress          NOTIFY migration_progress_changed)
+    Q_PROPERTY(QString     migration_status          READ migrationStatus            NOTIFY migration_status_changed)
+    Q_PROPERTY(QString     migration_current_file    READ migrationCurrentFile       NOTIFY migration_progress_changed)
+    Q_PROPERTY(int         migration_copied_count    READ migrationCopiedCount       NOTIFY migration_progress_changed)
+    Q_PROPERTY(int         migration_total_count     READ migrationTotalCount        NOTIFY migration_progress_changed)
+    Q_PROPERTY(bool        migration_finished        READ migrationFinished          NOTIFY migration_changed)
+    Q_PROPERTY(bool        migration_success         READ migrationSuccess           NOTIFY migration_changed)
+    Q_PROPERTY(QString     migration_error           READ migrationError             NOTIFY migration_changed)
     Q_PROPERTY(QString     search_query              READ searchQuery                NOTIFY search_results_changed)
     Q_PROPERTY(QVariantList search_results           READ searchResults              NOTIFY search_results_changed)
     Q_PROPERTY(bool        search_loading            READ searchLoading              NOTIFY loading_changed)
@@ -75,6 +85,17 @@ public:
     ~NotesBridge() override;
 
     BlockListModel* blockModel() const { return m_blockListModel; }
+    QString         notesDir() const { return m_notesDir; }
+    static QString  defaultNotesDir();
+    bool            isMigrating() const { return m_isMigrating; }
+    double          migrationProgress() const { return m_migrationProgress; }
+    QString         migrationStatus() const { return m_migrationStatus; }
+    QString         migrationCurrentFile() const { return m_migrationCurrentFile; }
+    int             migrationCopiedCount() const { return m_migrationCopiedCount; }
+    int             migrationTotalCount() const { return m_migrationTotalCount; }
+    bool            migrationFinished() const { return m_migrationFinished; }
+    bool            migrationSuccess() const { return m_migrationSuccess; }
+    QString         migrationError() const { return m_migrationError; }
 
     /* ---- Delegating READ accessors ---- */
     QString      currentPageName()      const { return m_pageStore->currentPageName(); }
@@ -181,6 +202,10 @@ public:
     Q_INVOKABLE QString get_network_interfaces_json();
     Q_INVOKABLE void    set_theme(QString colors_json);
     Q_INVOKABLE void    set_session_expiry_hours(int hours);
+    Q_INVOKABLE void    set_notes_dir(const QString &newPath);
+    Q_INVOKABLE QJsonObject scan_notes_dir(const QString &dir);
+    Q_INVOKABLE void    start_notes_migration(const QString &newNotesDir);
+    Q_INVOKABLE void    reset_migration_state();
 
     // Auth
     Q_INVOKABLE bool    check_auth_challenge();
@@ -209,6 +234,10 @@ signals:
     void error_occurred(QString message);
     void initialized_changed();
     void auth_challenge_changed();
+    void notes_dir_changed();
+    void migration_changed();
+    void migration_progress_changed();
+    void migration_status_changed();
 
 private:
     /* ---- Internal helpers ---- */
@@ -222,6 +251,8 @@ private:
     QString buildOptionsJson() const;
     void    loadMainPageDataSync();
     void    rebuildTreeInBackground();
+    static void migrateLegacyStartupData(const QString &targetDataDir, const QString &targetNotesDir);
+    static bool copyDirectoryRecursively(const QString &srcPath, const QString &dstPath, bool overwrite = false);
 
     /* ---- FFI handles (RAII) ---- */
     AppPathsPtr    paths_;
@@ -246,6 +277,17 @@ private:
     QString      m_notesDir;
     QString      m_errorMessage;
     bool         m_initialized         = false;
+
+    /* ---- Migration state ---- */
+    bool         m_isMigrating         = false;
+    double       m_migrationProgress   = 0.0;
+    QString      m_migrationStatus;
+    QString      m_migrationCurrentFile;
+    int          m_migrationCopiedCount = 0;
+    int          m_migrationTotalCount = 0;
+    bool         m_migrationFinished   = false;
+    bool         m_migrationSuccess    = false;
+    QString      m_migrationError;
 
     /* ---- Shared context (must outlive domain classes) ---- */
     BridgeContext m_ctx;

@@ -79,23 +79,34 @@ pub struct AppPaths {
 
 impl AppPaths {
     pub fn new() -> Self {
-        Self::from_data_dir(Self::default_data_dir())
+        Self::with_dirs(Self::default_data_dir(), Self::default_notes_dir())
     }
 
     pub fn default_data_dir() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        PathBuf::from(&home).join(".local").join("share").join(APP_DIR_NAME)
+        PathBuf::from(&home).join(".local").join("share").join("org.gobuki").join(APP_DIR_NAME)
     }
 
-    pub fn from_data_dir(data_dir: impl AsRef<Path>) -> Self {
+    pub fn default_notes_dir() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        PathBuf::from(&home).join("Documents").join("Notes Plus")
+    }
+
+    pub fn with_dirs(data_dir: impl AsRef<Path>, notes_dir: impl AsRef<Path>) -> Self {
         let data_dir = data_dir.as_ref().to_path_buf();
-        let notes_dir = data_dir.join(NOTES_DIR_NAME);
+        let notes_dir = notes_dir.as_ref().to_path_buf();
         let db_path = data_dir.join(DB_FILENAME);
         Self {
             data_dir,
             notes_dir,
             db_path,
         }
+    }
+
+    pub fn from_data_dir(data_dir: impl AsRef<Path>) -> Self {
+        let data_dir = data_dir.as_ref().to_path_buf();
+        let notes_dir = data_dir.join(NOTES_DIR_NAME);
+        Self::with_dirs(data_dir, notes_dir)
     }
 
     pub fn journal_path(&self) -> PathBuf {
@@ -226,5 +237,35 @@ mod tests {
         assert_eq!(paths.journal_path(), custom.join("notes").join("journal.adoc"));
         assert_eq!(paths.models_dir(), custom.join("models"));
         assert_eq!(paths.stt_models_dir(), custom.join("models").join("stt"));
+    }
+
+    #[test]
+    fn test_app_paths_with_dirs() {
+        let data = PathBuf::from("/custom/data");
+        let notes = PathBuf::from("/custom/documents/Notes Plus");
+        let paths = AppPaths::with_dirs(&data, &notes);
+        assert_eq!(paths.data_dir, data);
+        assert_eq!(paths.notes_dir, notes);
+        assert_eq!(paths.db_path, data.join("notesplus.db"));
+        assert_eq!(paths.journal_path(), notes.join("journal.adoc"));
+        assert_eq!(paths.backup_dir(), data.join("backups"));
+        assert_eq!(paths.assets_dir(), data.join("assets"));
+        assert_eq!(paths.models_dir(), data.join("models"));
+        assert_eq!(paths.stt_models_dir(), data.join("models").join("stt"));
+    }
+
+    #[test]
+    fn test_app_paths_default_dirs_sailjail_compliant() {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        let expected_data = PathBuf::from(&home).join(".local").join("share").join("org.gobuki").join("harbour-notesplus");
+        let expected_notes = PathBuf::from(&home).join("Documents").join("Notes Plus");
+
+        assert_eq!(AppPaths::default_data_dir(), expected_data);
+        assert_eq!(AppPaths::default_notes_dir(), expected_notes);
+
+        let paths = AppPaths::new();
+        assert_eq!(paths.data_dir, expected_data);
+        assert_eq!(paths.notes_dir, expected_notes);
+        assert_eq!(paths.db_path, expected_data.join("notesplus.db"));
     }
 }

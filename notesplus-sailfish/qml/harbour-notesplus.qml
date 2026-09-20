@@ -31,6 +31,7 @@ ApplicationWindow {
     property alias sessionExpiryHours: appSettings.sessionExpiryHours
     property alias groupDisplayDepth: appSettings.groupDisplayDepth
     property alias journalEnabled: appSettings.journalEnabled
+    property alias notesPath: appSettings.notesPath
     property alias notification: notification
 
     function formatSize(bytes) {
@@ -148,6 +149,10 @@ ApplicationWindow {
 
     function setJournalEnabled(val) {
         appSettings.setJournalEnabled(val)
+    }
+
+    function setNotesPath(path) {
+        appSettings.setNotesPath(path)
     }
 
     function setGroupDisplayDepth(val) {
@@ -308,6 +313,9 @@ ApplicationWindow {
         bridge.set_bind_address(app.bindAddress)
         bridge.set_session_expiry_hours(app.sessionExpiryHours)
         bridge.set_group_display_depth(app.groupDisplayDepth)
+        if (app.notesPath && app.notesPath.length > 0) {
+            bridge.set_notes_dir(app.notesPath)
+        }
         syncTheme()
         if (app.autostartWebServer) {
             bridge.start_web_server()
@@ -378,6 +386,11 @@ ApplicationWindow {
         onInitialized_changed: {
             if (bridge.initialized) {
                 syncTheme()
+            }
+        }
+        onNotes_dir_changed: {
+            if (app.notesPath !== bridge.notes_dir) {
+                app.setNotesPath(bridge.notes_dir)
             }
         }
     }

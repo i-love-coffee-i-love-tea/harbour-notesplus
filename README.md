@@ -112,4 +112,19 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed architecture, testing, and CI 
 
 ## License
 
-See individual source files for license information.
+Notes Plus is open source software released under the [MIT License](LICENSE).
+
+## Acknowledgements & Attributions
+
+Notes Plus is inspired by and builds upon the work of several open source projects:
+
+- **Jolla Notes** — The clean simplicity, tactile card interface, and color accents are inspired by the original Sailfish OS Notes application by Jolla Ltd.
+- **SpeechNote** — The offline, privacy-first speech-to-text architecture and model management are inspired by SpeechNote by [Michal Kowalczyk (mkiol)](https://github.com/mkiol/speechnote).
+- **whisper.cpp & ggml** — High-performance C/C++ inference for OpenAI's Whisper model by [Georgi Gerganov](https://github.com/ggerganov/whisper.cpp) (MIT License).
+- **Vue.js 3 & Pinia** — Reactive web frontend framework and store management for the embedded web companion by [Evan You](https://vuejs.org/) and contributors (MIT License).
+- **svgbob** — ASCII diagram to SVG converter in Rust by [ivanceras](https://github.com/ivanceras/svgbob) (Apache-2.0 / MIT License).
+- **syntect** — Syntax highlighting library for code blocks using Sublime Text syntaxes by [Tristan Hume](https://github.com/trishume/syntect) (MIT License).
+- **SQLite & rusqlite** — Embedded relational database and FTS5 full-text search engine (Public Domain) with ergonomic Rust bindings by [John Gallagher](https://github.com/rusqlite/rusqlite) and contributors (MIT License).
+- **rustls & ring** — Memory-safe modern TLS library and cryptography engine by [Brian Smith](https://github.com/briansmith/ring) and [Rustls contributors](https://github.com/rustls/rustls) (Apache-2.0 / ISC / MIT License).
+- **tiny_http** — Zero-dependency embedded HTTP server by [Corentin Henry](https://github.com/tiny-http/tiny-http) and contributors (Apache-2.0 / MIT License).
+- **ureq** — Minimalist, safe HTTP client for Rust by [Martin Algesten](https://github.com/algesten/ureq) and contributors (Apache-2.0 / MIT License).

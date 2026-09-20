@@ -180,6 +180,12 @@ Item {
         defaultValue: ""
     }
 
+    ConfigurationValue {
+        id: notesPathConf
+        key: "/apps/harbour-notesplus/notes_path"
+        defaultValue: ""
+    }
+
     // Exposed configuration properties
     property real fontScale: fontSizeScaleConf.value !== undefined && fontSizeScaleConf.value > 0 ? fontSizeScaleConf.value : 1.0
     property string docFontFamily: fontFamilyConf.value !== undefined ? fontFamilyConf.value : ""
@@ -212,6 +218,7 @@ Item {
 
     property bool sttEnabled: sttEnabledConf.value !== undefined ? sttEnabledConf.value : true
     property string sttModel: sttModelConf.value !== undefined ? sttModelConf.value : ""
+    property string notesPath: notesPathConf.value !== undefined ? notesPathConf.value : ""
 
     // Setters
     function setFontScale(v) { fontSizeScaleConf.value = v; }
@@ -245,4 +252,5 @@ Item {
 
     function setSttEnabled(v) { sttEnabledConf.value = v; }
     function setSttModel(v) { sttModelConf.value = v; }
+    function setNotesPath(v) { notesPathConf.value = v; }
 }
