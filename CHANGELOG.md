@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## 0.3.0 (2026-09-20)
 
 ### Added
@@ -9,12 +7,20 @@
 - System Prompt & Persona and Action Templates as standalone entries on the main settings page
 - Whisperfish attribution on the About page as a build reference inspiration
 - AI action template properties and management functions consolidated into AppSettings component
+- Debug logging in FFI save functions for diagnosing persistence issues
 
 ### Changed
 
 - Use chat icon for System Prompt & Persona settings entry
 - Use robot icon for AI Assistant settings entry
 - Narrow AI Assistant settings description to tool permissions
+- ADR documentation group sorted alphabetically by name
+- Bundled documentation refresh is version-gated (skipped when app version unchanged)
+
+### Fixed
+
+- Remove Qt.callLater calls (Qt 5.6 compatibility) that broke note editing on Sailfish OS
+- Include_str paths updated for relocated example files
 
 ## 0.2.1 (2026-09-19)
 
