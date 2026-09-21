@@ -33,7 +33,7 @@ Page {
 
             Label {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Notes Plus v0.3.0"
+                text: "Notes Plus v0.4.0"
                 font.pixelSize: Theme.fontSizeLarge
                 font.bold: true
                 color: Theme.highlightColor
