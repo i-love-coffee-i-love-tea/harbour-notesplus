@@ -4,11 +4,14 @@
 
 ### Added
 
+- Voice input (speech-to-text) support for search, note editing, source editor, assistant chat, and import pages
 - Build targets for armv7hl (Xperia XA2, Xperia 10, community ports) and i486 (emulator)
 - CI/CD pipelines build and release RPMs for aarch64, armv7hl, and i486
 
 ### Fixed
 
+- Find in Page: menu item now works and search results are highlighted
+- Search result cards now show content previews and loading indicator
 - Cross-compilation: set CC/CXX to sb2 wrappers for ring and whisper.cpp builds on armv7hl/i486
 - Cross-compilation: define `__fp16` as `uint16_t` for whisper.cpp on 32-bit ARM
 - Build: clean stale object files before qmake when switching architectures
