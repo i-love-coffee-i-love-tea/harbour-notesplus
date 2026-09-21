@@ -57,11 +57,23 @@ Page {
     onParsedBlocksChanged: {
         if (findInPageTerm.length > 0) {
             updateFindMatches()
+            if (allFindMatches.length > 0) {
+                scrollToCurrentMatch()
+            }
         }
         if (initialAnchor && initialAnchor.length > 0 && parsedBlocks && parsedBlocks.length > 0) {
             var anchor = initialAnchor
             initialAnchor = ""
             pageView.jumpToAnchor(anchor)
+        }
+    }
+
+    onFindInPageTermChanged: {
+        if (findInPageTerm.length > 0) {
+            updateFindMatches()
+        } else {
+            allFindMatches = []
+            currentFindMatchIndex = -1
         }
     }
 
@@ -183,6 +195,9 @@ Page {
         } else if (bridge.current_page_full_path.length > 0) {
             recordedPagePath = bridge.current_page_full_path
         }
+        if (findInPageTerm.length > 0) {
+            showFindBar = true
+        }
     }
 
     function toggleParsedBlockCheckbox(idx, itemPath) {
@@ -207,11 +222,8 @@ Page {
     FindInPageBar {
         id: findInPageBar
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: Theme.paddingMedium
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Theme.horizontalPageMargin
-        anchors.rightMargin: Theme.horizontalPageMargin
         z: 10
         visible: pageView.showFindBar
         searchTerm: pageView.findInPageTerm
@@ -600,6 +612,10 @@ Page {
     VoiceInputController {
         id: voiceController
         speechBridgeRef: speechBridge
+        textFilter: function(text) {
+            if (typeof text !== "string") return text
+            return text.replace(/[.!?]+$/, "").trim()
+        }
     }
 
     VoiceFeedbackBanner {
@@ -861,5 +877,56 @@ Page {
         editingRawText = ""
         editingCurrentText = ""
         currentEditorTextArea = null
+    }
+
+    function openFindBar() {
+        showFindBar = true
+        if (findInPageTerm.length > 0) {
+            updateFindMatches()
+            if (allFindMatches.length > 0) {
+                currentFindMatchIndex = 0
+                scrollToCurrentMatch()
+            }
+        }
+        Qt.callLater(function() {
+            findInPageBar.searchFieldComponent.forceActiveFocus()
+        })
+    }
+
+    function closeFindBar() {
+        showFindBar = false
+        findInPageTerm = ""
+        allFindMatches = []
+        currentFindMatchIndex = -1
+    }
+
+    function updateFindMatches() {
+        allFindMatches = BlockHtmlUtils.findAllMatches(parsedBlocks, findInPageTerm)
+        if (allFindMatches.length > 0) {
+            if (currentFindMatchIndex < 0) {
+                currentFindMatchIndex = 0
+            } else if (currentFindMatchIndex >= allFindMatches.length) {
+                currentFindMatchIndex = allFindMatches.length - 1
+            }
+        } else {
+            currentFindMatchIndex = -1
+        }
+    }
+
+    function findNext() {
+        if (allFindMatches.length === 0) return
+        currentFindMatchIndex = (currentFindMatchIndex + 1) % allFindMatches.length
+        scrollToCurrentMatch()
+    }
+
+    function findPrevious() {
+        if (allFindMatches.length === 0) return
+        currentFindMatchIndex = (currentFindMatchIndex - 1 + allFindMatches.length) % allFindMatches.length
+        scrollToCurrentMatch()
+    }
+
+    function scrollToCurrentMatch() {
+        if (!currentFindMatch) return
+        listView.positionViewAtIndex(currentFindMatch.blockIndex, ListView.Beginning)
     }
 }

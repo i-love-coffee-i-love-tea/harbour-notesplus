@@ -25,76 +25,39 @@ Rectangle {
         searchField.text = ""
     }
 
-    height: Theme.itemSizeMedium
-    color: Theme.rgba(Theme.overlayBackgroundColor, 0.95)
-    border.color: Theme.rgba(Theme.highlightColor, 0.4)
-    border.width: 1
-    radius: Theme.paddingSmall
-    clip: true
+    height: searchField.height + navRow.height
+    color: Theme.highlightDimmerColor
+    opacity: 0.85
 
-    Row {
+    Column {
         anchors.fill: parent
-        anchors.leftMargin: Theme.paddingSmall
-        anchors.rightMargin: Theme.paddingSmall
-        spacing: Theme.paddingSmall
-
-        SearchField {
-            id: searchField
-            width: parent.width - buttonRow.width - Theme.paddingSmall * 2
-            anchors.verticalCenter: parent.verticalCenter
-            placeholderText: qsTr("Find in page...")
-            EnterKey.enabled: true
-            EnterKey.iconSource: "image://theme/icon-m-enter-next"
-            EnterKey.onClicked: {
-                findBar.searchSubmitted(searchField.text)
-                findBar.nextClicked()
-            }
-            onTextChanged: {
-                findBar.textChanged(text)
-            }
-        }
+        spacing: 0
 
         Row {
-            id: buttonRow
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.paddingSmall / 2
+            width: parent.width
+            spacing: 0
 
-            Label {
-                id: counterLabel
+            SearchField {
+                id: searchField
+                width: parent.width - micBtnRow.width - clearBtn.width
                 anchors.verticalCenter: parent.verticalCenter
-                text: {
-                    if (!searchField.text || searchField.text.trim().length === 0) return ""
-                    if (findBar.totalMatches === 0) return "0 / 0"
-                    var currentNumber = (findBar.currentMatchIndex >= 0 ? findBar.currentMatchIndex : 0) + 1
-                    return currentNumber + " / " + findBar.totalMatches
+                placeholderText: qsTr("Find in page...")
+                font.pixelSize: Theme.fontSizeSmall
+                EnterKey.enabled: true
+                EnterKey.iconSource: "image://theme/icon-m-enter-next"
+                EnterKey.onClicked: {
+                    findBar.searchSubmitted(searchField.text)
+                    findBar.nextClicked()
                 }
-                color: findBar.totalMatches > 0 ? Theme.highlightColor : Theme.secondaryColor
-                font.pixelSize: Theme.fontSizeExtraSmall
-                visible: text.length > 0
-            }
-
-            IconButton {
-                id: prevBtn
-                icon.source: "image://theme/icon-m-up"
-                anchors.verticalCenter: parent.verticalCenter
-                enabled: findBar.totalMatches > 0
-                opacity: enabled ? 1.0 : 0.3
-                onClicked: findBar.previousClicked()
-            }
-
-            IconButton {
-                id: nextBtn
-                icon.source: "image://theme/icon-m-down"
-                anchors.verticalCenter: parent.verticalCenter
-                enabled: findBar.totalMatches > 0
-                opacity: enabled ? 1.0 : 0.3
-                onClicked: findBar.nextClicked()
+                onTextChanged: {
+                    findBar.textChanged(text)
+                }
             }
 
             Item {
-                id: micItem
-                width: visible ? Theme.itemSizeExtraSmall : 0
-                height: Theme.itemSizeExtraSmall
+                id: micBtnRow
+                width: visible ? Theme.itemSizeMedium : 0
+                height: Theme.itemSizeMedium
                 anchors.verticalCenter: parent.verticalCenter
                 visible: typeof app === "undefined" || !app || app.sttEnabled !== false
 
@@ -103,12 +66,12 @@ Rectangle {
 
                 Rectangle {
                     anchors.centerIn: parent
-                    width: Math.min(parent.width, Theme.iconSizeSmall + Theme.paddingSmall + Math.round(micItem.liveAudioLevel * 20))
+                    width: Math.min(parent.width, Theme.iconSizeMedium + Theme.paddingSmall + Math.round(micBtnRow.liveAudioLevel * 20))
                     height: width
                     radius: width / 2
-                    color: (micItem.liveAudioLevel > 0.06) ? Theme.highlightColor : Theme.secondaryColor
-                    opacity: micItem.isRecording ? Math.min(0.85, 0.25 + micItem.liveAudioLevel * 0.6) : 0.0
-                    visible: micItem.isRecording
+                    color: (micBtnRow.liveAudioLevel > 0.06) ? Theme.highlightColor : Theme.secondaryColor
+                    opacity: micBtnRow.isRecording ? Math.min(0.85, 0.25 + micBtnRow.liveAudioLevel * 0.6) : 0.0
+                    visible: micBtnRow.isRecording
 
                     Behavior on width { NumberAnimation { duration: 60 } }
                     Behavior on height { NumberAnimation { duration: 60 } }
@@ -116,21 +79,81 @@ Rectangle {
                 }
 
                 IconButton {
-                    id: micBtn
                     anchors.centerIn: parent
-                    icon.source: micItem.isRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
-                    highlighted: micItem.isRecording
+                    icon.source: micBtnRow.isRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                    highlighted: micBtnRow.isRecording
                     onClicked: {
                         findBar.voiceInputRequested(searchField)
                     }
                 }
             }
 
+            Item {
+                id: clearBtn
+                width: Theme.iconSizeMedium + Theme.horizontalPageMargin
+                height: parent.height
+
+                Image {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "image://theme/icon-m-down"
+                    width: Theme.iconSizeMedium
+                    height: Theme.iconSizeMedium
+                    fillMode: Image.PreserveAspectFit
+                    opacity: clearArea.pressed ? 1.0 : 0.6
+                }
+
+                MouseArea {
+                    id: clearArea
+                    anchors.fill: parent
+                    onClicked: findBar.closeClicked()
+                }
+            }
+        }
+
+        Row {
+            id: navRow
+            width: parent.width
+            height: Theme.itemSizeSmall
+            spacing: Theme.paddingSmall
+
+            Item {
+                width: (parent.width - prevBtn2.width - counterLabel2.width - nextBtn2.width - Theme.paddingSmall * 2) / 2
+                height: parent.height
+            }
+
             IconButton {
-                id: closeBtn
-                icon.source: "image://theme/icon-m-close"
+                id: prevBtn2
+                icon.source: "image://theme/icon-m-back"
                 anchors.verticalCenter: parent.verticalCenter
-                onClicked: findBar.closeClicked()
+                enabled: findBar.totalMatches > 0
+                opacity: enabled ? 1.0 : 0.3
+                onClicked: findBar.previousClicked()
+            }
+
+            Label {
+                id: counterLabel2
+                anchors.verticalCenter: parent.verticalCenter
+                text: {
+                    if (!searchField.text || searchField.text.trim().length === 0) return ""
+                    if (findBar.totalMatches === 0) return "0/0"
+                    var n = (findBar.currentMatchIndex >= 0 ? findBar.currentMatchIndex : 0) + 1
+                    return n + "/" + findBar.totalMatches
+                }
+                color: findBar.totalMatches > 0 ? Theme.highlightColor : Theme.secondaryColor
+                font.pixelSize: Theme.fontSizeSmall
+                visible: text.length > 0
+                horizontalAlignment: Text.AlignHCenter
+                width: implicitWidth + Theme.paddingSmall
+            }
+
+            IconButton {
+                id: nextBtn2
+                icon.source: "image://theme/icon-m-forward"
+                anchors.verticalCenter: parent.verticalCenter
+                enabled: findBar.totalMatches > 0
+                opacity: enabled ? 1.0 : 0.3
+                onClicked: findBar.nextClicked()
             }
         }
     }
