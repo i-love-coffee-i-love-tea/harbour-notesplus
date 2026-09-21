@@ -78,8 +78,13 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
     const std::string q   = query.toStdString();
 
     auto alive = m_ctx.alive;
+    auto notesPath = m_ctx.notesPath;
+    auto dropCommentsFn = m_ctx.dropComments;
+    auto themeJsonFn = m_ctx.themeColorsJson;
+    auto optsJsonFn = m_ctx.buildOptionsJson;
 
-    QtConcurrent::run([this, alive, dbP, q, gen, signalTarget]() {
+    QtConcurrent::run([this, alive, dbP, q, gen, signalTarget,
+                       notesPath, dropCommentsFn, themeJsonFn, optsJsonFn]() {
         /* Create a fresh search engine for this query */
         FfiSearchEngine *engine = notes_core_search_new();
         int rc = notes_core_search_start(engine, dbP.c_str(), q.c_str());
@@ -114,9 +119,16 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
             QString resultsStr = ffiStringToQString(outJson);
             QJsonDocument doc = QJsonDocument::fromJson(resultsStr.toUtf8());
 
+            const std::string nd = notesPath.toStdString();
+            const bool drop = dropCommentsFn();
+            const QByteArray themeJson = themeJsonFn().toUtf8();
+            const QByteArray optsJson = optsJsonFn().toUtf8();
+
             QList<SearchHit> hits;
             if (doc.isArray()) {
                 for (const QJsonValue &v : doc.array()) {
+                    if (gen != m_searchGeneration.load()) break;
+
                     QJsonObject o = v.toObject();
                     SearchHit h;
                     h.title      = o[QStringLiteral("title")].toString();
@@ -127,15 +139,37 @@ void SearchManager::do_search(const QString &query, QObject *signalTarget)
                     h.createdAt  = o[QStringLiteral("created_at")].toString();
                     h.updatedAt  = o[QStringLiteral("updated_at")].toString();
                     h.blockCount = o[QStringLiteral("block_count")].toInt();
-                    h.previewJson = QStringLiteral("[]");
+
+                    /* Generate rendered preview blocks inline (single-pass, like tree path) */
+                    const std::string fp = h.fullPath.toStdString();
+                    char *src = notes_core_page_get_source(nd.c_str(), fp.c_str());
+                    QString content = ffiStringToQString(src);
+                    if (!content.isEmpty()) {
+                        char *blocksRaw = notes_core_page_parse_and_render_blocks_json(
+                            content.toUtf8().constData(), nd.c_str(),
+                            drop ? 1 : 0, themeJson.constData(), optsJson.constData());
+                        QString blocksStr = ffiStringToQString(blocksRaw);
+                        /* Filter EmptyLine and limit to 8 (matches tree path) */
+                        QJsonArray allBlocks = QJsonDocument::fromJson(
+                            blocksStr.toUtf8()).array();
+                        QJsonArray filtered;
+                        for (const auto &b : allBlocks) {
+                            if (b.toObject().value(QStringLiteral("type")).toString()
+                                != QStringLiteral("empty_line")) {
+                                filtered.append(b);
+                                if (filtered.size() >= 8) break;
+                            }
+                        }
+                        h.previewJson = QString::fromUtf8(
+                            QJsonDocument(filtered).toJson(QJsonDocument::Compact));
+                    } else {
+                        h.previewJson = QStringLiteral("[]");
+                    }
                     hits.append(h);
                 }
             }
 
             if (!alive->load(std::memory_order_acquire)) return;
-
-            /* Kick off background preview generation (copies hits) */
-            m_previewGen->generatePreviews(hits, gen, signalTarget);
 
             {
                 std::lock_guard<std::mutex> lk(m_pendingSearchMutex);

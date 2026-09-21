@@ -381,9 +381,20 @@ Page {
                     placeholderText: qsTr("Search your notes...")
                     onTextChanged: {
                         if (text.length > 0) {
-                            bridge.do_search(text)
+                            searchDebounce.restart()
                         } else {
+                            searchDebounce.stop()
                             bridge.search("")
+                        }
+                    }
+                }
+
+                Timer {
+                    id: searchDebounce
+                    interval: 300
+                    onTriggered: {
+                        if (searchField.text.length > 0) {
+                            bridge.do_search(searchField.text)
                         }
                     }
                 }
@@ -451,11 +462,22 @@ Page {
                 }
             }
 
+            // Search loading indicator
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - Theme.horizontalPageMargin * 2
+                visible: searchField.text.length > 0 && parsedSearchResults.length === 0 && (searchDebounce.running || bridge.search_loading)
+                text: qsTr("Searching...")
+                color: Theme.highlightColor
+                font.pixelSize: Theme.fontSizeSmall
+                wrapMode: Text.Wrap
+            }
+
             // No search results empty state
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - Theme.horizontalPageMargin * 2
-                visible: searchField.text.length > 0 && parsedSearchResults.length === 0
+                visible: searchField.text.length > 0 && parsedSearchResults.length === 0 && !searchDebounce.running && !bridge.search_loading
                 text: qsTr("No results found for \"%1\"").arg(searchField.text)
                 color: Theme.secondaryColor
                 font.pixelSize: Theme.fontSizeSmall

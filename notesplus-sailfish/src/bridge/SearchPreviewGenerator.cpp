@@ -34,15 +34,19 @@ void SearchPreviewGenerator::generatePreviews(const QList<SearchHit> &hits,
     auto alive2        = m_ctx.alive;
     auto notesPath     = m_ctx.notesPath;
     auto dropCommentsFn = m_ctx.dropComments;
+    auto themeJsonFn   = m_ctx.themeColorsJson;
+    auto optsJsonFn    = m_ctx.buildOptionsJson;
     int gen            = generation;
 
     QtConcurrent::run([this, alive2, gen, signalTarget,
-                       notesPath, dropCommentsFn, hits]() {
+                       notesPath, dropCommentsFn, themeJsonFn, optsJsonFn, hits]() {
         if (gen != m_generation.load(std::memory_order_relaxed)) return;
         if (!alive2->load(std::memory_order_acquire)) return;
 
         const std::string nd = notesPath.toStdString();
         const bool drop = dropCommentsFn();
+        const QByteArray themeJson = themeJsonFn().toUtf8();
+        const QByteArray optsJson = optsJsonFn().toUtf8();
 
         QMap<QString, QString> previewMap;
         for (const SearchHit &h : hits) {
@@ -53,8 +57,9 @@ void SearchPreviewGenerator::generatePreviews(const QList<SearchHit> &hits,
             QString content = ffiStringToQString(src);
             if (content.isEmpty()) continue;
 
-            char *blocks = notes_core_parse_blocks_json(
-                content.toUtf8().constData(), drop ? 1 : 0);
+            char *blocks = notes_core_page_parse_and_render_blocks_json(
+                content.toUtf8().constData(), nd.c_str(),
+                drop ? 1 : 0, themeJson.constData(), optsJson.constData());
             previewMap[h.fullPath] = ffiStringToQString(blocks);
         }
 
@@ -116,7 +121,19 @@ SearchPreviewPollResult SearchPreviewGenerator::poll_previews()
         if (previews.contains(filename)) {
             QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8())
                                   .object();
-            obj[QStringLiteral("preview_blocks_json")] = previews[filename];
+            /* Filter out EmptyLine blocks and limit to 8 (matches tree path) */
+            QJsonArray blocks = QJsonDocument::fromJson(
+                previews[filename].toUtf8()).array();
+            QJsonArray filtered;
+            for (const auto &b : blocks) {
+                if (b.toObject().value(QStringLiteral("type")).toString()
+                    != QStringLiteral("empty_line")) {
+                    filtered.append(b);
+                    if (filtered.size() >= 8) break;
+                }
+            }
+            obj[QStringLiteral("preview_blocks_json")] = QString::fromUtf8(
+                QJsonDocument(filtered).toJson(QJsonDocument::Compact));
             jsonStr = QString::fromUtf8(
                 QJsonDocument(obj).toJson(QJsonDocument::Compact));
         }
