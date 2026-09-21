@@ -12,6 +12,8 @@ Page {
     onStatusChanged: {
         if (status === PageStatus.Active) {
             bridge.load_main_page_data()
+        } else if (status === PageStatus.Deactivating || status === PageStatus.Inactive) {
+            voiceController.cancelRecording()
         }
     }
 
@@ -368,15 +370,58 @@ Page {
                 description: bridge.web_server_running ? bridge.web_server_url : ""
             }
 
-            SearchField {
-                id: searchField
+            Item {
                 width: parent.width
-                placeholderText: qsTr("Search your notes...")
-                onTextChanged: {
-                    if (text.length > 0) {
-                        bridge.do_search(text)
-                    } else {
-                        bridge.search("")
+                height: searchField.height
+
+                SearchField {
+                    id: searchField
+                    anchors.left: parent.left
+                    anchors.right: searchMicItem.visible ? searchMicItem.left : parent.right
+                    placeholderText: qsTr("Search your notes...")
+                    onTextChanged: {
+                        if (text.length > 0) {
+                            bridge.do_search(text)
+                        } else {
+                            bridge.search("")
+                        }
+                    }
+                }
+
+                Item {
+                    id: searchMicItem
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: visible ? Theme.itemSizeExtraSmall : 0
+                    height: Theme.itemSizeExtraSmall
+                    visible: typeof app === "undefined" || !app || app.sttEnabled !== false
+
+                    readonly property bool isRecording: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
+                    readonly property real liveAudioLevel: (isRecording && typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.audio_level : 0.0
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: Math.min(parent.width, Theme.iconSizeSmall + Theme.paddingSmall + Math.round(searchMicItem.liveAudioLevel * 20))
+                        height: width
+                        radius: width / 2
+                        color: (searchMicItem.liveAudioLevel > 0.06) ? Theme.highlightColor : Theme.secondaryColor
+                        opacity: searchMicItem.isRecording ? Math.min(0.85, 0.25 + searchMicItem.liveAudioLevel * 0.6) : 0.0
+                        visible: searchMicItem.isRecording
+
+                        Behavior on width { NumberAnimation { duration: 60 } }
+                        Behavior on height { NumberAnimation { duration: 60 } }
+                        Behavior on opacity { NumberAnimation { duration: 60 } }
+                    }
+
+                    IconButton {
+                        id: searchMicBtn
+                        anchors.centerIn: parent
+                        icon.source: searchMicItem.isRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                        highlighted: searchMicItem.isRecording
+                        onClicked: {
+                            voiceController.toggleMic(searchField)
+                        }
                     }
                 }
             }
@@ -634,6 +679,7 @@ Page {
     // Stationary floating action sidebar for in-place journal editing (transparent, non-moving)
     InPlaceEditSidebar {
         id: inPlaceSidebar
+        showVoiceInput: false
         anchors.right: parent.right
         anchors.rightMargin: Theme.paddingMedium
         anchors.verticalCenter: parent.verticalCenter
@@ -698,5 +744,19 @@ Page {
             mainPage.showJournalDiscardConfirmation = false
             mainPage.refocusActiveEditor()
         }
+    }
+
+    VoiceInputController {
+        id: voiceController
+        speechBridgeRef: speechBridge
+        textFilter: function(text) {
+            if (typeof text !== "string") return text
+            return text.replace(/[.!?]+$/, "").trim()
+        }
+    }
+
+    VoiceFeedbackBanner {
+        id: voiceFeedbackBanner
+        controller: voiceController
     }
 }

@@ -9,6 +9,7 @@ Rectangle {
     color: Theme.rgba(Theme.highlightBackgroundColor, 0.1)
 
     property var targetTextArea: null
+    signal voiceInputRequested(var target)
 
     SilicaListView {
         id: listView
@@ -23,6 +24,17 @@ Rectangle {
         spacing: Theme.paddingSmall
 
         model: ListModel {
+            ListElement {
+                itemId: "voice"
+                icon: "image://theme/icon-m-mic"
+                label: ""
+                actionType: "voice"
+                snippet: ""
+                cursorOffset: 0
+                prefix: ""
+                suffix: ""
+                defaultText: ""
+            }
             ListElement {
                 itemId: "h2"
                 icon: ""
@@ -268,8 +280,14 @@ Rectangle {
 
         delegate: BackgroundItem {
             id: buttonItem
-            width: Math.max(Theme.itemSizeSmall, (itemLabel.visible ? itemLabel.implicitWidth + Theme.paddingMedium * 2 : Theme.itemSizeSmall))
+            readonly property bool isVoiceItem: model.itemId === "voice"
+            readonly property bool isVoiceRecording: isVoiceItem && typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
+            readonly property real liveAudioLevel: (isVoiceRecording && typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.audio_level : 0.0
+
+            visible: !isVoiceItem || (typeof app === "undefined" || !app || app.sttEnabled !== false)
+            width: visible ? Math.max(Theme.itemSizeSmall, (itemLabel.visible ? itemLabel.implicitWidth + Theme.paddingMedium * 2 : Theme.itemSizeSmall)) : 0
             height: Theme.itemSizeSmall
+            highlighted: down || isVoiceRecording
 
             Rectangle {
                 anchors.centerIn: parent
@@ -277,7 +295,7 @@ Rectangle {
                 height: parent.height - 8
                 radius: Theme.paddingSmall
                 color: buttonItem.highlighted ? Theme.rgba(Theme.highlightBackgroundColor, 0.3) : Theme.rgba(Theme.primaryColor, 0.06)
-                border.color: buttonItem.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.2)
+                border.color: (isVoiceRecording && liveAudioLevel > 0.06) ? Theme.highlightColor : (buttonItem.highlighted ? Theme.highlightColor : Theme.rgba(Theme.primaryColor, 0.2))
                 border.width: 1
             }
 
@@ -309,6 +327,10 @@ Rectangle {
     }
 
     function handleItemClick(item) {
+        if (item.actionType === "voice") {
+            editorToolbar.voiceInputRequested(targetTextArea)
+            return
+        }
         if (!targetTextArea) return
 
         if (item.actionType === "wrap") {

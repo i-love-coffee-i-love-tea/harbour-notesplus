@@ -1,6 +1,7 @@
 import QtQuick 2.6
 import Sailfish.Silica 1.0
 import "../components/editor"
+import "../components/common"
 import "../js/BlockHtmlUtils.js" as BlockHtmlUtils
 
 Dialog {
@@ -11,6 +12,16 @@ Dialog {
     property string initialText: ""
 
     canAccept: true
+
+    VoiceInputController {
+        id: voiceController
+        speechBridgeRef: speechBridge
+    }
+
+    VoiceFeedbackBanner {
+        id: voiceFeedbackBanner
+        controller: voiceController
+    }
 
     Component.onCompleted: {
         if (pageName.length > 0) {
@@ -38,6 +49,9 @@ Dialog {
                 id: toolbar
                 width: parent.width
                 targetTextArea: textArea
+                onVoiceInputRequested: function(target) {
+                    voiceController.toggleMic(target || textArea)
+                }
             }
 
             TextArea {
@@ -56,7 +70,18 @@ Dialog {
         }
     }
 
+    onStatusChanged: {
+        if (status === DialogStatus.Deactivating || status === DialogStatus.Closed) {
+            voiceController.cancelRecording()
+        }
+    }
+
     onAccepted: {
+        voiceController.cancelRecording()
         bridge.save_page_source(pageName, textArea.text)
+    }
+
+    onRejected: {
+        voiceController.cancelRecording()
     }
 }

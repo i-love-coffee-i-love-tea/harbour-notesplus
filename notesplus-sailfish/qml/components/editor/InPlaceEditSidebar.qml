@@ -9,9 +9,13 @@ Item {
 
     property bool specialPasteMode: false
     property bool flyoutOpen: false
+    property bool showVoiceInput: true
+    readonly property bool isSpeechRecording: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
+    readonly property real liveAudioLevel: (typeof speechBridge !== "undefined" && speechBridge && isSpeechRecording) ? speechBridge.audio_level : 0.0
 
     signal accepted()
     signal canceled()
+    signal voiceInputRequested()
     signal prefixRequested(string prefix, bool multiLine)
     signal linkRequested()
     signal pasteRequested()
@@ -196,6 +200,45 @@ Item {
                     return
                 }
                 inPlaceSidebar.canceled()
+            }
+        }
+
+        Item {
+            id: micItem
+            width: Theme.itemSizeSmall
+            height: visible ? Theme.itemSizeExtraSmall : 0
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: inPlaceSidebar.showVoiceInput && (typeof app === "undefined" || !app || app.sttEnabled !== false)
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width, Theme.iconSizeSmall + Theme.paddingSmall + Math.round(inPlaceSidebar.liveAudioLevel * 20))
+                height: width
+                radius: width / 2
+                color: (inPlaceSidebar.liveAudioLevel > 0.06) ? Theme.highlightColor : Theme.secondaryColor
+                opacity: inPlaceSidebar.isSpeechRecording ? Math.min(0.85, 0.25 + inPlaceSidebar.liveAudioLevel * 0.6) : 0.0
+                visible: inPlaceSidebar.isSpeechRecording
+
+                Behavior on width { NumberAnimation { duration: 60 } }
+                Behavior on height { NumberAnimation { duration: 60 } }
+                Behavior on opacity { NumberAnimation { duration: 60 } }
+            }
+
+            IconButton {
+                id: micBtn
+                icon.source: inPlaceSidebar.isSpeechRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                icon.width: Theme.iconSizeSmall + 4
+                icon.height: Theme.iconSizeSmall + 4
+                anchors.centerIn: parent
+                height: Theme.itemSizeExtraSmall
+                width: Theme.itemSizeSmall
+                highlighted: inPlaceSidebar.isSpeechRecording
+                onClicked: {
+                    if (inPlaceSidebar.specialPasteMode) {
+                        inPlaceSidebar.exitSpecialPasteMode()
+                    }
+                    inPlaceSidebar.voiceInputRequested()
+                }
             }
         }
 

@@ -90,6 +90,9 @@ signals:
     void download_completed(const QString &model_id);
     void error_occurred(const QString &message);
 
+private slots:
+    void handleTranscriptionResult(const QString &text, bool success);
+
 private:
     /* helpers */
     void reportError(const QString &msg);
@@ -122,11 +125,6 @@ private:
     QString                     m_downloadResult;
     bool                        m_downloadSuccess  = false;
     double                      m_progressSlot     = 0.0;
-
-    /* Transcription state */
-    std::atomic<bool>           m_transcribeDone{false};
-    QString                     m_transcribeResult;
-    bool                        m_transcribeSuccess = false;
 
     /* Poll timer (drives poll_worker from QML or internally) */
     QTimer                     *m_pollTimer        = nullptr;

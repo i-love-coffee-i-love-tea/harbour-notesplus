@@ -6,6 +6,7 @@ Rectangle {
 
     property alias searchTerm: searchField.text
     property alias placeholderText: searchField.placeholderText
+    property alias searchFieldComponent: searchField
     property int currentMatchIndex: -1
     property int totalMatches: 0
 
@@ -14,6 +15,7 @@ Rectangle {
     signal closeClicked()
     signal textChanged(string text)
     signal searchSubmitted(string text)
+    signal voiceInputRequested(var target)
 
     function focusSearchField() {
         searchField.forceActiveFocus()
@@ -87,6 +89,41 @@ Rectangle {
                 enabled: findBar.totalMatches > 0
                 opacity: enabled ? 1.0 : 0.3
                 onClicked: findBar.nextClicked()
+            }
+
+            Item {
+                id: micItem
+                width: visible ? Theme.itemSizeExtraSmall : 0
+                height: Theme.itemSizeExtraSmall
+                anchors.verticalCenter: parent.verticalCenter
+                visible: typeof app === "undefined" || !app || app.sttEnabled !== false
+
+                readonly property bool isRecording: typeof speechBridge !== "undefined" && speechBridge && speechBridge.is_recording
+                readonly property real liveAudioLevel: (isRecording && typeof speechBridge !== "undefined" && speechBridge) ? speechBridge.audio_level : 0.0
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.min(parent.width, Theme.iconSizeSmall + Theme.paddingSmall + Math.round(micItem.liveAudioLevel * 20))
+                    height: width
+                    radius: width / 2
+                    color: (micItem.liveAudioLevel > 0.06) ? Theme.highlightColor : Theme.secondaryColor
+                    opacity: micItem.isRecording ? Math.min(0.85, 0.25 + micItem.liveAudioLevel * 0.6) : 0.0
+                    visible: micItem.isRecording
+
+                    Behavior on width { NumberAnimation { duration: 60 } }
+                    Behavior on height { NumberAnimation { duration: 60 } }
+                    Behavior on opacity { NumberAnimation { duration: 60 } }
+                }
+
+                IconButton {
+                    id: micBtn
+                    anchors.centerIn: parent
+                    icon.source: micItem.isRecording ? "image://theme/icon-m-clear" : "image://theme/icon-m-mic"
+                    highlighted: micItem.isRecording
+                    onClicked: {
+                        findBar.voiceInputRequested(searchField)
+                    }
+                }
             }
 
             IconButton {

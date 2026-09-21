@@ -169,6 +169,8 @@ Page {
             if (target && target.length > 0 && bridge.current_page_full_path !== target && bridge.current_page_name !== target) {
                 bridge.load_page(target)
             }
+        } else if (status === PageStatus.Deactivating || status === PageStatus.Inactive) {
+            voiceController.cancelRecording()
         }
     }
 
@@ -228,7 +230,11 @@ Page {
             pageView.findPrevious()
         }
         onCloseClicked: {
+            voiceController.cancelRecording()
             pageView.closeFindBar()
+        }
+        onVoiceInputRequested: function(target) {
+            voiceController.toggleMic(target)
         }
     }
 
@@ -521,6 +527,7 @@ Page {
         anchors.verticalCenter: parent.verticalCenter
         visible: (pageView.editingBlockIndex >= 0 || pageView.isAddingNewBlock) && !pageView.showFindBar
         onAccepted: {
+            voiceController.cancelRecording()
             pageView.showDiscardConfirmation = false
             if (pageView.isAddingNewBlock) {
                 pageView.saveNewBlock()
@@ -529,7 +536,14 @@ Page {
             }
         }
         onCanceled: {
+            voiceController.cancelRecording()
             pageView.requestCancelEditing()
+        }
+        onVoiceInputRequested: {
+            var target = pageView.getActiveEditorTextArea()
+            if (target) {
+                voiceController.toggleMic(target)
+            }
         }
         onPrefixRequested: function(prefix, multiLine) {
             pageView.applyPrefixToActiveEditor(prefix, multiLine)
@@ -569,6 +583,7 @@ Page {
         anchors.bottomMargin: (Qt.inputMethod.visible ? Math.min(Qt.inputMethod.keyboardRectangle.height, Screen.height * 0.5) : 0) + Theme.paddingLarge
         open: pageView.showDiscardConfirmation
         onDiscardConfirmed: {
+            voiceController.cancelRecording()
             pageView.showDiscardConfirmation = false
             if (pageView.isAddingNewBlock) {
                 pageView.cancelNewBlock()
@@ -580,6 +595,16 @@ Page {
             pageView.showDiscardConfirmation = false
             pageView.refocusActiveEditor()
         }
+    }
+
+    VoiceInputController {
+        id: voiceController
+        speechBridgeRef: speechBridge
+    }
+
+    VoiceFeedbackBanner {
+        id: voiceFeedbackBanner
+        controller: voiceController
     }
 
     function findEditRange(idx) {
@@ -782,6 +807,7 @@ Page {
     }
 
     function saveNewBlock() {
+        voiceController.cancelRecording()
         pageView.showDiscardConfirmation = false
         if (isAddingNewBlock) {
             var trimmed = (newBlockText || "").trim()
@@ -795,6 +821,7 @@ Page {
     }
 
     function cancelNewBlock() {
+        voiceController.cancelRecording()
         pageView.showDiscardConfirmation = false
         isAddingNewBlock = false
         newBlockText = ""
@@ -810,6 +837,7 @@ Page {
     }
 
     function saveCurrentEditingBlock() {
+        voiceController.cancelRecording()
         pageView.showDiscardConfirmation = false
         if (editingBlockIndex >= 0) {
             if (editingBlockCount > 1) {
@@ -826,6 +854,7 @@ Page {
     }
 
     function cancelCurrentEditing() {
+        voiceController.cancelRecording()
         pageView.showDiscardConfirmation = false
         editingBlockIndex = -1
         editingBlockCount = 1

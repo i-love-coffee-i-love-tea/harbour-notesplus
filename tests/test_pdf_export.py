@@ -355,6 +355,18 @@ def test_pdf_share_action_parameters():
     assert share_resources[0] == path
 
 
+def _resolve_example(name: str):
+    base = os.path.abspath("notesplus-core/examples")
+    direct = os.path.join(base, name)
+    if os.path.exists(direct):
+        return base.encode("utf-8"), name.encode("utf-8")
+    nested = os.path.join(base, "Notes_Plus_Documentation", "Examples", name)
+    if os.path.exists(nested):
+        rel = f"Notes_Plus_Documentation/Examples/{name}"
+        return base.encode("utf-8"), rel.encode("utf-8")
+    return base.encode("utf-8"), name.encode("utf-8")
+
+
 def test_heading_deduplication_in_rendered_html5():
     """Verify that document title is not duplicated in the body or table of contents."""
     import ctypes, re
@@ -362,8 +374,8 @@ def test_heading_deduplication_in_rendered_html5():
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
-    ptr = core.notes_core_render_page_html5(examples_dir, b"readme.adoc")
+    examples_dir, rel_path = _resolve_example("readme.adoc")
+    ptr = core.notes_core_render_page_html5(examples_dir, rel_path)
     html = ctypes.string_at(ptr).decode("utf-8")
 
     # Document title should only appear once as a <h1>, inside <header class="document-header">
@@ -386,8 +398,8 @@ def test_document_layout_no_collapsed_line_height(qapp):
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
-    ptr = core.notes_core_render_page_html5(examples_dir, b"syntax-highlighting.adoc")
+    examples_dir, rel_path = _resolve_example("syntax-highlighting.adoc")
+    ptr = core.notes_core_render_page_html5(examples_dir, rel_path)
     html = ctypes.string_at(ptr).decode("utf-8")
 
     doc = QTextDocument()
@@ -408,8 +420,8 @@ def test_embedded_images_in_rendered_html5():
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
-    ptr = core.notes_core_render_page_html5(examples_dir, b"chronicles.adoc")
+    examples_dir, rel_path = _resolve_example("chronicles.adoc")
+    ptr = core.notes_core_render_page_html5(examples_dir, rel_path)
     html = ctypes.string_at(ptr).decode("utf-8")
 
     # Image should be resolved to base64 data URI
@@ -514,8 +526,8 @@ def test_pdf_toc_named_destinations_structure(qapp):
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
-    ptr = core.notes_core_render_page_html5(examples_dir, b"readme.adoc")
+    examples_dir, rel_path = _resolve_example("readme.adoc")
+    ptr = core.notes_core_render_page_html5(examples_dir, rel_path)
     html = ctypes.string_at(ptr).decode("utf-8")
 
     pdf_out = "/tmp/test_readme_dests.pdf"
@@ -632,8 +644,8 @@ def test_chronicles_first_heading_renders_italics(qapp):
     core.notes_core_render_page_html5.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
     core.notes_core_render_page_html5.restype = ctypes.c_void_p
 
-    examples_dir = os.path.abspath("notesplus-core/examples").encode("utf-8")
-    ptr = core.notes_core_render_page_html5(examples_dir, b"chronicles.adoc")
+    examples_dir, rel_path = _resolve_example("chronicles.adoc")
+    ptr = core.notes_core_render_page_html5(examples_dir, rel_path)
     html = ctypes.string_at(ptr).decode("utf-8")
 
     # Heading must contain <em>Thrilling</em> and not literal _Thrilling_

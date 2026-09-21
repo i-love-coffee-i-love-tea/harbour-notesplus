@@ -593,11 +593,6 @@ void SpeechBridge::beginTranscription(const QString &path)
     qDebug() << "[SpeechBridge] begin_transcription: spawning thread for model="
              << modelId << "audio=" << trimmedPath;
 
-    // Reset result slots
-    m_transcribeDone.store(false);
-    m_transcribeResult.clear();
-    m_transcribeSuccess = false;
-
     // Run transcription in background via QtConcurrent
     QByteArray modelPathUtf8 = mpPath.toUtf8();
     QByteArray audioPathUtf8 = trimmedPath.toUtf8();
@@ -606,20 +601,43 @@ void SpeechBridge::beginTranscription(const QString &path)
         FfiString result(notes_core_stt_transcribe(
             modelPathUtf8.constData(),
             audioPathUtf8.constData()));
+
+        QString transcriptionText;
+        bool success = false;
         if (result) {
-            m_transcribeResult = QString::fromUtf8(result.get());
-            m_transcribeSuccess = true;
-        } else {
-            m_transcribeResult = QStringLiteral("Transcription returned null");
-            m_transcribeSuccess = false;
+            transcriptionText = QString::fromUtf8(result.get());
+            success = true;
         }
-        m_transcribeDone.store(true);
 
-        QMetaObject::invokeMethod(this, "poll_worker", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, "handleTranscriptionResult", Qt::QueuedConnection,
+            Q_ARG(QString, transcriptionText), Q_ARG(bool, success));
     });
+}
 
-    // Keep poll timer running while transcribing
-    if (!m_pollTimer->isActive()) m_pollTimer->start();
+void SpeechBridge::handleTranscriptionResult(const QString &text, bool success)
+{
+    m_isTranscribing = false;
+    emit transcribing_changed();
+
+    if (success) {
+        QString cleaned = text;
+        cleaned.replace(QStringLiteral("[BLANK_AUDIO]"), QString());
+        cleaned.replace(QStringLiteral("[MUSIC]"), QString());
+        cleaned = cleaned.trimmed();
+
+        qDebug() << "[SpeechBridge] Transcription completed:"
+                 << "'" << text << "' (cleaned: '" << cleaned << "')";
+
+        if (cleaned.isEmpty()) {
+            m_lastTranscription.clear();
+            emit transcription_completed(QString());
+        } else {
+            m_lastTranscription = cleaned;
+            emit transcription_completed(cleaned);
+        }
+    } else {
+        reportError(QStringLiteral("Transcription returned null"));
+    }
 }
 
 bool SpeechBridge::poll_worker()
@@ -669,35 +687,6 @@ bool SpeechBridge::poll_worker()
             m_download.reset(); // release FFI handle
             stateChanged = true;
         }
-    }
-
-    /* ---- Poll transcription completion ---- */
-    if (m_isTranscribing && m_transcribeDone.load()) {
-        m_isTranscribing = false;
-        emit transcribing_changed();
-
-        if (m_transcribeSuccess) {
-            // Clean up whisper placeholders (mirrors Rust)
-            QString cleaned = m_transcribeResult;
-            cleaned.replace(QStringLiteral("[BLANK_AUDIO]"), QString());
-            cleaned.replace(QStringLiteral("[MUSIC]"), QString());
-            cleaned = cleaned.trimmed();
-
-            qDebug() << "[SpeechBridge] Transcription completed:"
-                     << "'" << m_transcribeResult << "' (cleaned: '" << cleaned << "')";
-
-            if (cleaned.isEmpty()) {
-                m_lastTranscription.clear();
-                emit transcription_completed(QString());
-            } else {
-                m_lastTranscription = cleaned;
-                emit transcription_completed(cleaned);
-            }
-        } else {
-            reportError(m_transcribeResult);
-        }
-
-        stateChanged = true;
     }
 
     /* ---- Poll live recording volume & waveform ---- */

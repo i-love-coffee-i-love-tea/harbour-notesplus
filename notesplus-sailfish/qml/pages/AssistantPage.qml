@@ -284,20 +284,12 @@ Page {
         }
     }
 
-    Connections {
-        target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
-
-        onTranscription_completed: function(text) {
+    VoiceInputController {
+        id: voiceController
+        speechBridgeRef: speechBridge
+        transcriptionHandler: function(text) {
             if (assistantPage.status !== PageStatus.Active) return
             assistantPage.appendTranscribedText(text)
-        }
-
-        onError_occurred: {
-            var errMsg = (typeof message !== "undefined" && message) ? message :
-                         ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")
-            if (errMsg && errMsg.length > 0) {
-                remorsePopup.execute(errMsg, function() {})
-            }
         }
     }
 

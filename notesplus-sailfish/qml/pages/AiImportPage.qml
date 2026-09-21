@@ -79,10 +79,10 @@ Page {
         }
     }
 
-    Connections {
-        target: (typeof speechBridge !== "undefined" && speechBridge) ? speechBridge : null
-
-        onTranscription_completed: function(text) {
+    VoiceInputController {
+        id: voiceController
+        speechBridgeRef: speechBridge
+        transcriptionHandler: function(text) {
             if (aiImportPage.status !== PageStatus.Active) return
             if (text && text.trim().length > 0) {
                 var clean = text.trim()
@@ -91,14 +91,6 @@ Page {
                 } else {
                     sourceTextArea.text = clean
                 }
-            }
-        }
-
-        onError_occurred: {
-            var errMsg = (typeof message !== "undefined" && message) ? message :
-                         ((typeof speechBridge !== "undefined" && speechBridge && speechBridge.error_message) ? speechBridge.error_message : "")
-            if (errMsg && errMsg.length > 0) {
-                remorsePopup.execute(errMsg, function() {})
             }
         }
     }
