@@ -13,6 +13,7 @@
 ### Fixed
 
 - Find in Page: menu item now works and search results are highlighted
+- Voice input: fixed non-functional voice input for existing fields
 - Search result cards now show content previews and loading indicator
 - Cross-compilation: set CC/CXX to sb2 wrappers for ring and whisper.cpp builds on armv7hl/i486
 - Cross-compilation: define `__fp16` as `uint16_t` for whisper.cpp on 32-bit ARM
